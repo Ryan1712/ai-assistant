@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.schemas import AuthOut, LoginIn, RefreshIn, SignupInviteIn, SignupWorkspaceIn, TokenPairOut
+from app.schemas import AuthOut, LoginIn, RefreshIn, SignupInviteIn, SignupWorkspaceIn, TokenPairOut, UnlockRequestIn
 from app.services import auth_service
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -36,3 +36,9 @@ async def refresh(body: RefreshIn, db: AsyncSession = Depends(get_db)):
 async def logout(body: RefreshIn, db: AsyncSession = Depends(get_db)):
     await auth_service.revoke_refresh(db, body.refresh_token)
     return Response(status_code=204)
+
+
+@router.post("/unlock-request", status_code=202)
+async def unlock_request(body: UnlockRequestIn, db: AsyncSession = Depends(get_db)):
+    await auth_service.request_unlock(db, email=body.email, device_uuid=body.device_uuid)
+    return {"status": "accepted"}

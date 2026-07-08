@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +9,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import Device, User
 from app.schemas import DeviceOut, UserOut
+from app.services import auth_service
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -38,3 +39,23 @@ async def list_devices(
         Device.user_id == user_id, Device.workspace_id == actor.workspace_id,
     ))
     return list(rows.scalars())
+
+
+@router.post("/{user_id}/lock", status_code=204)
+async def lock_user(
+    user_id: uuid.UUID,
+    actor: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await auth_service.lock_user(db, actor, user_id)
+    return Response(status_code=204)
+
+
+@router.post("/{user_id}/unlock", status_code=204)
+async def unlock_user(
+    user_id: uuid.UUID,
+    actor: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await auth_service.unlock_user(db, actor, user_id)
+    return Response(status_code=204)

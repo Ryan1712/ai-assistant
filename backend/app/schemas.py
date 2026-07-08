@@ -72,3 +72,8 @@ class SignupInviteIn(BaseModel):
     full_name: str
     device_uuid: str
     device_name: str = ""
+
+
+class UnlockRequestIn(BaseModel):
+    email: EmailStr
+    device_uuid: str

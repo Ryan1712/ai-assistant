@@ -1,4 +1,5 @@
 import secrets
+import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -9,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import security
 from app.config import get_settings
 from app.models import (
-    Device, Invite, LoginEvent, RefreshToken, Role, User, UserStatus, Workspace,
+    Device, Invite, LoginEvent, Notification, RefreshToken, Role, User, UserStatus, Workspace,
 )
+from app.permissions import require_ceo
 
 _DUMMY_HASH = security.hash_password("dummy-timing-equalizer")
 
@@ -169,3 +171,56 @@ async def signup_invite(
         await db.rollback()
         raise HTTPException(409, "email_taken")
     return user, access, refresh
+
+
+def _check_lock_permission(actor: User, target: User) -> None:
+    require_ceo(actor)
+    if target.is_root:
+        raise HTTPException(403, "cannot_lock_root_ceo")
+    if target.role == Role.ceo and not actor.is_root:
+        raise HTTPException(403, "only_root_can_lock_ceo")
+    if target.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "user_not_found")
+
+
+async def lock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -> None:
+    target = await db.get(User, target_id)
+    if target is None:
+        raise HTTPException(404, "user_not_found")
+    _check_lock_permission(actor, target)
+    target.status = UserStatus.locked
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == target.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    db.add(Notification(
+        workspace_id=target.workspace_id, recipient_id=target.id,
+        type="account_locked", payload={"by": str(actor.id)},
+    ))
+    await db.commit()
+
+
+async def unlock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -> None:
+    target = await db.get(User, target_id)
+    if target is None:
+        raise HTTPException(404, "user_not_found")
+    _check_lock_permission(actor, target)
+    target.status = UserStatus.active
+    await db.commit()
+
+
+async def request_unlock(db: AsyncSession, *, email: str, device_uuid: str) -> None:
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None or user.status != UserStatus.locked:
+        return  # luôn im lặng — không lộ email tồn tại
+    root = (await db.execute(select(User).where(
+        User.workspace_id == user.workspace_id, User.is_root,
+    ))).scalar_one_or_none()
+    if root:
+        db.add(Notification(
+            workspace_id=user.workspace_id, recipient_id=root.id,
+            type="unlock_request",
+            payload={"user_id": str(user.id), "email": email, "device_uuid": device_uuid},
+        ))
+        await db.commit()
