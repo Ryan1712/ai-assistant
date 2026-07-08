@@ -86,3 +86,12 @@ async def test_employee_invite_manager_wrong_workspace_422(client):
     resp = await client.post("/api/v1/invites", headers=headers_b,
                              json={"role": "employee", "manager_id": mgr_a["user"]["id"]})
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_manager_invite_with_bogus_manager_id_422(client):
+    import uuid as uuid_mod
+    headers = await _ceo_headers(client)
+    resp = await client.post("/api/v1/invites", headers=headers,
+                             json={"role": "manager", "manager_id": str(uuid_mod.uuid4())})
+    assert resp.status_code == 422

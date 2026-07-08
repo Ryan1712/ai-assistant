@@ -124,10 +124,12 @@ async def create_invite(
     if actor.role != Role.ceo:
         raise HTTPException(403, "forbidden")
     role_enum = Role(role)
-    if role_enum == Role.employee:
-        manager = await db.get(User, manager_id) if manager_id else None
+    if role_enum == Role.employee and manager_id is None:
+        raise HTTPException(422, "employee_invite_requires_manager")
+    if manager_id is not None:
+        manager = await db.get(User, manager_id)
         if not manager or manager.role != Role.manager or manager.workspace_id != actor.workspace_id:
-            raise HTTPException(422, "employee_invite_requires_manager")
+            raise HTTPException(422, "invalid_manager")
     invite = Invite(
         workspace_id=actor.workspace_id, token=secrets.token_urlsafe(24),
         role=role_enum, manager_id=manager_id, created_by=actor.id,
