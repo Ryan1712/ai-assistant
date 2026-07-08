@@ -70,3 +70,39 @@ async def test_same_device_uuid_upserts_not_duplicates(client, db_session):
     devices = (await db_session.execute(select(Device))).scalars().all()
     assert len(devices) == 1  # dev-1 upsert, không nhân bản
     assert devices[0].device_name == "iPhone Sep doi ten"
+
+
+async def _signup(client):
+    resp = await client.post("/api/v1/auth/signup-workspace", json=SIGNUP)
+    return resp.json()
+
+
+@pytest.mark.asyncio
+async def test_me_requires_valid_token(client):
+    data = await _signup(client)
+    ok = await client.get("/api/v1/users/me",
+                          headers={"Authorization": f"Bearer {data['access_token']}"})
+    assert ok.status_code == 200
+    assert ok.json()["email"] == "ceo@a.vn"
+    bad = await client.get("/api/v1/users/me", headers={"Authorization": "Bearer nope"})
+    assert bad.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_rotation(client):
+    data = await _signup(client)
+    old = data["refresh_token"]
+    r1 = await client.post("/api/v1/auth/refresh", json={"refresh_token": old})
+    assert r1.status_code == 200
+    assert r1.json()["refresh_token"] != old
+    r2 = await client.post("/api/v1/auth/refresh", json={"refresh_token": old})
+    assert r2.status_code == 401  # token cũ đã bị revoke
+
+
+@pytest.mark.asyncio
+async def test_logout_revokes(client):
+    data = await _signup(client)
+    resp = await client.post("/api/v1/auth/logout", json={"refresh_token": data["refresh_token"]})
+    assert resp.status_code == 204
+    r = await client.post("/api/v1/auth/refresh", json={"refresh_token": data["refresh_token"]})
+    assert r.status_code == 401

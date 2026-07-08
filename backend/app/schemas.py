@@ -33,3 +33,12 @@ class AuthOut(BaseModel):
     access_token: str
     refresh_token: str
     user: UserOut
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+class TokenPairOut(BaseModel):
+    access_token: str
+    refresh_token: str

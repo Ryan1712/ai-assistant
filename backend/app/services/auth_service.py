@@ -86,3 +86,30 @@ async def login(
     access, refresh = await _issue_tokens(db, user)
     await db.commit()
     return user, access, refresh
+
+
+async def rotate_refresh(db: AsyncSession, refresh_plain: str) -> tuple[User, str, str]:
+    now = datetime.now(timezone.utc)
+    hashed = security.hash_refresh_token(refresh_plain)
+    row = (await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == hashed)
+    )).scalar_one_or_none()
+    if row is None or row.revoked_at is not None or row.expires_at.replace(tzinfo=timezone.utc) < now:
+        raise HTTPException(401, "invalid_refresh_token")
+    user = await db.get(User, row.user_id)
+    if user is None or user.status == UserStatus.locked:
+        raise HTTPException(403, "account_locked")
+    row.revoked_at = now
+    access, new_refresh = await _issue_tokens(db, user)
+    await db.commit()
+    return user, access, new_refresh
+
+
+async def revoke_refresh(db: AsyncSession, refresh_plain: str) -> None:
+    hashed = security.hash_refresh_token(refresh_plain)
+    row = (await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == hashed)
+    )).scalar_one_or_none()
+    if row and row.revoked_at is None:
+        row.revoked_at = datetime.now(timezone.utc)
+        await db.commit()

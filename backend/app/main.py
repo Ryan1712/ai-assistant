@@ -11,6 +11,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(auth.router)
+    app.include_router(auth.me_router)
     return app
 
 
