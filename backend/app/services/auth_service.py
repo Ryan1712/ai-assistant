@@ -102,7 +102,13 @@ async def rotate_refresh(db: AsyncSession, refresh_plain: str) -> tuple[User, st
     user = await db.get(User, row.user_id)
     if user is None or user.status == UserStatus.locked:
         raise HTTPException(403, "account_locked")
-    row.revoked_at = now
+    claimed = await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.id == row.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    if claimed.rowcount != 1:
+        raise HTTPException(401, "invalid_refresh_token")
     access, new_refresh = await _issue_tokens(db, user)
     await db.commit()
     return user, access, new_refresh
