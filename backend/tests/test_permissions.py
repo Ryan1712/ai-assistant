@@ -39,3 +39,23 @@ async def test_devices_ceo_only(client):
 
     denied = await client.get(f"/api/v1/users/{target['id']}/devices", headers=m1_h)
     assert denied.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_devices_cross_workspace_isolated(client):
+    # workspace A: CEO + 1 manager
+    ceo_a = await _ceo_headers(client)
+    mgr_a = await _invite_and_join(client, ceo_a, "manager", "ma@a.vn")
+    # workspace B: CEO khác
+    resp_b = await client.post("/api/v1/auth/signup-workspace", json={
+        "workspace_name": "Cong ty B", "email": "ceo@b.vn", "password": "secret123",
+        "full_name": "Sep B", "device_uuid": "dev-b", "device_name": "iPhone B",
+    })
+    ceo_b = {"Authorization": f"Bearer {resp_b.json()['access_token']}"}
+    # CEO B xem devices của user thuộc workspace A -> không được lộ gì
+    resp = await client.get(f"/api/v1/users/{mgr_a['user']['id']}/devices", headers=ceo_b)
+    assert resp.status_code == 200
+    assert resp.json() == []
+    # CEO B cũng không thấy user A trong danh sách
+    emails = {u["email"] for u in (await client.get("/api/v1/users", headers=ceo_b)).json()}
+    assert emails == {"ceo@b.vn"}
