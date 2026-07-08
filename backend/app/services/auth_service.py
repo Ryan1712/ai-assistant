@@ -175,12 +175,12 @@ async def signup_invite(
 
 def _check_lock_permission(actor: User, target: User) -> None:
     require_ceo(actor)
+    if target.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "user_not_found")
     if target.is_root:
         raise HTTPException(403, "cannot_lock_root_ceo")
     if target.role == Role.ceo and not actor.is_root:
         raise HTTPException(403, "only_root_can_lock_ceo")
-    if target.workspace_id != actor.workspace_id:
-        raise HTTPException(404, "user_not_found")
 
 
 async def lock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -> None:

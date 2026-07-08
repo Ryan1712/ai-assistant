@@ -77,3 +77,23 @@ async def test_unlock_request_notifies_root_ceo(client, db_session):
     )).scalars().all()
     assert len(notes) == 1
     assert notes[0].payload["device_uuid"] == "dev-x"
+
+
+@pytest.mark.asyncio
+async def test_cross_workspace_lock_returns_404_not_403(client, db_session):
+    from sqlalchemy import select
+    from app.models import User
+    # workspace A (root CEO A)
+    ceo_a_h = await _ceo_headers(client)
+    # workspace B (root CEO B)
+    resp_b = await client.post("/api/v1/auth/signup-workspace", json={
+        "workspace_name": "Cong ty B", "email": "ceo@b.vn", "password": "secret123",
+        "full_name": "Sep B", "device_uuid": "dev-b", "device_name": "",
+    })
+    root_b_id = resp_b.json()["user"]["id"]
+    # CEO A khoa root CEO cua workspace B -> 404, khong duoc 403 (khong lo vai tro)
+    resp = await client.post(f"/api/v1/users/{root_b_id}/lock", headers=ceo_a_h)
+    assert resp.status_code == 404
+    # unlock cung vay
+    resp = await client.post(f"/api/v1/users/{root_b_id}/unlock", headers=ceo_a_h)
+    assert resp.status_code == 404
