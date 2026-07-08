@@ -106,3 +106,35 @@ async def test_logout_revokes(client):
     assert resp.status_code == 204
     r = await client.post("/api/v1/auth/refresh", json={"refresh_token": data["refresh_token"]})
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_locked_user_403_on_me_with_valid_access_token(client, db_session):
+    from sqlalchemy import select
+    from app.models import User, UserStatus
+    data = await _signup(client)
+    user = (await db_session.execute(select(User))).scalar_one()
+    user.status = UserStatus.locked
+    await db_session.commit()
+    resp = await client.get("/api/v1/users/me",
+                            headers={"Authorization": f"Bearer {data['access_token']}"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_locked_user_403_on_refresh(client, db_session):
+    from sqlalchemy import select
+    from app.models import User, UserStatus
+    data = await _signup(client)
+    user = (await db_session.execute(select(User))).scalar_one()
+    user.status = UserStatus.locked
+    await db_session.commit()
+    resp = await client.post("/api/v1/auth/refresh",
+                             json={"refresh_token": data["refresh_token"]})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_logout_unknown_token_still_204(client):
+    resp = await client.post("/api/v1/auth/logout", json={"refresh_token": "made-up"})
+    assert resp.status_code == 204

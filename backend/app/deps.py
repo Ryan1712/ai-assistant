@@ -17,9 +17,10 @@ async def get_current_user(
         raise HTTPException(401, "missing_token")
     try:
         payload = security.decode_access_token(authorization.removeprefix("Bearer "))
-    except pyjwt.InvalidTokenError:
+        user_id = uuid.UUID(payload["sub"])
+    except (pyjwt.InvalidTokenError, KeyError, ValueError):
         raise HTTPException(401, "invalid_token")
-    user = await db.get(User, uuid.UUID(payload["sub"]))
+    user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(401, "user_not_found")
     if user.status == UserStatus.locked:
