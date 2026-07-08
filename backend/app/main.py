@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import auth, invites
+from app.api import auth, invites, users
 
 
 def create_app() -> FastAPI:
@@ -11,7 +11,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(auth.router)
-    app.include_router(auth.me_router)
+    app.include_router(users.router)
     app.include_router(invites.router)
     return app
 

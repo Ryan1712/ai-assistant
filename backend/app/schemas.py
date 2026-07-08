@@ -32,6 +32,14 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DeviceOut(BaseModel):
+    device_uuid: str
+    device_name: str
+    last_login_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
+
 class AuthOut(BaseModel):
     access_token: str
     refresh_token: str
