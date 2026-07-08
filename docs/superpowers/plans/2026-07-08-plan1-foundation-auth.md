@@ -306,6 +306,7 @@ Thêm fixtures DB vào `backend/tests/conftest.py` (thay toàn bộ nội dung):
 import pytest
 import httpx
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import create_app
@@ -313,7 +314,13 @@ from app.main import create_app
 
 @pytest.fixture
 async def engine():
-    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
+    # StaticPool: bắt buộc với SQLite in-memory — mọi session dùng chung 1 connection,
+    # nếu không mỗi connection sẽ là một DB rỗng riêng.
+    eng = create_async_engine(
+        "sqlite+aiosqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield eng
