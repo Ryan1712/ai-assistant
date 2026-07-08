@@ -1,0 +1,21 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/app
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+    depends_on: [postgres, redis]
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    ports: ["5432:5432"]
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+volumes:
+  pgdata:
