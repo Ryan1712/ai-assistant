@@ -40,3 +40,33 @@ async def test_login_wrong_password(client):
         "email": "ceo@a.vn", "password": "WRONG", "device_uuid": "d", "device_name": "",
     })
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_signup_duplicate_email_409(client):
+    await client.post("/api/v1/auth/signup-workspace", json=SIGNUP)
+    resp = await client.post("/api/v1/auth/signup-workspace", json=SIGNUP)
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_login_nonexistent_email_401(client):
+    resp = await client.post("/api/v1/auth/login", json={
+        "email": "ghost@a.vn", "password": "x", "device_uuid": "d", "device_name": "",
+    })
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_same_device_uuid_upserts_not_duplicates(client, db_session):
+    from sqlalchemy import select
+    from app.models import Device
+    await client.post("/api/v1/auth/signup-workspace", json=SIGNUP)
+    for _ in range(2):
+        await client.post("/api/v1/auth/login", json={
+            "email": "ceo@a.vn", "password": "secret123",
+            "device_uuid": "dev-1", "device_name": "iPhone Sep doi ten",
+        })
+    devices = (await db_session.execute(select(Device))).scalars().all()
+    assert len(devices) == 1  # dev-1 upsert, không nhân bản
+    assert devices[0].device_name == "iPhone Sep doi ten"

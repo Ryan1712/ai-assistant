@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import security
@@ -9,6 +10,8 @@ from app.config import get_settings
 from app.models import (
     Device, LoginEvent, RefreshToken, Role, User, UserStatus, Workspace,
 )
+
+_DUMMY_HASH = security.hash_password("dummy-timing-equalizer")
 
 
 async def _issue_tokens(db: AsyncSession, user: User) -> tuple[str, str]:
@@ -60,7 +63,11 @@ async def signup_workspace(
     await db.flush()
     await _log_device(db, user, device_uuid, device_name)
     access, refresh = await _issue_tokens(db, user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "email_taken")
     return user, access, refresh
 
 
@@ -68,7 +75,10 @@ async def login(
     db: AsyncSession, *, email: str, password: str, device_uuid: str, device_name: str,
 ) -> tuple[User, str, str]:
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if not user or not security.verify_password(password, user.password_hash):
+    if not user:
+        security.verify_password(password, _DUMMY_HASH)
+        raise HTTPException(401, "invalid_credentials")
+    if not security.verify_password(password, user.password_hash):
         raise HTTPException(401, "invalid_credentials")
     if user.status == UserStatus.locked:
         raise HTTPException(403, "account_locked")
