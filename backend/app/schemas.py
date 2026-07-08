@@ -1,3 +1,4 @@
+import datetime as dt
 import uuid
 
 from pydantic import BaseModel, EmailStr
@@ -42,3 +43,22 @@ class RefreshIn(BaseModel):
 class TokenPairOut(BaseModel):
     access_token: str
     refresh_token: str
+
+
+class InviteCreateIn(BaseModel):
+    role: str  # "ceo" | "manager" | "employee"
+    manager_id: uuid.UUID | None = None
+
+
+class InviteOut(BaseModel):
+    token: str
+    expires_at: dt.datetime
+
+
+class SignupInviteIn(BaseModel):
+    token: str
+    email: EmailStr
+    password: str
+    full_name: str
+    device_uuid: str
+    device_name: str = ""

@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -8,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import security
 from app.config import get_settings
 from app.models import (
-    Device, LoginEvent, RefreshToken, Role, User, UserStatus, Workspace,
+    Device, Invite, LoginEvent, RefreshToken, Role, User, UserStatus, Workspace,
 )
 
 _DUMMY_HASH = security.hash_password("dummy-timing-equalizer")
@@ -113,3 +114,48 @@ async def revoke_refresh(db: AsyncSession, refresh_plain: str) -> None:
     if row and row.revoked_at is None:
         row.revoked_at = datetime.now(timezone.utc)
         await db.commit()
+
+
+async def create_invite(
+    db: AsyncSession, *, actor: User, role: str, manager_id=None,
+) -> Invite:
+    if actor.role != Role.ceo:
+        raise HTTPException(403, "forbidden")
+    role_enum = Role(role)
+    if role_enum == Role.employee:
+        manager = await db.get(User, manager_id) if manager_id else None
+        if not manager or manager.role != Role.manager or manager.workspace_id != actor.workspace_id:
+            raise HTTPException(422, "employee_invite_requires_manager")
+    invite = Invite(
+        workspace_id=actor.workspace_id, token=secrets.token_urlsafe(24),
+        role=role_enum, manager_id=manager_id, created_by=actor.id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+    )
+    db.add(invite)
+    await db.commit()
+    return invite
+
+
+async def signup_invite(
+    db: AsyncSession, *, token: str, email: str, password: str,
+    full_name: str, device_uuid: str, device_name: str,
+) -> tuple[User, str, str]:
+    now = datetime.now(timezone.utc)
+    invite = (await db.execute(select(Invite).where(Invite.token == token))).scalar_one_or_none()
+    if (invite is None or invite.used_at is not None
+            or invite.expires_at.replace(tzinfo=timezone.utc) < now):
+        raise HTTPException(400, "invalid_invite")
+    if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
+        raise HTTPException(409, "email_taken")
+    user = User(
+        workspace_id=invite.workspace_id, email=email,
+        password_hash=security.hash_password(password), full_name=full_name,
+        role=invite.role, manager_id=invite.manager_id,
+    )
+    db.add(user)
+    await db.flush()
+    invite.used_at = now
+    await _log_device(db, user, device_uuid, device_name)
+    access, refresh = await _issue_tokens(db, user)
+    await db.commit()
+    return user, access, refresh
