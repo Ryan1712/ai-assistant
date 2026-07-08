@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -147,6 +147,13 @@ async def signup_invite(
         raise HTTPException(400, "invalid_invite")
     if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
         raise HTTPException(409, "email_taken")
+    claimed = await db.execute(
+        update(Invite)
+        .where(Invite.id == invite.id, Invite.used_at.is_(None))
+        .values(used_at=now)
+    )
+    if claimed.rowcount != 1:
+        raise HTTPException(400, "invalid_invite")
     user = User(
         workspace_id=invite.workspace_id, email=email,
         password_hash=security.hash_password(password), full_name=full_name,
@@ -154,8 +161,11 @@ async def signup_invite(
     )
     db.add(user)
     await db.flush()
-    invite.used_at = now
     await _log_device(db, user, device_uuid, device_name)
     access, refresh = await _issue_tokens(db, user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "email_taken")
     return user, access, refresh

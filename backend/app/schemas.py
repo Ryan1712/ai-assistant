@@ -3,6 +3,8 @@ import uuid
 
 from pydantic import BaseModel, EmailStr
 
+from app.models import Role
+
 
 class SignupWorkspaceIn(BaseModel):
     workspace_name: str
@@ -46,7 +48,7 @@ class TokenPairOut(BaseModel):
 
 
 class InviteCreateIn(BaseModel):
-    role: str  # "ceo" | "manager" | "employee"
+    role: Role
     manager_id: uuid.UUID | None = None
 
 

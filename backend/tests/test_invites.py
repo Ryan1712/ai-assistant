@@ -61,3 +61,28 @@ async def test_non_ceo_cannot_invite(client):
     resp = await client.post("/api/v1/invites", headers=mgr_headers,
                              json={"role": "employee", "manager_id": None})
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_invite_garbage_role_422(client):
+    headers = await _ceo_headers(client)
+    resp = await client.post("/api/v1/invites", headers=headers,
+                             json={"role": "admin", "manager_id": None})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_employee_invite_manager_wrong_workspace_422(client):
+    # workspace A: CEO + 1 manager
+    headers_a = await _ceo_headers(client)
+    mgr_a = await _invite_and_join(client, headers_a, "manager", "ma@a.vn")
+    # workspace B: CEO khac
+    resp_b = await client.post("/api/v1/auth/signup-workspace", json={
+        "workspace_name": "Cong ty B", "email": "ceo@b.vn", "password": "secret123",
+        "full_name": "Sep B", "device_uuid": "dev-b", "device_name": "",
+    })
+    headers_b = {"Authorization": f"Bearer {resp_b.json()['access_token']}"}
+    # CEO B moi employee gan manager cua workspace A -> 422
+    resp = await client.post("/api/v1/invites", headers=headers_b,
+                             json={"role": "employee", "manager_id": mgr_a["user"]["id"]})
+    assert resp.status_code == 422
