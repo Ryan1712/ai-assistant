@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 
 from app.api import auth, invites, users
+from app.config import assert_safe_config, get_settings
 
 
 def create_app() -> FastAPI:
+    assert_safe_config(get_settings())
     app = FastAPI(title="AI Assistant API", version="0.1.0", docs_url="/docs")
 
     @app.get("/api/v1/health")

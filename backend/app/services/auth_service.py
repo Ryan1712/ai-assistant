@@ -52,6 +52,7 @@ async def signup_workspace(
     db: AsyncSession, *, workspace_name: str, email: str, password: str,
     full_name: str, device_uuid: str, device_name: str,
 ) -> tuple[User, str, str]:
+    email = email.strip().lower()
     existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if existing:
         raise HTTPException(409, "email_taken")
@@ -77,6 +78,7 @@ async def signup_workspace(
 async def login(
     db: AsyncSession, *, email: str, password: str, device_uuid: str, device_name: str,
 ) -> tuple[User, str, str]:
+    email = email.strip().lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if not user:
         security.verify_password(password, _DUMMY_HASH)
@@ -150,6 +152,7 @@ async def signup_invite(
     db: AsyncSession, *, token: str, email: str, password: str,
     full_name: str, device_uuid: str, device_name: str,
 ) -> tuple[User, str, str]:
+    email = email.strip().lower()
     now = datetime.now(timezone.utc)
     invite = (await db.execute(select(Invite).where(Invite.token == token))).scalar_one_or_none()
     if (invite is None or invite.used_at is not None
@@ -219,6 +222,7 @@ async def unlock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -
 
 
 async def request_unlock(db: AsyncSession, *, email: str, device_uuid: str) -> None:
+    email = email.strip().lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is None or user.status != UserStatus.locked:
         return  # luôn im lặng — không lộ email tồn tại

@@ -1,26 +1,6 @@
 import pytest
 
-SIGNUP = {
-    "workspace_name": "Cong ty A", "email": "ceo@a.vn", "password": "secret123",
-    "full_name": "Sep", "device_uuid": "dev-1", "device_name": "",
-}
-
-
-async def _ceo_headers(client):
-    resp = await client.post("/api/v1/auth/signup-workspace", json=SIGNUP)
-    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-
-async def _invite_and_join(client, headers, role, email, manager_id=None):
-    inv = await client.post("/api/v1/invites", headers=headers,
-                            json={"role": role, "manager_id": manager_id})
-    assert inv.status_code == 201, inv.text
-    join = await client.post("/api/v1/auth/signup-invite", json={
-        "token": inv.json()["token"], "email": email, "password": "pw123456",
-        "full_name": email, "device_uuid": "d-" + email, "device_name": "",
-    })
-    assert join.status_code == 201, join.text
-    return join.json()
+from tests.conftest import SIGNUP, _ceo_headers, _invite_and_join
 
 
 @pytest.mark.asyncio

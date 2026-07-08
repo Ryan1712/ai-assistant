@@ -1,22 +1,25 @@
 import uuid
 
 import jwt as pyjwt
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import security
 from app.db import get_db
 from app.models import User, UserStatus
 
+_bearer = HTTPBearer(auto_error=False)
+
 
 async def get_current_user(
-    authorization: str = Header(default=""),
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    if not authorization.startswith("Bearer "):
+    if creds is None:
         raise HTTPException(401, "missing_token")
     try:
-        payload = security.decode_access_token(authorization.removeprefix("Bearer "))
+        payload = security.decode_access_token(creds.credentials)
         user_id = uuid.UUID(payload["sub"])
     except (pyjwt.InvalidTokenError, KeyError, ValueError):
         raise HTTPException(401, "invalid_token")

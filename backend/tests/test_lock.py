@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import Notification, User
-from tests.test_invites import SIGNUP, _ceo_headers, _invite_and_join
+from tests.conftest import SIGNUP, _ceo_headers, _invite_and_join
 
 
 @pytest.mark.asyncio

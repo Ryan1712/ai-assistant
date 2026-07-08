@@ -1,6 +1,6 @@
 import pytest
 
-from tests.test_invites import SIGNUP, _ceo_headers, _invite_and_join
+from tests.conftest import SIGNUP, _ceo_headers, _invite_and_join
 
 
 async def _team(client):
