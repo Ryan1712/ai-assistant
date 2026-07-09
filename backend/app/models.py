@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Boolean, ForeignKey, DateTime, Enum, JSON, Uuid, Integer, Text, UniqueConstraint
+from sqlalchemy import String, Boolean, ForeignKey, DateTime, Enum, JSON, Uuid, Integer, Text, UniqueConstraint, Float
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -221,3 +221,70 @@ class SkillUsageLog(Base):
     version: Mapped[int] = mapped_column(Integer)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ChatRequestStatus(str, enum.Enum):
+    queued = "queued"
+    running = "running"
+    awaiting_confirmation = "awaiting_confirmation"
+    done = "done"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class MessageRole(str, enum.Enum):
+    user = "user"
+    assistant = "assistant"
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ChatRequest(Base):
+    __tablename__ = "chat_requests"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    content: Mapped[str] = mapped_column(Text)
+    status: Mapped[ChatRequestStatus] = mapped_column(Enum(ChatRequestStatus),
+                                                       default=ChatRequestStatus.queued)
+    queue_position: Mapped[float] = mapped_column(Float)
+    pending_action: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"), index=True)
+    chat_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_requests.id"),
+                                                               nullable=True)
+    role: Mapped[MessageRole] = mapped_column(Enum(MessageRole))
+    content: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class UsageLog(Base):
+    __tablename__ = "usage_log"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    chat_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_requests.id"),
+                                                               nullable=True)
+    model: Mapped[str] = mapped_column(String(64))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
