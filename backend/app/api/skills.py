@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import User
-from app.schemas import SkillCreateIn, SkillGrantIn, SkillOut, SkillVersionIn
+from app.schemas import SkillCreateIn, SkillGrantIn, SkillOut, SkillVersionIn, UseSkillOut
 from app.services import skill_service
 
 router = APIRouter(prefix="/api/v1/skills", tags=["skills"])
@@ -40,7 +40,7 @@ async def grant(skill_id: uuid.UUID, body: SkillGrantIn,
     return Response(status_code=201 if created else 200)
 
 
-@router.get("/{skill_id}/use")
+@router.get("/{skill_id}/use", response_model=UseSkillOut)
 async def use_skill(skill_id: uuid.UUID, actor: User = Depends(get_current_user),
                     db: AsyncSession = Depends(get_db)):
     return await skill_service.use_skill(db, actor, skill_id)

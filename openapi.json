@@ -1345,7 +1345,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/UseSkillOut"
+                }
               }
             }
           },
@@ -2117,6 +2119,67 @@
         ],
         "title": "TaskPriority"
       },
+      "TaskStateOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "percent": {
+            "type": "integer",
+            "title": "Percent"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "assignees": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assignees"
+          },
+          "latest_updates": {
+            "items": {
+              "$ref": "#/components/schemas/TaskUpdateSummaryOut"
+            },
+            "type": "array",
+            "title": "Latest Updates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "percent",
+          "deadline",
+          "priority",
+          "assignees",
+          "latest_updates"
+        ],
+        "title": "TaskStateOut"
+      },
       "TaskStatus": {
         "type": "string",
         "enum": [
@@ -2221,6 +2284,41 @@
         ],
         "title": "TaskUpdateOut"
       },
+      "TaskUpdateSummaryOut": {
+        "properties": {
+          "author_id": {
+            "type": "string",
+            "title": "Author Id"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "author_id",
+          "content",
+          "percent",
+          "created_at"
+        ],
+        "title": "TaskUpdateSummaryOut"
+      },
       "TokenPairOut": {
         "properties": {
           "access_token": {
@@ -2257,6 +2355,50 @@
           "device_uuid"
         ],
         "title": "UnlockRequestIn"
+      },
+      "UseSkillOut": {
+        "properties": {
+          "skill_id": {
+            "type": "string",
+            "title": "Skill Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "task_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskStateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "skill_id",
+          "name",
+          "kind",
+          "version",
+          "content",
+          "task_state"
+        ],
+        "title": "UseSkillOut"
       },
       "UserOut": {
         "properties": {

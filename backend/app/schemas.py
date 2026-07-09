@@ -191,3 +191,30 @@ class SkillOut(BaseModel):
     kind: SkillKind
     task_id: uuid.UUID | None
     latest_version: int
+
+
+class TaskUpdateSummaryOut(BaseModel):
+    author_id: str
+    content: str
+    percent: int | None
+    created_at: str
+
+
+class TaskStateOut(BaseModel):
+    id: str
+    title: str
+    status: str
+    percent: int
+    deadline: str | None
+    priority: str
+    assignees: list[str]
+    latest_updates: list[TaskUpdateSummaryOut]
+
+
+class UseSkillOut(BaseModel):
+    skill_id: str
+    name: str
+    kind: str
+    version: int
+    content: str
+    task_state: TaskStateOut | None
