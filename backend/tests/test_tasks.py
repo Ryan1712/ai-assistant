@@ -1,3 +1,5 @@
+import uuid as uuid_mod
+
 import pytest
 from sqlalchemy import select
 
@@ -82,3 +84,42 @@ async def test_assign_cross_workspace_user_422(client):
     r = await client.post(f"/api/v1/tasks/{tid}/assignees", headers=ceo_h,
                           json={"user_id": b.json()["user"]["id"]})
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_ceo_patches_task(client):
+    ceo_h = await _ceo_headers(client)
+    pid = await _project(client, ceo_h)
+    t = await client.post("/api/v1/tasks", headers=ceo_h,
+                          json={"project_id": pid, "title": "T"})
+    tid = t.json()["id"]
+
+    patch = await client.patch(f"/api/v1/tasks/{tid}", headers=ceo_h,
+                               json={"title": "T2", "priority": "high"})
+    assert patch.status_code == 200
+    body = patch.json()
+    assert body["title"] == "T2"
+    assert body["priority"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_patch_task_404_missing_or_cross_workspace(client):
+    ceo_h = await _ceo_headers(client)
+    pid = await _project(client, ceo_h)
+    t = await client.post("/api/v1/tasks", headers=ceo_h,
+                          json={"project_id": pid, "title": "T"})
+    tid = t.json()["id"]
+
+    # nonexistent task_id
+    missing = await client.patch(f"/api/v1/tasks/{uuid_mod.uuid4()}", headers=ceo_h,
+                                 json={"title": "X"})
+    assert missing.status_code == 404
+
+    # cross-workspace: CEO of workspace B cannot patch workspace A's task
+    b = await client.post("/api/v1/auth/signup-workspace", json={
+        "workspace_name": "B", "email": "ceo2@b.vn", "password": "secret123",
+        "full_name": "B", "device_uuid": "db2", "device_name": "",
+    })
+    b_h = {"Authorization": f"Bearer {b.json()['access_token']}"}
+    cross = await client.patch(f"/api/v1/tasks/{tid}", headers=b_h, json={"title": "X"})
+    assert cross.status_code == 404

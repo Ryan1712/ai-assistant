@@ -847,6 +847,9 @@
               }
             }
           },
+          "201": {
+            "description": "Assigned"
+          },
           "422": {
             "description": "Validation Error",
             "content": {

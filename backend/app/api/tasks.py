@@ -38,7 +38,7 @@ async def patch_task(task_id: uuid.UUID, body: TaskPatchIn,
         db, actor, task_id, body.model_dump(exclude_unset=True))
 
 
-@router.post("/{task_id}/assignees")
+@router.post("/{task_id}/assignees", responses={201: {"description": "Assigned"}})
 async def assign(task_id: uuid.UUID, body: AssigneeIn,
                  actor: User = Depends(get_current_user),
                  db: AsyncSession = Depends(get_db)):
