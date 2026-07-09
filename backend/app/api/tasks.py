@@ -6,7 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import User
-from app.schemas import AssigneeIn, TaskCreateIn, TaskOut, TaskPatchIn
+from app.schemas import (
+    AssigneeIn,
+    TaskCreateIn,
+    TaskOut,
+    TaskPatchIn,
+    TaskUpdateCreateIn,
+    TaskUpdateOut,
+)
 from app.services import work_service
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -52,3 +59,16 @@ async def unassign(task_id: uuid.UUID, user_id: uuid.UUID,
                    db: AsyncSession = Depends(get_db)):
     await work_service.unassign_task(db, actor, task_id, user_id)
     return Response(status_code=204)
+
+
+@router.post("/{task_id}/updates", response_model=TaskUpdateOut, status_code=201)
+async def add_update(task_id: uuid.UUID, body: TaskUpdateCreateIn,
+                     actor: User = Depends(get_current_user),
+                     db: AsyncSession = Depends(get_db)):
+    return await work_service.add_task_update(db, actor, task_id, **body.model_dump())
+
+
+@router.get("/{task_id}/updates", response_model=list[TaskUpdateOut])
+async def list_updates(task_id: uuid.UUID, actor: User = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    return await work_service.list_task_updates(db, actor, task_id)

@@ -136,3 +136,21 @@ class TaskOut(BaseModel):
 
 class AssigneeIn(BaseModel):
     user_id: uuid.UUID
+
+
+class TaskUpdateCreateIn(BaseModel):
+    content: str = ""
+    percent: int | None = Field(None, ge=0, le=100)
+    status: TaskStatus | None = None
+
+
+class TaskUpdateOut(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    author_id: uuid.UUID
+    content: str
+    percent: int | None
+    status: TaskStatus | None
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}

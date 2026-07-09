@@ -4,8 +4,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Notification, Project, Task, TaskAssignee, User
+from app.models import Notification, Project, Task, TaskAssignee, TaskUpdate, User
 from app.permissions import (
+    can_update_progress,
     get_visible_task_or_404,
     require_ceo,
     visible_project_ids,
@@ -141,3 +142,43 @@ async def list_tasks(db: AsyncSession, actor: User) -> list[dict]:
 async def get_task(db: AsyncSession, actor: User, task_id: uuid.UUID) -> dict:
     task = await get_visible_task_or_404(db, actor, task_id)
     return await _task_out(db, task)
+
+
+async def _notify_task_update(db: AsyncSession, actor: User, task: Task) -> None:
+    recipients: set[uuid.UUID] = set(await _assignee_ids(db, task.id))
+    if actor.manager_id:
+        recipients.add(actor.manager_id)
+    root = (await db.execute(select(User.id).where(
+        User.workspace_id == actor.workspace_id, User.is_root,
+    ))).scalar_one_or_none()
+    if root:
+        recipients.add(root)
+    recipients.discard(actor.id)
+    for rid in recipients:
+        db.add(Notification(workspace_id=actor.workspace_id, recipient_id=rid,
+                            type="task_update",
+                            payload={"task_id": str(task.id), "author_id": str(actor.id)}))
+
+
+async def add_task_update(db: AsyncSession, actor: User, task_id: uuid.UUID, *,
+                          content: str = "", percent=None, status=None) -> TaskUpdate:
+    task = await get_visible_task_or_404(db, actor, task_id)
+    if not await can_update_progress(db, actor, task):
+        raise HTTPException(403, "forbidden")
+    upd = TaskUpdate(workspace_id=actor.workspace_id, task_id=task.id, author_id=actor.id,
+                     content=content, percent=percent, status=status)
+    db.add(upd)
+    if percent is not None:
+        task.percent = percent
+    if status is not None:
+        task.status = status
+    await _notify_task_update(db, actor, task)
+    await db.commit()
+    return upd
+
+
+async def list_task_updates(db: AsyncSession, actor: User, task_id: uuid.UUID) -> list[TaskUpdate]:
+    task = await get_visible_task_or_404(db, actor, task_id)
+    rows = await db.execute(select(TaskUpdate).where(TaskUpdate.task_id == task.id)
+                            .order_by(TaskUpdate.created_at.desc(), TaskUpdate.id.desc()))
+    return list(rows.scalars())
