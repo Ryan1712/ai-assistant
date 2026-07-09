@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Skill, SkillGrant, SkillVersion, Task, User
+from app.models import Role, Skill, SkillGrant, SkillUsageLog, SkillVersion, Task, TaskAssignee, TaskUpdate, User
 from app.permissions import require_ceo
 
 
@@ -73,7 +73,6 @@ async def grant_skill(db: AsyncSession, actor: User, skill_id: uuid.UUID,
 
 
 async def list_skills(db: AsyncSession, actor: User) -> list[dict]:
-    from app.models import Role
     if actor.role == Role.ceo:
         rows = await db.execute(select(Skill).where(Skill.workspace_id == actor.workspace_id))
     else:
@@ -81,3 +80,47 @@ async def list_skills(db: AsyncSession, actor: User) -> list[dict]:
             select(Skill).join(SkillGrant, SkillGrant.skill_id == Skill.id).where(
                 Skill.workspace_id == actor.workspace_id, SkillGrant.user_id == actor.id))
     return [await _skill_out(db, s) for s in rows.scalars()]
+
+
+async def _task_state(db: AsyncSession, task: Task) -> dict:
+    assignee_rows = await db.execute(
+        select(User.email).join(TaskAssignee, TaskAssignee.user_id == User.id)
+        .where(TaskAssignee.task_id == task.id))
+    updates = await db.execute(
+        select(TaskUpdate).where(TaskUpdate.task_id == task.id)
+        .order_by(TaskUpdate.created_at.desc(), TaskUpdate.id.desc()).limit(5))
+    return {
+        "id": str(task.id), "title": task.title, "status": task.status.value,
+        "percent": task.percent,
+        "deadline": task.deadline.isoformat() if task.deadline else None,
+        "priority": task.priority.value,
+        "assignees": list(assignee_rows.scalars()),
+        "latest_updates": [
+            {"author_id": str(u.author_id), "content": u.content, "percent": u.percent,
+             "created_at": u.created_at.isoformat()}
+            for u in updates.scalars()
+        ],
+    }
+
+
+async def use_skill(db: AsyncSession, actor: User, skill_id: uuid.UUID) -> dict:
+    skill = await _get_skill_or_404(db, actor, skill_id)
+    if actor.role != Role.ceo:
+        granted = await db.execute(select(SkillGrant.id).where(
+            SkillGrant.skill_id == skill.id, SkillGrant.user_id == actor.id))
+        if granted.first() is None:
+            raise HTTPException(403, "skill_not_granted")
+    latest = (await db.execute(
+        select(SkillVersion).where(SkillVersion.skill_id == skill.id)
+        .order_by(SkillVersion.version.desc()).limit(1))).scalar_one()
+    task_state = None
+    if skill.task_id is not None:
+        task = await db.get(Task, skill.task_id)
+        if task is not None:
+            task_state = await _task_state(db, task)
+    db.add(SkillUsageLog(workspace_id=actor.workspace_id, skill_id=skill.id,
+                         version=latest.version, user_id=actor.id))
+    await db.commit()
+    return {"skill_id": str(skill.id), "name": skill.name, "kind": skill.kind.value,
+            "version": latest.version, "content": latest.content,
+            "task_state": task_state}

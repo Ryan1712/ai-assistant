@@ -38,3 +38,9 @@ async def grant(skill_id: uuid.UUID, body: SkillGrantIn,
                 db: AsyncSession = Depends(get_db)):
     created = await skill_service.grant_skill(db, actor, skill_id, body.user_id)
     return Response(status_code=201 if created else 200)
+
+
+@router.get("/{skill_id}/use")
+async def use_skill(skill_id: uuid.UUID, actor: User = Depends(get_current_user),
+                    db: AsyncSession = Depends(get_db)):
+    return await skill_service.use_skill(db, actor, skill_id)
