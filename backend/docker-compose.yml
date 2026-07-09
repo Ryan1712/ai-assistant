@@ -13,7 +13,7 @@ services:
       POSTGRES_PASSWORD: app
       POSTGRES_DB: app
     volumes: ["pgdata:/var/lib/postgresql/data"]
-    ports: ["5432:5432"]
+    ports: ["5433:5432"]
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
