@@ -77,3 +77,29 @@ class SignupInviteIn(BaseModel):
 class UnlockRequestIn(BaseModel):
     email: EmailStr
     device_uuid: str
+
+
+class ProjectCreateIn(BaseModel):
+    name: str
+    goal: str = ""
+    deadline: dt.datetime | None = None
+    owner_id: uuid.UUID | None = None
+
+
+class ProjectPatchIn(BaseModel):
+    name: str | None = None
+    goal: str | None = None
+    status: str | None = None
+    deadline: dt.datetime | None = None
+    owner_id: uuid.UUID | None = None
+
+
+class ProjectOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    goal: str
+    status: str
+    deadline: dt.datetime | None
+    owner_id: uuid.UUID | None
+
+    model_config = {"from_attributes": True}
