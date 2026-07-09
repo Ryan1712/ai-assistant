@@ -1,9 +1,9 @@
 import datetime as dt
 import uuid
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
-from app.models import Role
+from app.models import Role, TaskPriority, TaskStatus
 
 
 class SignupWorkspaceIn(BaseModel):
@@ -103,3 +103,36 @@ class ProjectOut(BaseModel):
     owner_id: uuid.UUID | None
 
     model_config = {"from_attributes": True}
+
+
+class TaskCreateIn(BaseModel):
+    project_id: uuid.UUID
+    title: str
+    description: str = ""
+    deadline: dt.datetime | None = None
+    priority: TaskPriority = TaskPriority.medium
+
+
+class TaskPatchIn(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: TaskStatus | None = None
+    percent: int | None = Field(None, ge=0, le=100)
+    deadline: dt.datetime | None = None
+    priority: TaskPriority | None = None
+
+
+class TaskOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    title: str
+    description: str
+    status: TaskStatus
+    percent: int
+    deadline: dt.datetime | None
+    priority: TaskPriority
+    assignee_ids: list[uuid.UUID] = []
+
+
+class AssigneeIn(BaseModel):
+    user_id: uuid.UUID

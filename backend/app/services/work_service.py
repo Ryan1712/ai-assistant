@@ -4,8 +4,13 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Project, User
-from app.permissions import require_ceo, visible_project_ids
+from app.models import Notification, Project, Task, TaskAssignee, User
+from app.permissions import (
+    get_visible_task_or_404,
+    require_ceo,
+    visible_project_ids,
+    visible_task_ids,
+)
 
 
 async def _validate_owner(db: AsyncSession, actor: User, owner_id) -> None:
@@ -47,3 +52,92 @@ async def list_projects(db: AsyncSession, actor: User) -> list[Project]:
         return []
     rows = await db.execute(select(Project).where(Project.id.in_(ids)))
     return list(rows.scalars())
+
+
+async def _assignee_ids(db: AsyncSession, task_id: uuid.UUID) -> list[uuid.UUID]:
+    rows = await db.execute(select(TaskAssignee.user_id).where(TaskAssignee.task_id == task_id))
+    return list(rows.scalars())
+
+
+async def _task_out(db: AsyncSession, task: Task) -> dict:
+    return {
+        "id": task.id, "project_id": task.project_id, "title": task.title,
+        "description": task.description, "status": task.status, "percent": task.percent,
+        "deadline": task.deadline, "priority": task.priority,
+        "assignee_ids": await _assignee_ids(db, task.id),
+    }
+
+
+async def create_task(db: AsyncSession, actor: User, *, project_id: uuid.UUID,
+                      title: str, description: str = "", deadline=None,
+                      priority=None) -> dict:
+    require_ceo(actor)
+    project = await db.get(Project, project_id)
+    if project is None or project.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "project_not_found")
+    task = Task(workspace_id=actor.workspace_id, project_id=project_id, title=title,
+                description=description, deadline=deadline, created_by=actor.id,
+                **({"priority": priority} if priority else {}))
+    db.add(task)
+    await db.commit()
+    return await _task_out(db, task)
+
+
+async def update_task(db: AsyncSession, actor: User, task_id: uuid.UUID, patch: dict) -> dict:
+    require_ceo(actor)
+    task = await db.get(Task, task_id)
+    if task is None or task.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "task_not_found")
+    for key, value in patch.items():
+        setattr(task, key, value)
+    await db.commit()
+    return await _task_out(db, task)
+
+
+async def assign_task(db: AsyncSession, actor: User, task_id: uuid.UUID,
+                      user_id: uuid.UUID) -> bool:
+    """Trả về True nếu tạo assignment mới, False nếu đã tồn tại (idempotent)."""
+    require_ceo(actor)
+    task = await db.get(Task, task_id)
+    if task is None or task.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "task_not_found")
+    target = await db.get(User, user_id)
+    if target is None or target.workspace_id != actor.workspace_id:
+        raise HTTPException(422, "invalid_assignee")
+    existing = await db.execute(select(TaskAssignee.id).where(
+        TaskAssignee.task_id == task_id, TaskAssignee.user_id == user_id))
+    if existing.first() is not None:
+        return False
+    db.add(TaskAssignee(workspace_id=actor.workspace_id, task_id=task_id, user_id=user_id))
+    db.add(Notification(workspace_id=actor.workspace_id, recipient_id=user_id,
+                        type="task_assigned",
+                        payload={"task_id": str(task_id), "title": task.title}))
+    await db.commit()
+    return True
+
+
+async def unassign_task(db: AsyncSession, actor: User, task_id: uuid.UUID,
+                        user_id: uuid.UUID) -> None:
+    require_ceo(actor)
+    task = await db.get(Task, task_id)
+    if task is None or task.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "task_not_found")
+    row = (await db.execute(select(TaskAssignee).where(
+        TaskAssignee.task_id == task_id, TaskAssignee.user_id == user_id,
+    ))).scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.commit()
+
+
+async def list_tasks(db: AsyncSession, actor: User) -> list[dict]:
+    ids = await visible_task_ids(db, actor)
+    if not ids:
+        return []
+    rows = await db.execute(select(Task).where(Task.id.in_(ids)))
+    return [await _task_out(db, t) for t in rows.scalars()]
+
+
+async def get_task(db: AsyncSession, actor: User, task_id: uuid.UUID) -> dict:
+    task = await get_visible_task_or_404(db, actor, task_id)
+    return await _task_out(db, task)

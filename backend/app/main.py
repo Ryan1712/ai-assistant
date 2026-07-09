@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import auth, invites, projects, users
+from app.api import auth, invites, projects, tasks, users
 from app.config import assert_safe_config, get_settings
 
 
@@ -16,6 +16,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router)
     app.include_router(invites.router)
     app.include_router(projects.router)
+    app.include_router(tasks.router)
     return app
 
 
