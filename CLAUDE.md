@@ -27,4 +27,4 @@ App mobile chat-first: CEO/manager/nhân viên điều hành công việc bằng
 - Không commit secrets; dùng `.env` (đã gitignore).
 
 ## Bài học (bổ sung khi Claude/dev làm sai điều gì đáng nhớ)
-- (trống)
+- `use_skill` (GET `/api/v1/skills/{id}/use`) trả `task_state` sống (assignees, status, percent, nội dung + tác giả 5 update gần nhất) cho BẤT KỲ user nào được CEO grant skill, kể cả khi người đó KHÔNG nằm trong `visible_task_ids` của task liên kết qua ma trận quyền thông thường. Đây là chủ đích (Plan 2, Task 9): CEO kiểm soát cả việc gắn skill vào task lẫn việc cấp grant, nên grant = ủy quyền xem luôn state của task liên quan — không phải lỗ hổng. Plan 3 (agent tools) và FE cần biết ranh giới này khi thiết kế UI/tool gọi use_skill — đừng giả định ma trận quyền task là chặt tuyệt đối trên kênh skill.
