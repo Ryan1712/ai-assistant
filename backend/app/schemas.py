@@ -3,7 +3,7 @@ import uuid
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models import Role, TaskPriority, TaskStatus
+from app.models import Role, SkillKind, TaskPriority, TaskStatus
 
 
 class SignupWorkspaceIn(BaseModel):
@@ -168,3 +168,26 @@ class CommentOut(BaseModel):
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}
+
+
+class SkillCreateIn(BaseModel):
+    name: str
+    kind: SkillKind
+    task_id: uuid.UUID | None = None
+    content: str
+
+
+class SkillVersionIn(BaseModel):
+    content: str
+
+
+class SkillGrantIn(BaseModel):
+    user_id: uuid.UUID
+
+
+class SkillOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: SkillKind
+    task_id: uuid.UUID | None
+    latest_version: int
