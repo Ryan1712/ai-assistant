@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Notification, Project, Task, TaskAssignee, TaskUpdate, User
+from app.models import Notification, Project, Task, TaskAssignee, TaskComment, TaskUpdate, User
 from app.permissions import (
     can_update_progress,
     get_visible_task_or_404,
@@ -181,4 +181,21 @@ async def list_task_updates(db: AsyncSession, actor: User, task_id: uuid.UUID) -
     task = await get_visible_task_or_404(db, actor, task_id)
     rows = await db.execute(select(TaskUpdate).where(TaskUpdate.task_id == task.id)
                             .order_by(TaskUpdate.created_at.desc(), TaskUpdate.id.desc()))
+    return list(rows.scalars())
+
+
+async def add_comment(db: AsyncSession, actor: User, task_id: uuid.UUID,
+                      content: str) -> TaskComment:
+    task = await get_visible_task_or_404(db, actor, task_id)
+    comment = TaskComment(workspace_id=actor.workspace_id, task_id=task.id,
+                          author_id=actor.id, content=content)
+    db.add(comment)
+    await db.commit()
+    return comment
+
+
+async def list_comments(db: AsyncSession, actor: User, task_id: uuid.UUID) -> list[TaskComment]:
+    task = await get_visible_task_or_404(db, actor, task_id)
+    rows = await db.execute(select(TaskComment).where(TaskComment.task_id == task.id)
+                            .order_by(TaskComment.created_at.asc(), TaskComment.id.asc()))
     return list(rows.scalars())

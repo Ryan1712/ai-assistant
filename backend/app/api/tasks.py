@@ -8,6 +8,8 @@ from app.deps import get_current_user
 from app.models import User
 from app.schemas import (
     AssigneeIn,
+    CommentCreateIn,
+    CommentOut,
     TaskCreateIn,
     TaskOut,
     TaskPatchIn,
@@ -72,3 +74,16 @@ async def add_update(task_id: uuid.UUID, body: TaskUpdateCreateIn,
 async def list_updates(task_id: uuid.UUID, actor: User = Depends(get_current_user),
                        db: AsyncSession = Depends(get_db)):
     return await work_service.list_task_updates(db, actor, task_id)
+
+
+@router.post("/{task_id}/comments", response_model=CommentOut, status_code=201)
+async def add_comment(task_id: uuid.UUID, body: CommentCreateIn,
+                      actor: User = Depends(get_current_user),
+                      db: AsyncSession = Depends(get_db)):
+    return await work_service.add_comment(db, actor, task_id, body.content)
+
+
+@router.get("/{task_id}/comments", response_model=list[CommentOut])
+async def list_comments(task_id: uuid.UUID, actor: User = Depends(get_current_user),
+                        db: AsyncSession = Depends(get_db)):
+    return await work_service.list_comments(db, actor, task_id)

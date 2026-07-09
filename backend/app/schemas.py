@@ -154,3 +154,17 @@ class TaskUpdateOut(BaseModel):
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}
+
+
+class CommentCreateIn(BaseModel):
+    content: str
+
+
+class CommentOut(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    author_id: uuid.UUID
+    content: str
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
