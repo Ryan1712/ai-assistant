@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import AsyncIterator, Union
 
 
@@ -50,3 +51,44 @@ class FakeLLMClient(LLMClient):
         events = self._turns.pop(0)
         for event in events:
             yield event
+
+
+class AnthropicLLMClient(LLMClient):
+    """Prod impl — bọc anthropic.AsyncAnthropic (inject qua constructor để test không cần network)."""
+
+    def __init__(self, client, model: str, max_tokens: int = 4096):
+        self._client = client
+        self._model = model
+        self._max_tokens = max_tokens
+
+    async def stream(self, *, system: str, messages: list[dict],
+                     tools: list[dict]) -> AsyncIterator[StreamEvent]:
+        async with self._client.messages.stream(
+            model=self._model, max_tokens=self._max_tokens,
+            system=system, messages=messages, tools=tools,
+        ) as stream:
+            async for text in stream.text_stream:
+                yield TextDelta(text=text)
+            final = await stream.get_final_message()
+        tool_uses = [
+            ToolUseBlock(id=block.id, name=block.name, input=block.input)
+            for block in final.content if block.type == "tool_use"
+        ]
+        usage = final.usage
+        yield StreamDone(
+            tool_uses=tool_uses, stop_reason=final.stop_reason,
+            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+        )
+
+
+@lru_cache
+def get_llm_client() -> LLMClient:
+    import anthropic
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return AnthropicLLMClient(client, model=settings.model_chat)

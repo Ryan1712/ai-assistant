@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import json
 import uuid
+from functools import lru_cache
 from typing import AsyncIterator
 
 
@@ -44,3 +46,32 @@ class FakeEventPublisher(EventPublisher):
     async def close(self, conversation_id: uuid.UUID) -> None:
         for q in self._queues.get(conversation_id, []):
             await q.put(None)
+
+
+class RedisEventPublisher(EventPublisher):
+    def __init__(self, redis):
+        self._redis = redis
+
+    async def publish(self, conversation_id: uuid.UUID, event: dict) -> None:
+        await self._redis.publish(f"conv:{conversation_id}", json.dumps(event, default=str))
+
+    async def subscribe(self, conversation_id: uuid.UUID) -> AsyncIterator[dict]:
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe(f"conv:{conversation_id}")
+        try:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                yield json.loads(message["data"])
+        finally:
+            await pubsub.unsubscribe(f"conv:{conversation_id}")
+
+
+@lru_cache
+def get_event_publisher() -> EventPublisher:
+    import redis.asyncio as redis_asyncio
+
+    from app.config import get_settings
+
+    redis_client = redis_asyncio.from_url(get_settings().redis_url)
+    return RedisEventPublisher(redis_client)
