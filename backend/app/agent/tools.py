@@ -9,8 +9,11 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
-from app.schemas import ProjectCreateIn, ProjectPatchIn, TaskCreateIn, TaskPatchIn
-from app.services import work_service
+from app.schemas import (
+    CommentCreateIn, ProjectCreateIn, ProjectPatchIn, SkillCreateIn, SkillGrantIn,
+    SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
+)
+from app.services import skill_service, work_service
 
 
 @dataclass
@@ -146,3 +149,104 @@ _register("list_tasks", "Liệt kê task mà actor được thấy.", NoArgsIn, 
 _register("get_task", "Xem chi tiết 1 task theo id.", GetTaskToolIn, _get_task)
 _register("assign_task", "Gán 1 người vào task (chỉ CEO).", AssignTaskToolIn, _assign_task)
 _register("unassign_task", "Bỏ gán 1 người khỏi task (chỉ CEO).", UnassignTaskToolIn, _unassign_task)
+
+
+class AddTaskUpdateToolIn(TaskUpdateCreateIn):
+    task_id: uuid.UUID
+
+
+class ListTaskUpdatesToolIn(BaseModel):
+    task_id: uuid.UUID
+
+
+class AddCommentToolIn(CommentCreateIn):
+    task_id: uuid.UUID
+
+
+class ListCommentsToolIn(BaseModel):
+    task_id: uuid.UUID
+
+
+class AddSkillVersionToolIn(SkillVersionIn):
+    skill_id: uuid.UUID
+
+
+class GrantSkillToolIn(SkillGrantIn):
+    skill_id: uuid.UUID
+
+
+class UseSkillToolIn(BaseModel):
+    skill_id: uuid.UUID
+
+
+def _skill_tool_out(skill: dict) -> dict:
+    return {"id": str(skill["id"]), "name": skill["name"], "kind": skill["kind"].value,
+           "task_id": str(skill["task_id"]) if skill["task_id"] else None,
+           "latest_version": skill["latest_version"]}
+
+
+async def _add_task_update(db, actor, body: AddTaskUpdateToolIn) -> dict:
+    patch = body.model_dump(exclude={"task_id"})
+    upd = await work_service.add_task_update(db, actor, body.task_id, **patch)
+    return {"id": str(upd.id), "task_id": str(upd.task_id), "percent": upd.percent,
+           "status": upd.status.value if upd.status else None}
+
+
+async def _list_task_updates(db, actor, body: ListTaskUpdatesToolIn) -> dict:
+    updates = await work_service.list_task_updates(db, actor, body.task_id)
+    return {"updates": [{"id": str(u.id), "author_id": str(u.author_id), "content": u.content,
+                         "percent": u.percent, "created_at": u.created_at.isoformat()}
+                        for u in updates]}
+
+
+async def _add_comment(db, actor, body: AddCommentToolIn) -> dict:
+    comment = await work_service.add_comment(db, actor, body.task_id, body.content)
+    return {"id": str(comment.id), "task_id": str(comment.task_id), "content": comment.content}
+
+
+async def _list_comments(db, actor, body: ListCommentsToolIn) -> dict:
+    comments = await work_service.list_comments(db, actor, body.task_id)
+    return {"comments": [{"id": str(c.id), "author_id": str(c.author_id), "content": c.content,
+                          "created_at": c.created_at.isoformat()} for c in comments]}
+
+
+async def _create_skill(db, actor, body: SkillCreateIn) -> dict:
+    skill = await skill_service.create_skill(db, actor, **body.model_dump())
+    return _skill_tool_out(skill)
+
+
+async def _add_skill_version(db, actor, body: AddSkillVersionToolIn) -> dict:
+    version = await skill_service.add_version(db, actor, body.skill_id, body.content)
+    return {"skill_id": str(body.skill_id), "version": version}
+
+
+async def _grant_skill(db, actor, body: GrantSkillToolIn) -> dict:
+    created = await skill_service.grant_skill(db, actor, body.skill_id, body.user_id)
+    return {"skill_id": str(body.skill_id), "user_id": str(body.user_id),
+           "already_granted": not created}
+
+
+async def _list_skills(db, actor, body: NoArgsIn) -> dict:
+    skills = await skill_service.list_skills(db, actor)
+    return {"skills": [_skill_tool_out(s) for s in skills]}
+
+
+async def _use_skill(db, actor, body: UseSkillToolIn) -> dict:
+    return await skill_service.use_skill(db, actor, body.skill_id)
+
+
+_register("add_task_update", "Cập nhật tiến độ 1 task (% và/hoặc trạng thái).",
+          AddTaskUpdateToolIn, _add_task_update)
+_register("list_task_updates", "Lịch sử cập nhật tiến độ của 1 task, mới nhất trước.",
+          ListTaskUpdatesToolIn, _list_task_updates)
+_register("add_comment", "Thêm bình luận vào 1 task.", AddCommentToolIn, _add_comment)
+_register("list_comments", "Liệt kê bình luận của 1 task.", ListCommentsToolIn, _list_comments)
+_register("create_skill", "Tạo skill mới kèm nội dung version 1 (chỉ CEO).",
+          SkillCreateIn, _create_skill)
+_register("add_skill_version", "Thêm version nội dung mới cho skill (chỉ CEO).",
+          AddSkillVersionToolIn, _add_skill_version)
+_register("grant_skill", "Cấp quyền dùng skill cho 1 người (chỉ CEO).",
+          GrantSkillToolIn, _grant_skill)
+_register("list_skills", "Liệt kê skill actor được thấy/được cấp.", NoArgsIn, _list_skills)
+_register("use_skill", "Dùng skill: lấy nội dung version mới nhất + trạng thái task sống.",
+          UseSkillToolIn, _use_skill)
