@@ -8,12 +8,12 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User
+from app.models import Role, User
 from app.schemas import (
     CommentCreateIn, ProjectCreateIn, ProjectPatchIn, SkillCreateIn, SkillGrantIn,
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
-from app.services import skill_service, work_service
+from app.services import auth_service, skill_service, work_service
 
 
 @dataclass
@@ -250,3 +250,47 @@ _register("grant_skill", "Cấp quyền dùng skill cho 1 người (chỉ CEO)."
 _register("list_skills", "Liệt kê skill actor được thấy/được cấp.", NoArgsIn, _list_skills)
 _register("use_skill", "Dùng skill: lấy nội dung version mới nhất + trạng thái task sống.",
           UseSkillToolIn, _use_skill)
+
+
+class CreateInviteToolIn(BaseModel):
+    role: Role
+    manager_id: uuid.UUID | None = None
+
+
+class LockUserToolIn(BaseModel):
+    target_id: uuid.UUID
+
+
+class UnlockUserToolIn(BaseModel):
+    target_id: uuid.UUID
+
+
+async def _create_invite(db, actor, body: CreateInviteToolIn) -> dict:
+    invite = await auth_service.create_invite(db, actor=actor, role=body.role.value,
+                                              manager_id=body.manager_id)
+    return {"token": invite.token, "role": invite.role.value,
+           "expires_at": invite.expires_at.isoformat()}
+
+
+async def _lock_user(db, actor, body: LockUserToolIn) -> dict:
+    await auth_service.lock_user(db, actor, body.target_id)
+    return {"user_id": str(body.target_id), "locked": True}
+
+
+async def _unlock_user(db, actor, body: UnlockUserToolIn) -> dict:
+    await auth_service.unlock_user(db, actor, body.target_id)
+    return {"user_id": str(body.target_id), "locked": False}
+
+
+_register("create_invite", "Tạo lời mời vào workspace kèm vai trò (chỉ CEO).",
+          CreateInviteToolIn, _create_invite)
+_register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi mọi thiết bị "
+          "(chỉ CEO, hành động nhạy cảm, cần xác nhận).", LockUserToolIn, _lock_user,
+          sensitive=True)
+_register("unlock_user", "Mở khóa tài khoản 1 người (chỉ CEO, hành động nhạy cảm, cần xác nhận).",
+          UnlockUserToolIn, _unlock_user, sensitive=True)
+
+
+SENSITIVE_TOOLS: frozenset[str] = frozenset(
+    name for name, spec in TOOLS.items() if spec.sensitive
+)
