@@ -29,6 +29,19 @@ async def test_non_ceo_cannot_create_project(client):
 
 
 @pytest.mark.asyncio
+async def test_patch_project_explicit_null_ignored(client):
+    ceo_h = await _ceo_headers(client)
+    resp = await client.post("/api/v1/projects", headers=ceo_h,
+                             json={"name": "Website", "goal": "Ra mat Q4"})
+    assert resp.status_code == 201
+    pid = resp.json()["id"]
+    patch = await client.patch(f"/api/v1/projects/{pid}", headers=ceo_h,
+                               json={"name": None})
+    assert patch.status_code == 200
+    assert patch.json()["name"] == "Website"
+
+
+@pytest.mark.asyncio
 async def test_project_owner_validated(client):
     import uuid as uuid_mod
     ceo_h = await _ceo_headers(client)

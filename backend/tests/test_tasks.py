@@ -103,6 +103,21 @@ async def test_ceo_patches_task(client):
 
 
 @pytest.mark.asyncio
+async def test_patch_task_explicit_null_ignored(client):
+    ceo_h = await _ceo_headers(client)
+    pid = await _project(client, ceo_h)
+    t = await client.post("/api/v1/tasks", headers=ceo_h,
+                          json={"project_id": pid, "title": "T"})
+    tid = t.json()["id"]
+    before_status = t.json()["status"]
+
+    patch = await client.patch(f"/api/v1/tasks/{tid}", headers=ceo_h,
+                               json={"status": None})
+    assert patch.status_code == 200
+    assert patch.json()["status"] == before_status
+
+
+@pytest.mark.asyncio
 async def test_patch_task_404_missing_or_cross_workspace(client):
     ceo_h = await _ceo_headers(client)
     pid = await _project(client, ceo_h)

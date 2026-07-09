@@ -39,6 +39,7 @@ async def update_project(db: AsyncSession, actor: User, project_id: uuid.UUID,
     project = await db.get(Project, project_id)
     if project is None or project.workspace_id != actor.workspace_id:
         raise HTTPException(404, "project_not_found")
+    patch = {k: v for k, v in patch.items() if v is not None}
     if "owner_id" in patch:
         await _validate_owner(db, actor, patch["owner_id"])
     for key, value in patch.items():
@@ -89,6 +90,7 @@ async def update_task(db: AsyncSession, actor: User, task_id: uuid.UUID, patch: 
     task = await db.get(Task, task_id)
     if task is None or task.workspace_id != actor.workspace_id:
         raise HTTPException(404, "task_not_found")
+    patch = {k: v for k, v in patch.items() if v is not None}
     for key, value in patch.items():
         setattr(task, key, value)
     await db.commit()
