@@ -20,6 +20,12 @@ SYSTEM_PROMPT = (
     "khong tu suy dien hoac chon doi tuong thay the."
 )
 
+# Chặn vòng lặp agent chạy vô hạn nếu model cứ gọi tool không nhạy cảm mà không bao
+# giờ tới end_turn (buggy/adversarial). Nếu không có chặn này, arq job_timeout (mặc
+# định 300s) sẽ giết job bằng CancelledError — BaseException, lọt qua except Exception
+# bên dưới — kẹt request ở status=running vĩnh viễn (worker chỉ pickup request queued).
+MAX_ITERATIONS = 25
+
 
 def _tool_specs_for_api() -> list[dict]:
     return [{"name": name, "description": spec.description, "input_schema": spec.input_schema}
@@ -36,6 +42,20 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID) -> list[di
 
 async def _never_cancelled(_request_id: uuid.UUID) -> bool:
     return False
+
+
+async def _mark_failed(db: AsyncSession, req: ChatRequest, publisher: EventPublisher,
+                       error_message: str) -> None:
+    """Đưa request về status=failed và publish request_failed. Dùng chung cho lỗi hạ
+    tầng (except Exception) lẫn trường hợp vượt MAX_ITERATIONS."""
+    await db.rollback()
+    req.status = ChatRequestStatus.failed
+    req.error = error_message
+    req.finished_at = datetime.now(timezone.utc)
+    await db.commit()
+    await publisher.publish(req.conversation_id,
+                            {"type": "request_failed", "chat_request_id": str(req.id),
+                             "error": error_message})
 
 
 async def run_agent_loop(
@@ -60,9 +80,15 @@ async def run_agent_loop(
                                  "status": "cancelled"})
 
     try:
+        iteration = 0
         while True:
             if await check_cancelled(req.id):
                 await _cancel_and_exit()
+                return
+
+            iteration += 1
+            if iteration > MAX_ITERATIONS:
+                await _mark_failed(db, req, publisher, "max_iterations_exceeded")
                 return
 
             history = await _load_history(db, req.conversation_id)
@@ -130,14 +156,7 @@ async def run_agent_loop(
                            chat_request_id=req.id, role=MessageRole.user, content=tool_results))
             await db.commit()
     except Exception as exc:
-        await db.rollback()
-        req.status = ChatRequestStatus.failed
-        req.error = str(exc)
-        req.finished_at = datetime.now(timezone.utc)
-        await db.commit()
-        await publisher.publish(req.conversation_id,
-                                {"type": "request_failed", "chat_request_id": str(req.id),
-                                 "error": str(exc)})
+        await _mark_failed(db, req, publisher, str(exc))
 
 
 async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: bool) -> None:

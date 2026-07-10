@@ -92,3 +92,12 @@ async def test_enqueue_conversation_uses_conversation_scoped_job_id():
 def test_worker_settings_registers_process_conversation():
     assert process_conversation in WorkerSettings.functions
     assert WorkerSettings.redis_settings is not None
+
+
+def test_worker_settings_has_explicit_max_jobs_and_job_timeout():
+    """Finding 3 (final review): max_jobs bounds how many conversations can run
+    Claude calls concurrently (per design spec); job_timeout must comfortably exceed
+    MAX_ITERATIONS' realistic wall-clock time so the loop's own cap (Finding 2) is
+    what normally ends a runaway job, not arq killing it via CancelledError."""
+    assert WorkerSettings.max_jobs == 10
+    assert WorkerSettings.job_timeout == 600

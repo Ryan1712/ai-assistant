@@ -1,7 +1,7 @@
 import pytest
 
-from app.agent.llm_client import FakeLLMClient, LLMClient, StreamDone, TextDelta
-from app.agent.loop import run_agent_loop
+from app.agent.llm_client import FakeLLMClient, LLMClient, StreamDone, TextDelta, ToolUseBlock
+from app.agent.loop import MAX_ITERATIONS, run_agent_loop
 from app.agent.publisher import FakeEventPublisher
 from app.models import (
     ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole, Role, User, Workspace,
@@ -83,3 +83,35 @@ async def test_llm_error_marks_request_failed_without_raising(db_session):
     assert req.status == ChatRequestStatus.failed
     assert "rate_limited_429" in req.error
     assert any(e["type"] == "request_failed" for _, e in pub.events)
+
+
+class _AlwaysToolUseLLMClient(LLMClient):
+    """Kịch bản model buggy/adversarial: luôn trả tool_use cho tool vô hại
+    (list_projects), không bao giờ tới end_turn. Dùng để kiểm tra MAX_ITERATIONS
+    chặn vòng lặp vô hạn thay vì để job treo tới khi arq job_timeout giết bằng
+    CancelledError (BaseException, lọt qua except Exception)."""
+
+    def __init__(self):
+        self.call_count = 0
+
+    async def stream(self, *, system, messages, tools):
+        self.call_count += 1
+        yield StreamDone(
+            tool_uses=[ToolUseBlock(id=f"t{self.call_count}", name="list_projects", input={})],
+            stop_reason="tool_use", input_tokens=1, output_tokens=1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_runaway_tool_use_loop_terminates_via_max_iterations(db_session):
+    req = await _world(db_session)
+    llm = _AlwaysToolUseLLMClient()
+    pub = FakeEventPublisher()
+
+    await run_agent_loop(db_session, req, llm, pub)
+
+    assert req.status == ChatRequestStatus.failed
+    assert req.error == "max_iterations_exceeded"
+    assert any(e["type"] == "request_failed" for _, e in pub.events)
+    # Không được gọi LLM vô hạn — dừng lại đúng ở ngưỡng MAX_ITERATIONS.
+    assert llm.call_count == MAX_ITERATIONS

@@ -64,3 +64,11 @@ class WorkerSettings:
     on_startup = _startup
     on_shutdown = _shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    # max_jobs = semaphore giới hạn số conversation chạy Claude call đồng thời (theo
+    # design spec) — trước đây không set nên nhận default ngầm định của arq (10); giờ
+    # khai báo tường minh để dễ tune. job_timeout đủ lớn so với thời gian thực tế của
+    # MAX_ITERATIONS (app/agent/loop.py) để chính cap đó là thứ chặn vòng lặp chạy vô
+    # hạn, không phải arq giết job bằng CancelledError (BaseException, lọt qua
+    # except Exception trong run_agent_loop, kẹt request ở status=running vĩnh viễn).
+    max_jobs = 10
+    job_timeout = 600

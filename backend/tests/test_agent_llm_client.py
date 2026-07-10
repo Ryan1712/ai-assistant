@@ -115,3 +115,29 @@ async def test_anthropic_llm_client_translates_sdk_stream_to_events():
     assert done.input_tokens == 100
     assert done.cache_read_tokens == 80
     assert sdk_client.messages.last_kwargs["model"] == "claude-haiku-4-5"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_llm_client_disables_parallel_tool_use():
+    """Finding 1 (final review): a sensitive tool_use (lock_user/unlock_user) emitted
+    alongside other tool_use blocks in the same turn would leave those other blocks
+    without a matching tool_result, breaking the next API call. Constrain the model
+    to at most one tool_use per turn via tool_choice.disable_parallel_tool_use."""
+    from app.agent.llm_client import AnthropicLLMClient
+
+    final = _FakeFinalMessage(
+        content=[_FakeContentBlock("text", text="ok")],
+        stop_reason="end_turn",
+        usage=_FakeUsage(input_tokens=5, output_tokens=1),
+    )
+    stream_ctx = _FakeStreamContext(texts=["ok"], final_message=final)
+    sdk_client = _FakeAnthropicSDKClient(stream_ctx)
+
+    client = AnthropicLLMClient(sdk_client, model="claude-haiku-4-5")
+    _ = [e async for e in client.stream(
+        system="sys", messages=[{"role": "user", "content": "hi"}], tools=[])]
+
+    assert sdk_client.messages.last_kwargs["tool_choice"] == {
+        "type": "auto",
+        "disable_parallel_tool_use": True,
+    }

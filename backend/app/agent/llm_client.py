@@ -66,6 +66,7 @@ class AnthropicLLMClient(LLMClient):
         async with self._client.messages.stream(
             model=self._model, max_tokens=self._max_tokens,
             system=system, messages=messages, tools=tools,
+            tool_choice={"type": "auto", "disable_parallel_tool_use": True},
         ) as stream:
             async for text in stream.text_stream:
                 yield TextDelta(text=text)
