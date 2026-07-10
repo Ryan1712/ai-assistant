@@ -49,6 +49,20 @@ async def test_unknown_report_404(client, storage_dir):
 
 
 @pytest.mark.asyncio
+async def test_cross_workspace_report_404(client, db_session, storage_dir):
+    headers, report_id = await _make_report(client, db_session)
+    other_signup = {
+        "workspace_name": "Cong ty B", "email": "ceo-b@a.vn", "password": "secret123",
+        "full_name": "Sep B", "device_uuid": "dev-2", "device_name": "",
+    }
+    resp_signup = await client.post("/api/v1/auth/signup-workspace", json=other_signup)
+    assert resp_signup.status_code == 201, resp_signup.text
+    other_headers = {"Authorization": f"Bearer {resp_signup.json()['access_token']}"}
+    resp = await client.get(f"/api/v1/reports/{report_id}/download", headers=other_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_missing_file_on_disk_404(client, db_session, storage_dir):
     headers, report_id = await _make_report(client, db_session)
     for f in storage_dir.rglob("*.xlsx"):

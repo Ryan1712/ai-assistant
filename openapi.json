@@ -1390,10 +1390,16 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "File Excel bao cao",
             "content": {
               "application/json": {
                 "schema": {}
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
