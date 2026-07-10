@@ -6,6 +6,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/app
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       REDIS_URL: redis://redis:6379
+      STORAGE_DIR: /data/reports
+    volumes: ["reports_data:/data/reports"]
     depends_on: [postgres, redis]
   worker:
     build: .
@@ -15,6 +17,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      STORAGE_DIR: /data/reports
+    volumes: ["reports_data:/data/reports"]
     depends_on: [postgres, redis]
   postgres:
     image: postgres:16-alpine
@@ -29,3 +33,4 @@ services:
     ports: ["6379:6379"]
 volumes:
   pgdata:
+  reports_data:
