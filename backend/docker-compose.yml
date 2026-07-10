@@ -5,6 +5,16 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/app
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      REDIS_URL: redis://redis:6379
+    depends_on: [postgres, redis]
+  worker:
+    build: .
+    command: ["arq", "app.agent.worker.WorkerSettings"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://app:app@postgres:5432/app
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      REDIS_URL: redis://redis:6379
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on: [postgres, redis]
   postgres:
     image: postgres:16-alpine
