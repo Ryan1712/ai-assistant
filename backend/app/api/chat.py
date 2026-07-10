@@ -1,20 +1,33 @@
 import uuid
+from functools import lru_cache
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.loop import resolve_confirmation
 from app.agent.worker import enqueue_conversation
+from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import ChatRequest, Conversation, Message, MessageRole, User
-from app.schemas import ChatRequestOut, ConversationCreateIn, ConversationOut, MessageSendIn
+from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole, User
+from app.schemas import (
+    ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
+    MessageSendIn, ReorderIn,
+)
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
+chat_requests_router = APIRouter(prefix="/api/v1/chat-requests", tags=["chat"])
 
 
 async def get_arq_pool(request: Request):
     return request.app.state.arq_pool
+
+
+@lru_cache
+def get_redis():
+    import redis.asyncio as redis_asyncio
+    return redis_asyncio.from_url(get_settings().redis_url)
 
 
 async def _get_owned_conversation_or_404(db: AsyncSession, actor: User,
@@ -62,4 +75,97 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
                    content=[{"type": "text", "text": body.content}]))
     await db.commit()
     await enqueue_conversation(arq_pool, conv.id)
+    return req
+
+
+async def _get_own_request_or_404(db: AsyncSession, actor: User,
+                                  request_id: uuid.UUID) -> ChatRequest:
+    req = await db.get(ChatRequest, request_id)
+    if req is None or req.workspace_id != actor.workspace_id or req.user_id != actor.id:
+        raise HTTPException(404, "request_not_found")
+    return req
+
+
+@router.post("/{conversation_id}/stop-all", status_code=204)
+async def stop_all(conversation_id: uuid.UUID, actor: User = Depends(get_current_user),
+                   db: AsyncSession = Depends(get_db), redis=Depends(get_redis)):
+    conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
+    rows = await db.execute(select(ChatRequest).where(
+        ChatRequest.conversation_id == conv.id,
+        ChatRequest.status.in_([ChatRequestStatus.queued, ChatRequestStatus.running]),
+    ))
+    for req in rows.scalars():
+        if req.status == ChatRequestStatus.queued:
+            req.status = ChatRequestStatus.cancelled
+        else:
+            await redis.set(f"cancel:{req.id}", "1", ex=300)
+    await db.commit()
+    return Response(status_code=204)
+
+
+@chat_requests_router.post("/{request_id}/confirm", response_model=ChatRequestOut)
+async def confirm_request(request_id: uuid.UUID, body: ConfirmIn,
+                          actor: User = Depends(get_current_user),
+                          db: AsyncSession = Depends(get_db),
+                          arq_pool=Depends(get_arq_pool)):
+    req = await _get_own_request_or_404(db, actor, request_id)
+    if req.status != ChatRequestStatus.awaiting_confirmation:
+        raise HTTPException(409, "not_awaiting_confirmation")
+    await resolve_confirmation(db, req, approved=body.approved)
+    await enqueue_conversation(arq_pool, req.conversation_id)
+    return req
+
+
+@chat_requests_router.patch("/{request_id}", response_model=ChatRequestOut)
+async def edit_request(request_id: uuid.UUID, body: ChatRequestEditIn,
+                       actor: User = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    req = await _get_own_request_or_404(db, actor, request_id)
+    if req.status != ChatRequestStatus.queued:
+        raise HTTPException(409, "not_queued")
+    req.content = body.content
+    msg = (await db.execute(select(Message).where(
+        Message.chat_request_id == req.id, Message.role == MessageRole.user
+    ))).scalar_one_or_none()
+    if msg is not None:
+        msg.content = [{"type": "text", "text": body.content}]
+    await db.commit()
+    return req
+
+
+@chat_requests_router.post("/{request_id}/cancel", status_code=204)
+async def cancel_request(request_id: uuid.UUID, actor: User = Depends(get_current_user),
+                         db: AsyncSession = Depends(get_db), redis=Depends(get_redis)):
+    req = await _get_own_request_or_404(db, actor, request_id)
+    if req.status == ChatRequestStatus.queued:
+        req.status = ChatRequestStatus.cancelled
+        await db.commit()
+    elif req.status == ChatRequestStatus.running:
+        await redis.set(f"cancel:{req.id}", "1", ex=300)
+    return Response(status_code=204)
+
+
+@chat_requests_router.post("/{request_id}/reorder", response_model=ChatRequestOut)
+async def reorder_request(request_id: uuid.UUID, body: ReorderIn,
+                          actor: User = Depends(get_current_user),
+                          db: AsyncSession = Depends(get_db)):
+    req = await _get_own_request_or_404(db, actor, request_id)
+    if req.status != ChatRequestStatus.queued:
+        raise HTTPException(409, "not_queued")
+    siblings = (await db.execute(
+        select(ChatRequest).where(ChatRequest.conversation_id == req.conversation_id,
+                                  ChatRequest.status == ChatRequestStatus.queued,
+                                  ChatRequest.id != req.id)
+        .order_by(ChatRequest.queue_position.asc())
+    )).scalars().all()
+    if body.before_id is None:
+        req.queue_position = (siblings[0].queue_position - 1.0) if siblings else 1.0
+    else:
+        idx = next((i for i, s in enumerate(siblings) if s.id == body.before_id), None)
+        if idx is None:
+            raise HTTPException(404, "before_request_not_found")
+        before_pos = siblings[idx].queue_position
+        prev_pos = siblings[idx - 1].queue_position if idx > 0 else before_pos - 2.0
+        req.queue_position = (prev_pos + before_pos) / 2
+    await db.commit()
     return req

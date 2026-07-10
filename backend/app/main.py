@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks.router)
     app.include_router(skills.router)
     app.include_router(chat.router)
+    app.include_router(chat.chat_requests_router)
     return app
 
 

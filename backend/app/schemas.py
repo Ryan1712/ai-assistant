@@ -244,3 +244,15 @@ class ChatRequestOut(BaseModel):
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}
+
+
+class ConfirmIn(BaseModel):
+    approved: bool
+
+
+class ChatRequestEditIn(BaseModel):
+    content: str
+
+
+class ReorderIn(BaseModel):
+    before_id: uuid.UUID | None = None
