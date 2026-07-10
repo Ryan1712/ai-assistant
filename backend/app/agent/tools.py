@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -8,12 +9,12 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Role, User
+from app.models import Role, TaskStatus, User
 from app.schemas import (
     CommentCreateIn, ProjectCreateIn, ProjectPatchIn, SkillCreateIn, SkillGrantIn,
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
-from app.services import auth_service, skill_service, work_service
+from app.services import auth_service, report_service, skill_service, work_service
 
 
 @dataclass
@@ -289,6 +290,24 @@ _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi m
           sensitive=True)
 _register("unlock_user", "Mở khóa tài khoản 1 người (chỉ CEO, hành động nhạy cảm, cần xác nhận).",
           UnlockUserToolIn, _unlock_user, sensitive=True)
+
+
+class GenerateReportToolIn(BaseModel):
+    project_id: uuid.UUID | None = None
+    assignee_id: uuid.UUID | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    status: TaskStatus | None = None
+
+
+async def _generate_report(db, actor, body: GenerateReportToolIn) -> dict:
+    return await report_service.generate_report(db, actor, **body.model_dump())
+
+
+_register("generate_report",
+          "Tạo báo cáo Excel tổng hợp task, filter tùy chọn theo project/người/khoảng "
+          "thời gian/trạng thái (chỉ CEO). Trả về report_id + tóm tắt số liệu; "
+          "file tải qua ứng dụng.", GenerateReportToolIn, _generate_report)
 
 
 SENSITIVE_TOOLS: frozenset[str] = frozenset(
