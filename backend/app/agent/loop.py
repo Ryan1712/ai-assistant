@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from typing import Awaitable, Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,75 +34,109 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID) -> list[di
     return [{"role": m.role.value, "content": m.content} for m in rows.scalars()]
 
 
-async def run_agent_loop(db: AsyncSession, req: ChatRequest, llm: LLMClient,
-                        publisher: EventPublisher) -> None:
-    """Chạy agent loop cho 1 chat_request tới khi end_turn hoặc awaiting_confirmation."""
+async def _never_cancelled(_request_id: uuid.UUID) -> bool:
+    return False
+
+
+async def run_agent_loop(
+    db: AsyncSession, req: ChatRequest, llm: LLMClient, publisher: EventPublisher,
+    is_cancelled: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
+) -> None:
+    """Chạy agent loop cho 1 chat_request tới khi end_turn / awaiting_confirmation /
+    cancelled / failed. Không bao giờ raise — mọi lỗi hạ tầng chuyển thành status=failed."""
+    check_cancelled = is_cancelled or _never_cancelled
     req.status = ChatRequestStatus.running
     req.started_at = datetime.now(timezone.utc)
     await db.commit()
 
     actor = await db.get(User, req.user_id)
 
-    while True:
-        history = await _load_history(db, req.conversation_id)
-        text_parts: list[str] = []
-        done: StreamDone | None = None
-        async for event in llm.stream(system=SYSTEM_PROMPT, messages=history,
-                                      tools=_tool_specs_for_api()):
-            if isinstance(event, TextDelta):
-                text_parts.append(event.text)
-                await publisher.publish(req.conversation_id,
-                                        {"type": "token", "chat_request_id": str(req.id),
-                                         "text": event.text})
-            else:
-                done = event
-
-        assistant_content: list[dict] = []
-        if text_parts:
-            assistant_content.append({"type": "text", "text": "".join(text_parts)})
-        for tu in done.tool_uses:
-            assistant_content.append({"type": "tool_use", "id": tu.id, "name": tu.name,
-                                      "input": tu.input})
-        db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
-                       chat_request_id=req.id, role=MessageRole.assistant,
-                       content=assistant_content))
-        db.add(UsageLog(workspace_id=req.workspace_id, chat_request_id=req.id,
-                        model=get_settings().model_chat, input_tokens=done.input_tokens,
-                        output_tokens=done.output_tokens,
-                        cache_read_tokens=done.cache_read_tokens,
-                        cache_write_tokens=done.cache_write_tokens))
-
-        if done.stop_reason != "tool_use" or not done.tool_uses:
-            req.status = ChatRequestStatus.done
-            req.finished_at = datetime.now(timezone.utc)
-            req.result_summary = "".join(text_parts)[:500]
-            await db.commit()
-            await publisher.publish(req.conversation_id,
-                                    {"type": "request_done", "chat_request_id": str(req.id),
-                                     "result_summary": req.result_summary})
-            return
-
-        first_sensitive = next((tu for tu in done.tool_uses if tu.name in SENSITIVE_TOOLS), None)
-        if first_sensitive is not None:
-            req.status = ChatRequestStatus.awaiting_confirmation
-            req.pending_action = {"tool_name": first_sensitive.name,
-                                  "tool_input": first_sensitive.input,
-                                  "tool_use_id": first_sensitive.id}
-            await db.commit()
-            await publisher.publish(req.conversation_id,
-                                    {"type": "confirmation_required", "chat_request_id": str(req.id),
-                                     "tool_name": first_sensitive.name,
-                                     "tool_input": first_sensitive.input})
-            return
-
-        tool_results = []
-        for tu in done.tool_uses:
-            result = await call_tool(db, actor, tu.name, tu.input)
-            tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
-                                 "content": json.dumps(result, default=str)})
-        db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
-                       chat_request_id=req.id, role=MessageRole.user, content=tool_results))
+    async def _cancel_and_exit() -> None:
+        req.status = ChatRequestStatus.cancelled
+        req.finished_at = datetime.now(timezone.utc)
         await db.commit()
+        await publisher.publish(req.conversation_id,
+                                {"type": "status_update", "chat_request_id": str(req.id),
+                                 "status": "cancelled"})
+
+    try:
+        while True:
+            if await check_cancelled(req.id):
+                await _cancel_and_exit()
+                return
+
+            history = await _load_history(db, req.conversation_id)
+            text_parts: list[str] = []
+            done: StreamDone | None = None
+            async for event in llm.stream(system=SYSTEM_PROMPT, messages=history,
+                                          tools=_tool_specs_for_api()):
+                if await check_cancelled(req.id):
+                    await _cancel_and_exit()
+                    return
+                if isinstance(event, TextDelta):
+                    text_parts.append(event.text)
+                    await publisher.publish(req.conversation_id,
+                                            {"type": "token", "chat_request_id": str(req.id),
+                                             "text": event.text})
+                else:
+                    done = event
+
+            assistant_content: list[dict] = []
+            if text_parts:
+                assistant_content.append({"type": "text", "text": "".join(text_parts)})
+            for tu in done.tool_uses:
+                assistant_content.append({"type": "tool_use", "id": tu.id, "name": tu.name,
+                                          "input": tu.input})
+            db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
+                           chat_request_id=req.id, role=MessageRole.assistant,
+                           content=assistant_content))
+            db.add(UsageLog(workspace_id=req.workspace_id, chat_request_id=req.id,
+                            model=get_settings().model_chat, input_tokens=done.input_tokens,
+                            output_tokens=done.output_tokens,
+                            cache_read_tokens=done.cache_read_tokens,
+                            cache_write_tokens=done.cache_write_tokens))
+
+            if done.stop_reason != "tool_use" or not done.tool_uses:
+                req.status = ChatRequestStatus.done
+                req.finished_at = datetime.now(timezone.utc)
+                req.result_summary = "".join(text_parts)[:500]
+                await db.commit()
+                await publisher.publish(req.conversation_id,
+                                        {"type": "request_done", "chat_request_id": str(req.id),
+                                         "result_summary": req.result_summary})
+                return
+
+            first_sensitive = next((tu for tu in done.tool_uses if tu.name in SENSITIVE_TOOLS),
+                                   None)
+            if first_sensitive is not None:
+                req.status = ChatRequestStatus.awaiting_confirmation
+                req.pending_action = {"tool_name": first_sensitive.name,
+                                      "tool_input": first_sensitive.input,
+                                      "tool_use_id": first_sensitive.id}
+                await db.commit()
+                await publisher.publish(req.conversation_id,
+                                        {"type": "confirmation_required",
+                                         "chat_request_id": str(req.id),
+                                         "tool_name": first_sensitive.name,
+                                         "tool_input": first_sensitive.input})
+                return
+
+            tool_results = []
+            for tu in done.tool_uses:
+                result = await call_tool(db, actor, tu.name, tu.input)
+                tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
+                                     "content": json.dumps(result, default=str)})
+            db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
+                           chat_request_id=req.id, role=MessageRole.user, content=tool_results))
+            await db.commit()
+    except Exception as exc:
+        req.status = ChatRequestStatus.failed
+        req.error = str(exc)
+        req.finished_at = datetime.now(timezone.utc)
+        await db.commit()
+        await publisher.publish(req.conversation_id,
+                                {"type": "request_failed", "chat_request_id": str(req.id),
+                                 "error": str(exc)})
 
 
 async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: bool) -> None:
