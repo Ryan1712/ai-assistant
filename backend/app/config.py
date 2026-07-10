@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     redis_url: str = "redis://localhost:6379"
     model_chat: str = "claude-haiku-4-5"
+    storage_dir: str = "./storage/reports"
 
     model_config = {"env_file": ".env"}
 
