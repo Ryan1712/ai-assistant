@@ -15,6 +15,19 @@ _HEADERS = ["Tên task", "Project", "Trạng thái", "% hoàn thành",
             "Người phụ trách", "Cập nhật mới nhất", "Deadline"]
 
 
+def _append_text_row(sheet, row) -> None:
+    """append() rồi ép mọi cell chuỗi thành text (data_type='s').
+
+    openpyxl lưu chuỗi bắt đầu bằng '=' như công thức sống. Các cell ở đây
+    có thể chứa dữ liệu do nhân viên nhập (nội dung update, full_name, tiêu
+    đề task) nên phải chặn Excel formula injection khi CEO mở file.
+    """
+    sheet.append(row)
+    for cell in sheet[sheet.max_row]:
+        if isinstance(cell.value, str):
+            cell.data_type = "s"
+
+
 async def _latest_update_cell(db: AsyncSession, task_id: uuid.UUID) -> str:
     latest = (await db.execute(
         select(TaskUpdate).where(TaskUpdate.task_id == task_id)
@@ -46,7 +59,9 @@ async def generate_report(db: AsyncSession, actor: User, *,
         query = query.where(Task.project_id == project_id)
     if assignee_id is not None:
         query = query.where(Task.id.in_(
-            select(TaskAssignee.task_id).where(TaskAssignee.user_id == assignee_id)))
+            select(TaskAssignee.task_id).where(
+                TaskAssignee.user_id == assignee_id,
+                TaskAssignee.workspace_id == actor.workspace_id)))
     if date_from is not None:
         query = query.where(Task.created_at >= datetime.combine(
             date_from, time.min, tzinfo=timezone.utc))
@@ -60,7 +75,7 @@ async def generate_report(db: AsyncSession, actor: User, *,
     wb = Workbook()
     sheet = wb.active
     sheet.title = "Tasks"
-    sheet.append(_HEADERS)
+    _append_text_row(sheet, _HEADERS)
     summary = {"total": len(tasks), **{s.value: 0 for s in TaskStatus}}
     for task in tasks:
         summary[task.status.value] += 1
@@ -68,7 +83,7 @@ async def generate_report(db: AsyncSession, actor: User, *,
         assignee_names = (await db.execute(
             select(User.full_name).join(TaskAssignee, TaskAssignee.user_id == User.id)
             .where(TaskAssignee.task_id == task.id))).scalars()
-        sheet.append([
+        _append_text_row(sheet, [
             task.title,
             project_row.name if project_row else "",
             task.status.value,

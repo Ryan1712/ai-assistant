@@ -102,6 +102,30 @@ async def test_generate_report_writes_xlsx_and_summary(db_session, storage_dir):
 
 
 @pytest.mark.asyncio
+async def test_generate_report_escapes_formula_injection(db_session, storage_dir):
+    ws, ceo, emp, project = await _seed(db_session)
+    emp.full_name = '=HYPERLINK("http://evil")'
+    t1 = await _task(db_session, ws, project, ceo, "Lam trang chu",
+                     status=TaskStatus.in_progress, percent=40)
+    db_session.add(TaskAssignee(workspace_id=ws.id, task_id=t1.id, user_id=emp.id))
+    db_session.add(TaskUpdate(workspace_id=ws.id, task_id=t1.id, author_id=emp.id,
+                              content="=1+1", percent=40))
+    await db_session.commit()
+
+    result = await report_service.generate_report(db_session, ceo)
+
+    path = storage_dir / str(ws.id) / f"{result['report_id']}.xlsx"
+    sheet = load_workbook(path).active
+    row1 = next(r for r in sheet.iter_rows(min_row=2) if r[0].value == "Lam trang chu")
+    assignee_cell = row1[4]
+    update_cell = row1[5]
+    assert assignee_cell.data_type == "s"
+    assert assignee_cell.value == '=HYPERLINK("http://evil")'
+    assert update_cell.data_type == "s"
+    assert "=1+1" in update_cell.value
+
+
+@pytest.mark.asyncio
 async def test_generate_report_forbidden_for_non_ceo(db_session, storage_dir):
     ws, ceo, emp, project = await _seed(db_session)
     await db_session.commit()
