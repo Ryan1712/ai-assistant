@@ -69,6 +69,57 @@ async def test_process_conversation_runs_queued_requests_in_order_then_stops(eng
 
 
 @pytest.mark.asyncio
+async def test_process_conversation_blocks_queue_while_awaiting_confirmation(engine, db_session):
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+
+    paused_req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                             content="khoa mot nguoi", queue_position=1.0,
+                             status=ChatRequestStatus.awaiting_confirmation,
+                             pending_action={"tool_name": "lock_user",
+                                            "tool_input": {"target_id": str(ceo.id)},
+                                            "tool_use_id": "t1"})
+    queued_req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                             content="tin nhan tiep theo", queue_position=2.0)
+    db_session.add_all([paused_req, queued_req])
+    await db_session.flush()
+    for req in (paused_req, queued_req):
+        db_session.add(Message(workspace_id=ws.id, conversation_id=req.conversation_id,
+                               chat_request_id=req.id, role=MessageRole.user,
+                               content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[])
+    pub = FakeEventPublisher()
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": pub,
+        "is_cancelled": never_cancelled,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(paused_req)
+    await db_session.refresh(queued_req)
+    assert queued_req.status == ChatRequestStatus.queued  # khong bi dong xu ly
+    assert paused_req.status == ChatRequestStatus.awaiting_confirmation  # khong bi dung
+    assert len(llm.calls) == 0  # khong goi LLM nao het, vi queue bi chan ngay tu dau
+
+
+@pytest.mark.asyncio
 async def test_enqueue_conversation_uses_conversation_scoped_job_id():
     class _FakePool:
         def __init__(self):

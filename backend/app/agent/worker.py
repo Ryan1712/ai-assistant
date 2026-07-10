@@ -22,6 +22,23 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
 
     while True:
         async with session_factory() as db:
+            paused = (await db.execute(
+                select(ChatRequest.id).where(
+                    ChatRequest.conversation_id == conversation_id,
+                    ChatRequest.status == ChatRequestStatus.awaiting_confirmation,
+                ).limit(1)
+            )).scalar_one_or_none()
+            if paused is not None:
+                # Mot request khac trong cung conversation dang cho nguoi dung xac
+                # nhan tool nhay cam (vd lock_user): tool_use cua no chua co
+                # tool_result di kem. Neu chay tiep 1 queued request khac ngay bay
+                # gio, message cua request do se chen vao GIUA tool_use va
+                # tool_result trong lich su hoi thoai (run_agent_loop luon load toan
+                # bo Message cua conversation) — vi pham yeu cau cua Anthropic API la
+                # tool_result phai theo ngay sau tool_use. Vi vay dung han xu ly toan
+                # bo queue cua conversation nay cho toi khi resolve_confirmation duoc
+                # goi (chuyen request dang paused ve lai `queued` va enqueue lai job).
+                return
             req = (await db.execute(
                 select(ChatRequest).where(
                     ChatRequest.conversation_id == conversation_id,
