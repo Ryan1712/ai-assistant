@@ -3,7 +3,7 @@ import uuid
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models import Role, SkillKind, TaskPriority, TaskStatus
+from app.models import ChatRequestStatus, Role, SkillKind, TaskPriority, TaskStatus
 
 
 class SignupWorkspaceIn(BaseModel):
@@ -218,3 +218,29 @@ class UseSkillOut(BaseModel):
     version: int
     content: str
     task_state: TaskStateOut | None
+
+
+class ConversationCreateIn(BaseModel):
+    title: str | None = None
+
+
+class ConversationOut(BaseModel):
+    id: uuid.UUID
+    title: str | None
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MessageSendIn(BaseModel):
+    content: str
+
+
+class ChatRequestOut(BaseModel):
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    status: ChatRequestStatus
+    content: str
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}

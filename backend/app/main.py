@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import auth, invites, projects, skills, tasks, users
+from app.api import auth, chat, invites, projects, skills, tasks, users
 from app.config import assert_safe_config, get_settings
 
 
@@ -12,12 +12,24 @@ def create_app() -> FastAPI:
     async def health():
         return {"status": "ok"}
 
+    @app.on_event("startup")
+    async def _startup_arq_pool():
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        app.state.arq_pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
+
+    @app.on_event("shutdown")
+    async def _shutdown_arq_pool():
+        if getattr(app.state, "arq_pool", None) is not None:
+            await app.state.arq_pool.close()
+
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(invites.router)
     app.include_router(projects.router)
     app.include_router(tasks.router)
     app.include_router(skills.router)
+    app.include_router(chat.router)
     return app
 
 
