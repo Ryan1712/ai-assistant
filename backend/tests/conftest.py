@@ -65,3 +65,11 @@ async def _invite_and_join(client, headers, role, email, manager_id=None):
     })
     assert join.status_code == 201, join.text
     return join.json()
+
+
+@pytest.fixture
+def storage_dir(tmp_path, monkeypatch):
+    from app.config import get_settings
+    # get_settings() là lru_cache — monkeypatch attr trên instance, tự hoàn nguyên sau test
+    monkeypatch.setattr(get_settings(), "storage_dir", str(tmp_path))
+    return tmp_path
