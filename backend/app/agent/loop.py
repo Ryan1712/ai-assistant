@@ -102,3 +102,23 @@ async def run_agent_loop(db: AsyncSession, req: ChatRequest, llm: LLMClient,
         db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
                        chat_request_id=req.id, role=MessageRole.user, content=tool_results))
         await db.commit()
+
+
+async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: bool) -> None:
+    """Xử lý xác nhận (hoặc từ chối) hành động nhạy cảm đang chờ; đưa request về
+    queued để lần chạy run_agent_loop tiếp theo tự thấy tool_result trong history."""
+    if req.pending_action is None:
+        raise ValueError("no_pending_action")
+    actor = await db.get(User, req.user_id)
+    action = req.pending_action
+    if approved:
+        result = await call_tool(db, actor, action["tool_name"], action["tool_input"])
+    else:
+        result = {"error": "user_denied", "message": "Người dùng từ chối xác nhận hành động này."}
+    db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
+                   chat_request_id=req.id, role=MessageRole.user,
+                   content=[{"type": "tool_result", "tool_use_id": action["tool_use_id"],
+                            "content": json.dumps(result, default=str)}]))
+    req.pending_action = None
+    req.status = ChatRequestStatus.queued
+    await db.commit()
