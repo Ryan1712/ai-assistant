@@ -130,6 +130,7 @@ async def run_agent_loop(
                            chat_request_id=req.id, role=MessageRole.user, content=tool_results))
             await db.commit()
     except Exception as exc:
+        await db.rollback()
         req.status = ChatRequestStatus.failed
         req.error = str(exc)
         req.finished_at = datetime.now(timezone.utc)
