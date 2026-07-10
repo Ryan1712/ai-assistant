@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import auth, chat, invites, projects, skills, tasks, users, ws
+from app.api import auth, chat, invites, projects, reports, skills, tasks, users, ws
 from app.config import assert_safe_config, get_settings
 
 
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(projects.router)
     app.include_router(tasks.router)
     app.include_router(skills.router)
+    app.include_router(reports.router)
     app.include_router(chat.router)
     app.include_router(chat.chat_requests_router)
     app.include_router(ws.router)
