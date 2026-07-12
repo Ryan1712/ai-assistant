@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     model_chat: str = "claude-haiku-4-5"
     storage_dir: str = "./storage/reports"
+    # Cổng báo cáo CEO (funtional-plan 6.8) — chưa có API spec thật nên mặc định mock
+    portal_mock: bool = True
+    portal_base_url: str = "https://ceo.9learning.edu.vn"
 
     model_config = {"env_file": ".env"}
 

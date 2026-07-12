@@ -1835,6 +1835,75 @@
         ]
       }
     },
+    "/api/v1/portal/reports": {
+      "get": {
+        "tags": [
+          "portal"
+        ],
+        "summary": "List Portal Reports",
+        "operationId": "list_portal_reports_api_v1_portal_reports_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/portal/reports/{report_id}": {
+      "get": {
+        "tags": [
+          "portal"
+        ],
+        "summary": "Get Portal Report",
+        "operationId": "get_portal_report_api_v1_portal_reports__report_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reports/{report_id}/download": {
       "get": {
         "tags": [

@@ -15,8 +15,8 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    auth_service, dashboard_service, instruction_service, note_service, report_service,
-    skill_service, work_service,
+    auth_service, dashboard_service, instruction_service, note_service, portal_service,
+    report_service, skill_service, work_service,
 )
 
 
@@ -389,6 +389,27 @@ async def _create_note(db, actor, body: CreateNoteToolIn) -> dict:
 async def _list_notes(db, actor, body: ListNotesToolIn) -> dict:
     notes = await note_service.list_notes(db, actor, on_date=body.on_date, tag=body.tag)
     return {"notes": [_note_out(n) for n in notes]}
+
+
+class GetPortalReportToolIn(BaseModel):
+    report_id: str
+
+
+async def _list_portal_reports(db, actor, body: NoArgsIn) -> dict:
+    reports = await portal_service.list_reports(db, actor)
+    return {"reports": [{"id": r["id"], "title": r["title"], "period": r["period"],
+                         "summary": r["summary"]} for r in reports]}
+
+
+async def _get_portal_report(db, actor, body: GetPortalReportToolIn) -> dict:
+    return dict(await portal_service.get_report(db, actor, body.report_id))
+
+
+_register("list_portal_reports", "Liệt kê báo cáo từ cổng CEO ceo.9learning.edu.vn "
+          "(chỉ CEO, gói Advanced).", NoArgsIn, _list_portal_reports)
+_register("get_portal_report", "Đọc chi tiết 1 báo cáo từ cổng CEO để tóm tắt/đối chiếu "
+          "với tiến độ task (chỉ CEO, gói Advanced).", GetPortalReportToolIn,
+          _get_portal_report)
 
 
 async def _get_today_dashboard(db, actor, body: NoArgsIn) -> dict:
