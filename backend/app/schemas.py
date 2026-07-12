@@ -3,7 +3,7 @@ import uuid
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models import ChatRequestStatus, Role, SkillKind, TaskPriority, TaskStatus
+from app.models import ChatRequestStatus, Role, SkillKind, TaskPriority, TaskStatus, WorkspacePlan
 
 
 class SignupWorkspaceIn(BaseModel):
@@ -218,6 +218,15 @@ class UseSkillOut(BaseModel):
     version: int
     content: str
     task_state: TaskStateOut | None
+
+
+class SubscriptionPatchIn(BaseModel):
+    plan: WorkspacePlan
+
+
+class SubscriptionOut(BaseModel):
+    plan: str
+    limits: dict[str, int] | None
 
 
 class NoteCreateIn(BaseModel):

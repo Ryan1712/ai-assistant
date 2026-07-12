@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Role, Skill, SkillGrant, SkillUsageLog, SkillVersion, Task, TaskAssignee, TaskUpdate, User
+from app import plans
 from app.permissions import require_ceo
 
 
@@ -30,6 +31,7 @@ async def _skill_out(db: AsyncSession, skill: Skill) -> dict:
 async def create_skill(db: AsyncSession, actor: User, *, name: str, kind,
                        task_id=None, content: str) -> dict:
     require_ceo(actor)
+    await plans.enforce_limit(db, actor.workspace_id, "skills")
     if task_id is not None:
         task = await db.get(Task, task_id)
         if task is None or task.workspace_id != actor.workspace_id:

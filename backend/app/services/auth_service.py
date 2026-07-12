@@ -7,7 +7,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import security
+from app import plans, security
 from app.config import get_settings
 from app.models import (
     Device, Invite, LoginEvent, Notification, RefreshToken, Role, User, UserStatus, Workspace,
@@ -131,6 +131,7 @@ async def create_invite(
 ) -> Invite:
     if actor.role != Role.ceo:
         raise HTTPException(403, "forbidden")
+    await plans.enforce_limit(db, actor.workspace_id, "members")
     role_enum = Role(role)
     if role_enum == Role.employee and manager_id is None:
         raise HTTPException(422, "employee_invite_requires_manager")

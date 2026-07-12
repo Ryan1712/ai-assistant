@@ -1676,6 +1676,76 @@
         ]
       }
     },
+    "/api/v1/subscription": {
+      "get": {
+        "tags": [
+          "subscription"
+        ],
+        "summary": "Get Subscription",
+        "operationId": "get_subscription_api_v1_subscription_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "subscription"
+        ],
+        "summary": "Switch Plan",
+        "operationId": "switch_plan_api_v1_subscription_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/reports/{report_id}/download": {
       "get": {
         "tags": [
@@ -3013,6 +3083,46 @@
         ],
         "title": "SkillVersionIn"
       },
+      "SubscriptionOut": {
+        "properties": {
+          "plan": {
+            "type": "string",
+            "title": "Plan"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan",
+          "limits"
+        ],
+        "title": "SubscriptionOut"
+      },
+      "SubscriptionPatchIn": {
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/WorkspacePlan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan"
+        ],
+        "title": "SubscriptionPatchIn"
+      },
       "TaskCreateIn": {
         "properties": {
           "project_id": {
@@ -3547,6 +3657,14 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkspacePlan": {
+        "type": "string",
+        "enum": [
+          "basic",
+          "advanced"
+        ],
+        "title": "WorkspacePlan"
       }
     },
     "securitySchemes": {

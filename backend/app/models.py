@@ -29,10 +29,17 @@ class UserStatus(str, enum.Enum):
     locked = "locked"
 
 
+class WorkspacePlan(str, enum.Enum):
+    basic = "basic"
+    advanced = "advanced"
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255))
+    plan: Mapped[WorkspacePlan] = mapped_column(Enum(WorkspacePlan),
+                                                default=WorkspacePlan.basic)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
