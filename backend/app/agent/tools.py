@@ -15,8 +15,8 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    auth_service, instruction_service, note_service, report_service, skill_service,
-    work_service,
+    auth_service, dashboard_service, instruction_service, note_service, report_service,
+    skill_service, work_service,
 )
 
 
@@ -391,6 +391,13 @@ async def _list_notes(db, actor, body: ListNotesToolIn) -> dict:
     return {"notes": [_note_out(n) for n in notes]}
 
 
+async def _get_today_dashboard(db, actor, body: NoArgsIn) -> dict:
+    return await dashboard_service.today_dashboard(db, actor)
+
+
+_register("get_today_dashboard", "Tổng hợp 'Hôm nay' theo phạm vi quyền của người dùng: "
+          "task đến hạn hôm nay / quá hạn / đang làm, cập nhật 24h qua, note hôm nay, "
+          "counters.", NoArgsIn, _get_today_dashboard)
 _register("create_note", "Tạo ghi chú cá nhân (text), gắn tag/ngày/task/project tùy chọn. "
           "Note là riêng tư của người tạo.", CreateNoteToolIn, _create_note)
 _register("list_notes", "Liệt kê ghi chú cá nhân của chính người dùng, lọc theo ngày "

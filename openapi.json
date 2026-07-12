@@ -1652,6 +1652,30 @@
         }
       }
     },
+    "/api/v1/dashboard/today": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Today",
+        "operationId": "today_api_v1_dashboard_today_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/reports/{report_id}/download": {
       "get": {
         "tags": [
