@@ -223,6 +223,28 @@ class SkillUsageLog(Base):
     used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Instruction(Base):
+    __tablename__ = "instructions"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class InstructionVersion(Base):
+    __tablename__ = "instruction_versions"
+    __table_args__ = (UniqueConstraint("instruction_id", "version", name="uq_instruction_version"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    instruction_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("instructions.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class ChatRequestStatus(str, enum.Enum):
     queued = "queued"
     running = "running"
