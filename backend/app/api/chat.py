@@ -13,7 +13,7 @@ from app.deps import get_current_user
 from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole, User
 from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
-    MessageSendIn, ReorderIn,
+    MessageOut, MessageSendIn, ReorderIn,
 )
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
@@ -84,6 +84,27 @@ async def _get_own_request_or_404(db: AsyncSession, actor: User,
     if req is None or req.workspace_id != actor.workspace_id or req.user_id != actor.id:
         raise HTTPException(404, "request_not_found")
     return req
+
+
+@router.get("/{conversation_id}/messages", response_model=list[MessageOut])
+async def list_messages(conversation_id: uuid.UUID,
+                        actor: User = Depends(get_current_user),
+                        db: AsyncSession = Depends(get_db)):
+    conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
+    rows = await db.execute(select(Message).where(Message.conversation_id == conv.id)
+                            .order_by(Message.created_at.asc(), Message.id.asc()))
+    return list(rows.scalars())
+
+
+@router.get("/{conversation_id}/requests", response_model=list[ChatRequestOut])
+async def list_requests(conversation_id: uuid.UUID,
+                        actor: User = Depends(get_current_user),
+                        db: AsyncSession = Depends(get_db)):
+    conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
+    rows = await db.execute(select(ChatRequest).where(
+        ChatRequest.conversation_id == conv.id,
+    ).order_by(ChatRequest.queue_position.asc()))
+    return list(rows.scalars())
 
 
 @router.post("/{conversation_id}/stop-all", status_code=204)
