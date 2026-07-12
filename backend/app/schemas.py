@@ -65,6 +65,15 @@ class InviteOut(BaseModel):
     expires_at: dt.datetime
 
 
+class SignupCodeIn(BaseModel):
+    invite_code: str
+    email: EmailStr
+    password: str
+    full_name: str
+    device_uuid: str
+    device_name: str = ""
+
+
 class SignupInviteIn(BaseModel):
     token: str
     email: EmailStr

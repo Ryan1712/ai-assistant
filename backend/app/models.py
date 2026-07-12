@@ -34,12 +34,20 @@ class WorkspacePlan(str, enum.Enum):
     advanced = "advanced"
 
 
+def _invite_code() -> str:
+    import secrets
+    import string
+    return "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255))
     plan: Mapped[WorkspacePlan] = mapped_column(Enum(WorkspacePlan),
                                                 default=WorkspacePlan.basic)
+    invite_code: Mapped[str] = mapped_column(String(16), unique=True, index=True,
+                                             default=_invite_code)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

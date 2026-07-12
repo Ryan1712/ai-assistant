@@ -103,6 +103,47 @@
         }
       }
     },
+    "/api/v1/auth/signup-code": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Signup Code",
+        "operationId": "signup_code_api_v1_auth_signup_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupCodeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -1746,6 +1787,54 @@
         ]
       }
     },
+    "/api/v1/workspace/invite-code": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Get Invite Code",
+        "operationId": "get_invite_code_api_v1_workspace_invite_code_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workspace/invite-code/rotate": {
+      "post": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Rotate Invite Code",
+        "operationId": "rotate_invite_code_api_v1_workspace_invite_code_rotate_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/reports/{report_id}/download": {
       "get": {
         "tags": [
@@ -2894,6 +2983,45 @@
           "employee"
         ],
         "title": "Role"
+      },
+      "SignupCodeIn": {
+        "properties": {
+          "invite_code": {
+            "type": "string",
+            "title": "Invite Code"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "device_uuid": {
+            "type": "string",
+            "title": "Device Uuid"
+          },
+          "device_name": {
+            "type": "string",
+            "title": "Device Name",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "invite_code",
+          "email",
+          "password",
+          "full_name",
+          "device_uuid"
+        ],
+        "title": "SignupCodeIn"
       },
       "SignupInviteIn": {
         "properties": {

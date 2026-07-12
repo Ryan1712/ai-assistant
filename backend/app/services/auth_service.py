@@ -185,6 +185,53 @@ async def signup_invite(
     return user, access, refresh
 
 
+async def signup_with_code(
+    db: AsyncSession, *, invite_code: str, email: str, password: str,
+    full_name: str, device_uuid: str, device_name: str,
+) -> tuple[User, str, str]:
+    """Self sign-up bằng mã mời chung của workspace (funtional-plan 6.1).
+    Luôn tạo employee, manager_id=None — CEO gán manager sau."""
+    email = email.strip().lower()
+    ws = (await db.execute(
+        select(Workspace).where(Workspace.invite_code == invite_code)
+    )).scalar_one_or_none()
+    if ws is None:
+        raise HTTPException(404, "invalid_invite_code")
+    await plans.enforce_limit(db, ws.id, "members")
+    if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
+        raise HTTPException(409, "email_taken")
+    user = User(
+        workspace_id=ws.id, email=email,
+        password_hash=security.hash_password(password), full_name=full_name,
+        role=Role.employee, manager_id=None,
+    )
+    db.add(user)
+    await db.flush()
+    await _log_device(db, user, device_uuid, device_name)
+    access, refresh = await _issue_tokens(db, user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "email_taken")
+    return user, access, refresh
+
+
+async def get_invite_code(db: AsyncSession, actor: User) -> str:
+    require_ceo(actor)
+    ws = await db.get(Workspace, actor.workspace_id)
+    return ws.invite_code
+
+
+async def rotate_invite_code(db: AsyncSession, actor: User) -> str:
+    require_ceo(actor)
+    from app.models import _invite_code as _gen
+    ws = await db.get(Workspace, actor.workspace_id)
+    ws.invite_code = _gen()
+    await db.commit()
+    return ws.invite_code
+
+
 def _check_lock_permission(actor: User, target: User) -> None:
     require_ceo(actor)
     if target.workspace_id != actor.workspace_id:
