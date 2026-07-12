@@ -15,7 +15,8 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    auth_service, instruction_service, report_service, skill_service, work_service,
+    auth_service, instruction_service, note_service, report_service, skill_service,
+    work_service,
 )
 
 
@@ -358,6 +359,42 @@ _register("list_instructions", "Liệt kê instruction của công ty kèm nội
           "(chỉ CEO).", NoArgsIn, _list_instructions)
 _register("delete_instruction", "Xóa/thu hồi 1 instruction (chỉ CEO, hành động nhạy cảm, "
           "cần xác nhận).", DeleteInstructionToolIn, _delete_instruction, sensitive=True)
+
+
+class CreateNoteToolIn(BaseModel):
+    content: str
+    tags: list[str] = []
+    note_date: date | None = None
+    task_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+
+
+class ListNotesToolIn(BaseModel):
+    on_date: date | None = None
+    tag: str | None = None
+
+
+def _note_out(n) -> dict:
+    return {"id": str(n.id), "content": n.content, "tags": n.tags or [],
+            "note_date": n.note_date.isoformat(),
+            "task_id": str(n.task_id) if n.task_id else None,
+            "project_id": str(n.project_id) if n.project_id else None}
+
+
+async def _create_note(db, actor, body: CreateNoteToolIn) -> dict:
+    note = await note_service.create_note(db, actor, **body.model_dump())
+    return _note_out(note)
+
+
+async def _list_notes(db, actor, body: ListNotesToolIn) -> dict:
+    notes = await note_service.list_notes(db, actor, on_date=body.on_date, tag=body.tag)
+    return {"notes": [_note_out(n) for n in notes]}
+
+
+_register("create_note", "Tạo ghi chú cá nhân (text), gắn tag/ngày/task/project tùy chọn. "
+          "Note là riêng tư của người tạo.", CreateNoteToolIn, _create_note)
+_register("list_notes", "Liệt kê ghi chú cá nhân của chính người dùng, lọc theo ngày "
+          "(on_date) hoặc tag.", ListNotesToolIn, _list_notes)
 
 
 SENSITIVE_TOOLS: frozenset[str] = frozenset(

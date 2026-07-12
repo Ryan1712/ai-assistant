@@ -2,7 +2,9 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Boolean, ForeignKey, DateTime, Enum, JSON, Uuid, Integer, Text, UniqueConstraint, Float
+from datetime import date
+
+from sqlalchemy import String, Boolean, ForeignKey, DateTime, Date, Enum, JSON, Uuid, Integer, Text, UniqueConstraint, Float
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -221,6 +223,23 @@ class SkillUsageLog(Base):
     version: Mapped[int] = mapped_column(Integer)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+def _today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+class Note(Base):
+    __tablename__ = "notes"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    note_date: Mapped[date] = mapped_column(Date, default=_today, index=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class Instruction(Base):

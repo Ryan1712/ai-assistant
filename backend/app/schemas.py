@@ -220,6 +220,23 @@ class UseSkillOut(BaseModel):
     task_state: TaskStateOut | None
 
 
+class NoteCreateIn(BaseModel):
+    content: str
+    tags: list[str] = []
+    note_date: dt.date | None = None
+    task_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+
+
+class NoteOut(BaseModel):
+    id: uuid.UUID
+    content: str
+    tags: list[str]
+    note_date: dt.date
+    task_id: uuid.UUID | None
+    project_id: uuid.UUID | None
+
+
 class InstructionCreateIn(BaseModel):
     title: str
     content: str
