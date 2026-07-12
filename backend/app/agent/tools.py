@@ -14,7 +14,9 @@ from app.schemas import (
     CommentCreateIn, ProjectCreateIn, ProjectPatchIn, SkillCreateIn, SkillGrantIn,
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
-from app.services import auth_service, report_service, skill_service, work_service
+from app.services import (
+    auth_service, instruction_service, report_service, skill_service, work_service,
+)
 
 
 @dataclass
@@ -308,6 +310,54 @@ _register("generate_report",
           "Tạo báo cáo Excel tổng hợp task, filter tùy chọn theo project/người/khoảng "
           "thời gian/trạng thái (chỉ CEO). Trả về report_id + tóm tắt số liệu; "
           "file tải qua ứng dụng.", GenerateReportToolIn, _generate_report)
+
+
+class CreateInstructionToolIn(BaseModel):
+    title: str
+    content: str
+
+
+class UpdateInstructionToolIn(BaseModel):
+    instruction_id: uuid.UUID
+    content: str
+
+
+class DeleteInstructionToolIn(BaseModel):
+    instruction_id: uuid.UUID
+
+
+async def _create_instruction(db, actor, body: CreateInstructionToolIn) -> dict:
+    ins = await instruction_service.create_instruction(db, actor, body.title, body.content)
+    return {"id": str(ins.id), "title": ins.title, "version": ins.version}
+
+
+async def _update_instruction(db, actor, body: UpdateInstructionToolIn) -> dict:
+    version = await instruction_service.update_instruction(db, actor, body.instruction_id,
+                                                           body.content)
+    return {"id": str(body.instruction_id), "version": version}
+
+
+async def _list_instructions(db, actor, body: NoArgsIn) -> dict:
+    items = await instruction_service.list_instructions(db, actor)
+    return {"instructions": [{"id": str(i["id"]), "title": i["title"],
+                              "version": i["version"], "content": i["content"]}
+                             for i in items]}
+
+
+async def _delete_instruction(db, actor, body: DeleteInstructionToolIn) -> dict:
+    await instruction_service.delete_instruction(db, actor, body.instruction_id)
+    return {"id": str(body.instruction_id), "deleted": True}
+
+
+_register("create_instruction", "Tạo instruction — chỉ dẫn định hình cách AI hành xử "
+          "trong công ty, AI nạp lại ngay (chỉ CEO).", CreateInstructionToolIn,
+          _create_instruction)
+_register("update_instruction", "Cập nhật nội dung instruction, tăng phiên bản, AI nạp "
+          "lại ngay (chỉ CEO).", UpdateInstructionToolIn, _update_instruction)
+_register("list_instructions", "Liệt kê instruction của công ty kèm nội dung mới nhất "
+          "(chỉ CEO).", NoArgsIn, _list_instructions)
+_register("delete_instruction", "Xóa/thu hồi 1 instruction (chỉ CEO, hành động nhạy cảm, "
+          "cần xác nhận).", DeleteInstructionToolIn, _delete_instruction, sensitive=True)
 
 
 SENSITIVE_TOOLS: frozenset[str] = frozenset(

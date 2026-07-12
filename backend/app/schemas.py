@@ -220,6 +220,22 @@ class UseSkillOut(BaseModel):
     task_state: TaskStateOut | None
 
 
+class InstructionCreateIn(BaseModel):
+    title: str
+    content: str
+
+
+class InstructionUpdateIn(BaseModel):
+    content: str
+
+
+class InstructionOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    version: int
+    content: str
+
+
 class ConversationCreateIn(BaseModel):
     title: str | None = None
 

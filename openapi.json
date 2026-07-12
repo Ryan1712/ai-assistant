@@ -1364,6 +1364,175 @@
         }
       }
     },
+    "/api/v1/instructions": {
+      "get": {
+        "tags": [
+          "instructions"
+        ],
+        "summary": "List Instructions",
+        "operationId": "list_instructions_api_v1_instructions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InstructionOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Instructions Api V1 Instructions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "instructions"
+        ],
+        "summary": "Create Instruction",
+        "operationId": "create_instruction_api_v1_instructions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstructionCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstructionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/instructions/{instruction_id}": {
+      "patch": {
+        "tags": [
+          "instructions"
+        ],
+        "summary": "Update Instruction",
+        "operationId": "update_instruction_api_v1_instructions__instruction_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instruction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Instruction Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstructionUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "instructions"
+        ],
+        "summary": "Delete Instruction",
+        "operationId": "delete_instruction_api_v1_instructions__instruction_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instruction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Instruction Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reports/{report_id}/download": {
       "get": {
         "tags": [
@@ -2051,6 +2220,66 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "InstructionCreateIn": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "content"
+        ],
+        "title": "InstructionCreateIn"
+      },
+      "InstructionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "version",
+          "content"
+        ],
+        "title": "InstructionOut"
+      },
+      "InstructionUpdateIn": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "InstructionUpdateIn"
       },
       "InviteCreateIn": {
         "properties": {

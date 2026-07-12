@@ -13,6 +13,7 @@ from app.agent.publisher import EventPublisher
 from app.agent.tools import SENSITIVE_TOOLS, TOOLS, call_tool
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User
+from app.services import instruction_service
 
 SYSTEM_PROMPT = (
     "Ban la tro ly AI quan ly cong viec. Thuc hien yeu cau cua nguoi dung bang cach "
@@ -92,9 +93,16 @@ async def run_agent_loop(
                 return
 
             history = await _load_history(db, req.conversation_id)
+            # Instruction đọc từ DB mỗi lượt gọi LLM → CEO cập nhật là "AI nạp lại
+            # ngay", không cần cache/invalidation hay restart worker.
+            system_prompt = SYSTEM_PROMPT
+            instructions_text = await instruction_service.active_instructions_text(
+                db, req.workspace_id)
+            if instructions_text:
+                system_prompt += "\n\n# Chỉ dẫn từ CEO công ty\n" + instructions_text
             text_parts: list[str] = []
             done: StreamDone | None = None
-            async for event in llm.stream(system=SYSTEM_PROMPT, messages=history,
+            async for event in llm.stream(system=system_prompt, messages=history,
                                           tools=_tool_specs_for_api()):
                 if await check_cancelled(req.id):
                     await _cancel_and_exit()
