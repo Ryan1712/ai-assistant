@@ -16,7 +16,7 @@ from app.schemas import (
 )
 from app.services import (
     auth_service, dashboard_service, email_service, instruction_service, note_service,
-    portal_service, report_service, skill_service, work_service,
+    portal_service, report_service, skill_service, voice_service, work_service,
 )
 
 
@@ -431,6 +431,31 @@ _register("get_portal_report", "Đọc chi tiết 1 báo cáo từ cổng CEO đ
 
 async def _get_today_dashboard(db, actor, body: NoArgsIn) -> dict:
     return await dashboard_service.today_dashboard(db, actor)
+
+
+class ListVoiceNotesToolIn(BaseModel):
+    tag: str | None = None
+    on_date: date | None = None
+
+
+class GetVoiceNoteToolIn(BaseModel):
+    voice_note_id: uuid.UUID
+
+
+async def _list_voice_notes(db, actor, body: ListVoiceNotesToolIn) -> dict:
+    notes = await voice_service.list_voice_notes(db, actor, tag=body.tag,
+                                                 on_date=body.on_date)
+    return {"voice_notes": notes}
+
+
+async def _get_voice_note(db, actor, body: GetVoiceNoteToolIn) -> dict:
+    return await voice_service.get_voice_note(db, actor, body.voice_note_id)
+
+
+_register("list_voice_notes", "Liệt kê ghi âm của chính người dùng (lọc theo tag/ngày), "
+          "kèm transcript.", ListVoiceNotesToolIn, _list_voice_notes)
+_register("get_voice_note", "Đọc 1 ghi âm (transcript + metadata) — dùng để biến ghi âm "
+          "thành task/cập nhật theo yêu cầu.", GetVoiceNoteToolIn, _get_voice_note)
 
 
 _register("get_today_dashboard", "Tổng hợp 'Hôm nay' theo phạm vi quyền của người dùng: "
