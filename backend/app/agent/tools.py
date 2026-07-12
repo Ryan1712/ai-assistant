@@ -15,8 +15,8 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    auth_service, dashboard_service, instruction_service, note_service, portal_service,
-    report_service, skill_service, work_service,
+    auth_service, dashboard_service, email_service, instruction_service, note_service,
+    portal_service, report_service, skill_service, work_service,
 )
 
 
@@ -311,6 +311,23 @@ _register("generate_report",
           "Tạo báo cáo Excel tổng hợp task, filter tùy chọn theo project/người/khoảng "
           "thời gian/trạng thái (chỉ CEO). Trả về report_id + tóm tắt số liệu; "
           "file tải qua ứng dụng.", GenerateReportToolIn, _generate_report)
+
+
+class SendEmailToolIn(BaseModel):
+    recipient_id: uuid.UUID
+    subject: str
+    body: str
+
+
+async def _send_email(db, actor, body: SendEmailToolIn) -> dict:
+    email = await email_service.send_email(db, actor, body.recipient_id,
+                                           body.subject, body.body)
+    return {"id": str(email.id), "subject": email.subject, "sent": True}
+
+
+_register("send_email", "Gửi email cho 1 người trong công ty theo ma trận tương tác "
+          "(nhân viên không gửi được cho nhân viên khác). Hành động nhạy cảm, "
+          "cần xác nhận.", SendEmailToolIn, _send_email, sensitive=True)
 
 
 class CreateInstructionToolIn(BaseModel):

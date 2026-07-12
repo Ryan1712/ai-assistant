@@ -1,0 +1,76 @@
+"""Email theo vai trò (funtional-plan 6.4) — ma trận tương tác: employee ⇎ employee,
+mọi cặp khác trong cùng workspace được phép.
+
+EmailClient real CHƯA implement — chờ product chốt OAuth send-as hay SMTP
+(phụ lục funtional-plan). Mặc định MockEmailClient (email_mock=True): mail vẫn
+được ghi vào email_messages làm nguồn chuẩn trong app.
+"""
+import uuid
+from typing import Protocol
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import get_settings
+from app.models import EmailMessage, Role, User
+
+
+class EmailClient(Protocol):
+    async def send(self, *, from_email: str, to_email: str, subject: str,
+                   body: str) -> None: ...
+
+
+class MockEmailClient:
+    def __init__(self) -> None:
+        self.sent: list[dict] = []
+
+    async def send(self, *, from_email: str, to_email: str, subject: str,
+                   body: str) -> None:
+        self.sent.append({"from": from_email, "to": to_email, "subject": subject,
+                          "body": body})
+
+
+mock_email_client = MockEmailClient()
+
+
+def get_email_client() -> EmailClient:
+    if get_settings().email_mock:
+        return mock_email_client
+    raise NotImplementedError(
+        "Email client thật chưa được chọn (OAuth send-as vs SMTP) — xem phụ lục funtional-plan")
+
+
+def _check_matrix(sender: User, recipient: User) -> None:
+    if sender.role == Role.employee and recipient.role == Role.employee:
+        raise HTTPException(403, "interaction_not_allowed")
+
+
+async def send_email(db: AsyncSession, actor: User, recipient_id: uuid.UUID,
+                     subject: str, body: str) -> EmailMessage:
+    recipient = await db.get(User, recipient_id)
+    if recipient is None or recipient.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "recipient_not_found")
+    _check_matrix(actor, recipient)
+    email = EmailMessage(workspace_id=actor.workspace_id, sender_id=actor.id,
+                         recipient_id=recipient.id, subject=subject, body=body)
+    db.add(email)
+    await get_email_client().send(from_email=actor.email, to_email=recipient.email,
+                                  subject=subject, body=body)
+    await db.commit()
+    return email
+
+
+async def list_emails(db: AsyncSession, actor: User, box: str = "inbox") -> list[dict]:
+    field = EmailMessage.recipient_id if box == "inbox" else EmailMessage.sender_id
+    rows = await db.execute(
+        select(EmailMessage, User.full_name, User.email)
+        .join(User, User.id == (EmailMessage.sender_id if box == "inbox"
+                                else EmailMessage.recipient_id))
+        .where(EmailMessage.workspace_id == actor.workspace_id, field == actor.id)
+        .order_by(EmailMessage.created_at.desc())
+    )
+    return [{"id": str(m.id), "subject": m.subject, "body": m.body,
+             "counterpart_name": name, "counterpart_email": email,
+             "created_at": m.created_at}
+            for m, name, email in rows.all()]
