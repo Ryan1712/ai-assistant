@@ -231,6 +231,11 @@ class UseSkillOut(BaseModel):
     task_state: TaskStateOut | None
 
 
+class PushTokenIn(BaseModel):
+    device_uuid: str
+    push_token: str
+
+
 class SubscriptionPatchIn(BaseModel):
     plan: WorkspacePlan
 

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import plans
 from app.models import Notification, Project, Task, TaskAssignee, TaskComment, TaskUpdate, User
+from app.services.notify import notify
 from app.permissions import (
     can_update_progress,
     get_visible_task_or_404,
@@ -114,9 +115,9 @@ async def assign_task(db: AsyncSession, actor: User, task_id: uuid.UUID,
     if existing.first() is not None:
         return False
     db.add(TaskAssignee(workspace_id=actor.workspace_id, task_id=task_id, user_id=user_id))
-    db.add(Notification(workspace_id=actor.workspace_id, recipient_id=user_id,
-                        type="task_assigned",
-                        payload={"task_id": str(task_id), "title": task.title}))
+    await notify(db, workspace_id=actor.workspace_id, recipient_id=user_id,
+                 type="task_assigned",
+                 payload={"task_id": str(task_id), "title": task.title})
     await db.commit()
     return True
 
@@ -159,9 +160,9 @@ async def _notify_task_update(db: AsyncSession, actor: User, task: Task) -> None
         recipients.add(root)
     recipients.discard(actor.id)
     for rid in recipients:
-        db.add(Notification(workspace_id=actor.workspace_id, recipient_id=rid,
-                            type="task_update",
-                            payload={"task_id": str(task.id), "author_id": str(actor.id)}))
+        await notify(db, workspace_id=actor.workspace_id, recipient_id=rid,
+                     type="task_update",
+                     payload={"task_id": str(task.id), "author_id": str(actor.id)})
 
 
 async def add_task_update(db: AsyncSession, actor: User, task_id: uuid.UUID, *,

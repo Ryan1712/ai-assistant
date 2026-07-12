@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     storage_dir: str = "./storage/reports"
     # Cổng báo cáo CEO (funtional-plan 6.8) — chưa có API spec thật nên mặc định mock
     portal_mock: bool = True
+    push_mock: bool = True
+    email_mock: bool = True
+    stt_mock: bool = True
     portal_base_url: str = "https://ceo.9learning.edu.vn"
 
     model_config = {"env_file": ".env"}

@@ -13,6 +13,7 @@ from app.models import (
     Device, Invite, LoginEvent, Notification, RefreshToken, Role, User, UserStatus, Workspace,
 )
 from app.permissions import require_ceo
+from app.services.notify import notify
 
 _DUMMY_HASH = security.hash_password("dummy-timing-equalizer")
 
@@ -253,10 +254,8 @@ async def lock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -> 
         .where(RefreshToken.user_id == target.id, RefreshToken.revoked_at.is_(None))
         .values(revoked_at=datetime.now(timezone.utc))
     )
-    db.add(Notification(
-        workspace_id=target.workspace_id, recipient_id=target.id,
-        type="account_locked", payload={"by": str(actor.id)},
-    ))
+    await notify(db, workspace_id=target.workspace_id, recipient_id=target.id,
+                 type="account_locked", payload={"by": str(actor.id)})
     await db.commit()
 
 
@@ -278,9 +277,8 @@ async def request_unlock(db: AsyncSession, *, email: str, device_uuid: str) -> N
         User.workspace_id == user.workspace_id, User.is_root,
     ))).scalar_one_or_none()
     if root:
-        db.add(Notification(
-            workspace_id=user.workspace_id, recipient_id=root.id,
-            type="unlock_request",
-            payload={"user_id": str(user.id), "email": email, "device_uuid": device_uuid},
-        ))
+        await notify(db, workspace_id=user.workspace_id, recipient_id=root.id,
+                     type="unlock_request",
+                     payload={"user_id": str(user.id), "email": email,
+                              "device_uuid": device_uuid})
         await db.commit()

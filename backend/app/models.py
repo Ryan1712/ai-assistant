@@ -72,6 +72,7 @@ class Device(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     device_uuid: Mapped[str] = mapped_column(String(64))
     device_name: Mapped[str] = mapped_column(String(255), default="")
+    push_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
