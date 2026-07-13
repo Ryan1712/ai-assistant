@@ -32,78 +32,65 @@ async def test_fake_llm_client_yields_tool_use():
     assert events[0].tool_uses[0].name == "create_task"
 
 
-class _FakeUsage:
-    def __init__(self, input_tokens, output_tokens, cache_read=0, cache_write=0):
-        self.input_tokens = input_tokens
-        self.output_tokens = output_tokens
-        self.cache_read_input_tokens = cache_read
-        self.cache_creation_input_tokens = cache_write
+class _Obj:
+    """Namespace giả lập raw event của SDK anthropic (chỉ cần attribute access)."""
 
-
-class _FakeContentBlock:
-    def __init__(self, type_, **kw):
-        self.type = type_
+    def __init__(self, **kw):
         for k, v in kw.items():
             setattr(self, k, v)
 
 
-class _FakeFinalMessage:
-    def __init__(self, content, stop_reason, usage):
-        self.content = content
-        self.stop_reason = stop_reason
-        self.usage = usage
-
-
-class _FakeStreamContext:
-    def __init__(self, texts, final_message):
-        self._texts = texts
-        self._final_message = final_message
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    @property
-    def text_stream(self):
-        async def _gen():
-            for t in self._texts:
-                yield t
-        return _gen()
-
-    async def get_final_message(self):
-        return self._final_message
+def _usage(input_tokens=0, output_tokens=0, cache_read=0, cache_write=0):
+    return _Obj(input_tokens=input_tokens, output_tokens=output_tokens,
+                cache_read_input_tokens=cache_read, cache_creation_input_tokens=cache_write)
 
 
 class _FakeMessagesAPI:
-    def __init__(self, stream_ctx):
-        self._stream_ctx = stream_ctx
+    def __init__(self, events):
+        self._events = events
         self.last_kwargs = None
 
-    def stream(self, **kwargs):
+    async def create(self, **kwargs):
         self.last_kwargs = kwargs
-        return self._stream_ctx
+
+        async def _gen():
+            for e in self._events:
+                yield e
+        return _gen()
 
 
 class _FakeAnthropicSDKClient:
-    def __init__(self, stream_ctx):
-        self.messages = _FakeMessagesAPI(stream_ctx)
+    def __init__(self, events):
+        self.messages = _FakeMessagesAPI(events)
+
+
+def _official_stream_events():
+    """Chuỗi event chuẩn từ api.anthropic.com: text + tool_use với input stream dần."""
+    return [
+        _Obj(type="message_start", message=_Obj(usage=_usage(input_tokens=100, cache_read=80))),
+        _Obj(type="content_block_start", index=0, content_block=_Obj(type="text", text="")),
+        _Obj(type="content_block_delta", index=0, delta=_Obj(type="text_delta", text="Da ")),
+        _Obj(type="content_block_delta", index=0, delta=_Obj(type="text_delta", text="lam ")),
+        _Obj(type="content_block_delta", index=0, delta=_Obj(type="text_delta", text="xong")),
+        _Obj(type="content_block_stop", index=0),
+        _Obj(type="content_block_start", index=1,
+             content_block=_Obj(type="tool_use", id="t1", name="create_task", input={})),
+        _Obj(type="content_block_delta", index=1,
+             delta=_Obj(type="input_json_delta", partial_json='{"tit')),
+        _Obj(type="content_block_delta", index=1,
+             delta=_Obj(type="input_json_delta", partial_json='le": "X"}')),
+        _Obj(type="content_block_stop", index=1),
+        _Obj(type="message_delta", delta=_Obj(type=None, stop_reason="tool_use"),
+             usage=_Obj(output_tokens=20)),
+        _Obj(type="message_stop"),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_anthropic_llm_client_translates_sdk_stream_to_events():
+async def test_anthropic_llm_client_translates_raw_stream_to_events():
     from app.agent.llm_client import AnthropicLLMClient
 
-    final = _FakeFinalMessage(
-        content=[_FakeContentBlock("text", text="Da lam xong"),
-                 _FakeContentBlock("tool_use", id="t1", name="create_task", input={"title": "X"})],
-        stop_reason="tool_use",
-        usage=_FakeUsage(input_tokens=100, output_tokens=20, cache_read=80),
-    )
-    stream_ctx = _FakeStreamContext(texts=["Da ", "lam ", "xong"], final_message=final)
-    sdk_client = _FakeAnthropicSDKClient(stream_ctx)
-
+    sdk_client = _FakeAnthropicSDKClient(_official_stream_events())
     client = AnthropicLLMClient(sdk_client, model="claude-haiku-4-5")
     events = [e async for e in client.stream(
         system="sys", messages=[{"role": "user", "content": "hi"}], tools=[])]
@@ -114,7 +101,34 @@ async def test_anthropic_llm_client_translates_sdk_stream_to_events():
     assert done.tool_uses == [ToolUseBlock(id="t1", name="create_task", input={"title": "X"})]
     assert done.input_tokens == 100
     assert done.cache_read_tokens == 80
+    assert done.output_tokens == 20
     assert sdk_client.messages.last_kwargs["model"] == "claude-haiku-4-5"
+    assert sdk_client.messages.last_kwargs["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_anthropic_llm_client_survives_gateway_synthetic_prelude():
+    """Bug tìm ra khi smoke test LLM thật (2026-07-13): gateway (beeknoee) phát
+    message_start synthetic + content_block_start text rỗng TRƯỚC message_start
+    thật — accumulator của SDK helper lạc chỉ mục block ⇒ tool input về {}.
+    Accumulator tự quản phải reset theo message_start MỚI NHẤT và vẫn ráp đủ
+    input_json_delta."""
+    from app.agent.llm_client import AnthropicLLMClient
+
+    prelude = [
+        _Obj(type="ping"),
+        _Obj(type="message_start", message=_Obj(usage=_usage())),  # synthetic, usage=0
+        _Obj(type="content_block_start", index=0, content_block=_Obj(type="text", text="")),
+    ]
+    sdk_client = _FakeAnthropicSDKClient(prelude + _official_stream_events())
+    client = AnthropicLLMClient(sdk_client, model="claude-haiku-4-5")
+    events = [e async for e in client.stream(
+        system="sys", messages=[{"role": "user", "content": "hi"}], tools=[])]
+
+    done = events[-1]
+    assert done.tool_uses == [ToolUseBlock(id="t1", name="create_task", input={"title": "X"})]
+    assert done.input_tokens == 100  # usage lấy từ message_start thật, không phải synthetic
+    assert [e.text for e in events[:-1]] == ["Da ", "lam ", "xong"]
 
 
 @pytest.mark.asyncio
@@ -125,14 +139,15 @@ async def test_anthropic_llm_client_disables_parallel_tool_use():
     to at most one tool_use per turn via tool_choice.disable_parallel_tool_use."""
     from app.agent.llm_client import AnthropicLLMClient
 
-    final = _FakeFinalMessage(
-        content=[_FakeContentBlock("text", text="ok")],
-        stop_reason="end_turn",
-        usage=_FakeUsage(input_tokens=5, output_tokens=1),
-    )
-    stream_ctx = _FakeStreamContext(texts=["ok"], final_message=final)
-    sdk_client = _FakeAnthropicSDKClient(stream_ctx)
-
+    events = [
+        _Obj(type="message_start", message=_Obj(usage=_usage(input_tokens=5))),
+        _Obj(type="content_block_start", index=0, content_block=_Obj(type="text", text="")),
+        _Obj(type="content_block_delta", index=0, delta=_Obj(type="text_delta", text="ok")),
+        _Obj(type="message_delta", delta=_Obj(type=None, stop_reason="end_turn"),
+             usage=_Obj(output_tokens=1)),
+        _Obj(type="message_stop"),
+    ]
+    sdk_client = _FakeAnthropicSDKClient(events)
     client = AnthropicLLMClient(sdk_client, model="claude-haiku-4-5")
     _ = [e async for e in client.stream(
         system="sys", messages=[{"role": "user", "content": "hi"}], tools=[])]

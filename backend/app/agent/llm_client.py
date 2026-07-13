@@ -54,7 +54,15 @@ class FakeLLMClient(LLMClient):
 
 
 class AnthropicLLMClient(LLMClient):
-    """Prod impl — bọc anthropic.AsyncAnthropic (inject qua constructor để test không cần network)."""
+    """Prod impl — bọc anthropic.AsyncAnthropic (inject qua constructor để test không cần network).
+
+    Đọc RAW event stream (messages.create(stream=True)) và tự accumulate thay vì
+    dùng helper messages.stream(): một số gateway (vd beeknoee) phát message_start
+    synthetic + content_block_start text rỗng TRƯỚC message_start thật, làm
+    accumulator của helper lạc chỉ mục block ⇒ tool input về {} và usage về 0
+    (bug tìm ra khi smoke test LLM thật 2026-07-13). Accumulator ở đây reset theo
+    message_start MỚI NHẤT nên chạy đúng với cả API chính thức lẫn gateway.
+    """
 
     def __init__(self, client, model: str, max_tokens: int = 4096):
         self._client = client
@@ -63,24 +71,59 @@ class AnthropicLLMClient(LLMClient):
 
     async def stream(self, *, system: str, messages: list[dict],
                      tools: list[dict]) -> AsyncIterator[StreamEvent]:
-        async with self._client.messages.stream(
+        import json
+
+        resp = await self._client.messages.create(
             model=self._model, max_tokens=self._max_tokens,
             system=system, messages=messages, tools=tools,
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
-        ) as stream:
-            async for text in stream.text_stream:
-                yield TextDelta(text=text)
-            final = await stream.get_final_message()
-        tool_uses = [
-            ToolUseBlock(id=block.id, name=block.name, input=block.input)
-            for block in final.content if block.type == "tool_use"
-        ]
-        usage = final.usage
+            stream=True,
+        )
+        blocks: dict[int, dict] = {}
+        stop_reason: str = "end_turn"
+        input_tokens = output_tokens = cache_read = cache_write = 0
+        async for ev in resp:
+            etype = getattr(ev, "type", None)
+            if etype == "message_start":
+                blocks = {}  # bỏ prelude synthetic của gateway (nếu có)
+                u = ev.message.usage
+                input_tokens = getattr(u, "input_tokens", 0) or 0
+                cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
+                cache_write = getattr(u, "cache_creation_input_tokens", 0) or 0
+            elif etype == "content_block_start":
+                cb = ev.content_block
+                if cb.type == "tool_use":
+                    blocks[ev.index] = {"type": "tool_use", "id": cb.id, "name": cb.name,
+                                        "json": "", "start_input": getattr(cb, "input", None)}
+                else:
+                    blocks[ev.index] = {"type": cb.type}
+            elif etype == "content_block_delta":
+                d = ev.delta
+                dtype = getattr(d, "type", None)
+                if dtype == "text_delta":
+                    yield TextDelta(text=d.text)
+                elif dtype == "input_json_delta":
+                    b = blocks.get(ev.index)
+                    if b is not None and b["type"] == "tool_use":
+                        b["json"] += d.partial_json
+            elif etype == "message_delta":
+                if getattr(ev.delta, "stop_reason", None):
+                    stop_reason = ev.delta.stop_reason
+                u = getattr(ev, "usage", None)
+                if u is not None and getattr(u, "output_tokens", None):
+                    output_tokens = u.output_tokens
+
+        tool_uses = []
+        for _idx, b in sorted(blocks.items()):
+            if b["type"] != "tool_use":
+                continue
+            raw = b["json"].strip()
+            tool_input = json.loads(raw) if raw else (b["start_input"] or {})
+            tool_uses.append(ToolUseBlock(id=b["id"], name=b["name"], input=tool_input))
         yield StreamDone(
-            tool_uses=tool_uses, stop_reason=final.stop_reason,
-            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
-            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+            tool_uses=tool_uses, stop_reason=stop_reason,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         )
 
 
