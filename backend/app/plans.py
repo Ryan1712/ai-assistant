@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Project, Skill, User, Workspace, WorkspacePlan
 
 BASIC_LIMITS: dict[str, int] = {"projects": 5, "skills": 20, "members": 20}
-ADVANCED_FEATURES: frozenset[str] = frozenset({"ceo_portal"})
+ADVANCED_FEATURES: frozenset[str] = frozenset({"ceo_portal", "scheduled_reports"})
 
 _COUNT_MODELS = {"projects": Project, "skills": Skill, "members": User}
 
