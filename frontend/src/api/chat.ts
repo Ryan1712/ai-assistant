@@ -54,6 +54,12 @@ export const stopAll = (conversationId: string) =>
 export const cancelRequest = (requestId: string) =>
   apiFetch<void>(`/api/v1/chat-requests/${requestId}/cancel`, { method: "POST" });
 
+export const reorderRequest = (requestId: string, beforeId: string | null = null) =>
+  apiFetch<ChatRequest>(`/api/v1/chat-requests/${requestId}/reorder`, {
+    method: "POST",
+    body: { before_id: beforeId },
+  });
+
 export const confirmRequest = (requestId: string, approved: boolean) =>
   apiFetch<ChatRequest>(`/api/v1/chat-requests/${requestId}/confirm`, {
     method: "POST",

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { apiFetch } from "../api/client";
+import { registerPushTokenBestEffort } from "../notifications/push";
 import { clearTokens, getDeviceUuid, getTokens, setTokens } from "./tokenStore";
 
 export type User = {
@@ -61,6 +62,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    // Sau đăng nhập / khôi phục phiên: đăng ký push token (guarded, không await)
+    if (user) registerPushTokenBestEffort();
+  }, [user?.id]);
 
   const finishAuth = async (out: AuthOut) => {
     await setTokens({ access_token: out.access_token, refresh_token: out.refresh_token });

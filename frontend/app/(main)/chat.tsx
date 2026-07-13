@@ -18,6 +18,7 @@ import {
   listConversations,
   listMessages,
   listRequests,
+  reorderRequest,
   sendMessage,
   stopAll,
 } from "../../src/api/chat";
@@ -134,7 +135,24 @@ export default function Chat() {
     await refreshQueue(conversationId);
   };
 
+  const cancelQueued = async (requestId: string) => {
+    if (!conversationId) return;
+    try {
+      await cancelRequest(requestId);
+    } catch {}
+    await refreshQueue(conversationId);
+  };
+
+  const prioritize = async (requestId: string) => {
+    if (!conversationId) return;
+    try {
+      await reorderRequest(requestId, null); // before_id null = lên đầu hàng đợi
+    } catch {}
+    await refreshQueue(conversationId);
+  };
+
   const running = queue.find((q) => q.status === "running");
+  const queuedOnly = queue.filter((q) => q.status === "queued");
 
   return (
     <KeyboardAvoidingView
@@ -150,6 +168,32 @@ export default function Chat() {
           <TouchableOpacity onPress={() => conversationId && stopAll(conversationId)}>
             <Text style={{ color: "#dc2626", fontWeight: "600" }}>Dừng tất cả</Text>
           </TouchableOpacity>
+        </View>
+      )}
+      {queuedOnly.length > 0 && (
+        <View style={styles.queueList}>
+          <Text style={styles.queueTitle}>Hàng đợi ({queuedOnly.length})</Text>
+          {queuedOnly.map((q) => (
+            <View key={q.id} style={styles.queueItem}>
+              <Text style={{ flex: 1 }} numberOfLines={1}>
+                {q.content}
+              </Text>
+              <TouchableOpacity
+                style={styles.queueBtn}
+                onPress={() => prioritize(q.id)}
+                accessibilityLabel="Ưu tiên lên đầu"
+              >
+                <Text style={{ color: "#2563eb", fontWeight: "700" }}>⬆</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.queueBtn}
+                onPress={() => cancelQueued(q.id)}
+                accessibilityLabel="Hủy yêu cầu"
+              >
+                <Text style={{ color: "#dc2626", fontWeight: "700" }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
         </View>
       )}
       <FlatList
@@ -216,6 +260,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
+  queueList: {
+    backgroundColor: "#fffbeb",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderColor: "#fde68a",
+  },
+  queueTitle: { fontWeight: "600", fontSize: 12, color: "#92400e", marginBottom: 2 },
+  queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: 4, gap: 8 },
+  queueBtn: { paddingHorizontal: 8, paddingVertical: 2 },
   bubble: { borderRadius: 12, padding: 10, maxWidth: "85%" },
   userBubble: { backgroundColor: "#2563eb", alignSelf: "flex-end" },
   aiBubble: { backgroundColor: "#e5e7eb", alignSelf: "flex-start" },

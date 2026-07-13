@@ -45,8 +45,10 @@ export async function apiFetch<T>(
   opts: { method?: string; body?: unknown; auth?: boolean } = {},
 ): Promise<T> {
   const { method = "GET", body, auth = true } = opts;
+  // FormData (upload multipart): để fetch tự đặt Content-Type kèm boundary
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   const doFetch = async (): Promise<Response> => {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = isForm ? {} : { "Content-Type": "application/json" };
     if (auth) {
       const tokens = await getTokens();
       if (tokens?.access_token) headers.Authorization = `Bearer ${tokens.access_token}`;
@@ -54,7 +56,7 @@ export async function apiFetch<T>(
     return fetch(`${API_URL}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
     });
   };
 
