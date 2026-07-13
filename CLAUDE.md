@@ -15,7 +15,7 @@ App mobile chat-first: CEO/manager/nhân viên điều hành công việc bằng
 - Hạ tầng local: `docker compose up -d postgres redis`
 - Migration: `alembic revision --autogenerate -m "..."` rồi `alembic upgrade head`
 - Export contract cho FE: `python scripts/export_openapi.py` (ghi `openapi.json` ở repo root)
-- Postgres dev map host port 5433 (5432 bị Postgres bản Windows native chiếm)
+- Postgres dev map host port **5435**, redis **6380** (5432 bị Postgres Windows native chiếm; 5433/6379 bị project docker khác trên máy dev chiếm). `alembic` ưu tiên env `DATABASE_URL` nếu set, không thì dùng URL trong alembic.ini.
 
 ## Quy ước bất di bất dịch
 - Mọi bảng (trừ `workspaces`) có `workspace_id`; mọi query phải lọc theo workspace.

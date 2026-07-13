@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -10,6 +11,12 @@ from alembic import context
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# DATABASE_URL (nếu set) thắng URL hardcode trong alembic.ini — tránh migrate
+# nhầm DB lạ khi port host bị project khác chiếm.
+_db_url = os.environ.get("DATABASE_URL")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

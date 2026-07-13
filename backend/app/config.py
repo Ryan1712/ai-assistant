@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     refresh_ttl_days: int = 30
     env: str = "dev"
     anthropic_api_key: str = ""
-    redis_url: str = "redis://localhost:6379"
+    # Host port 6380/5435 — cổng mặc định 6379/5433 hay bị project khác trên máy dev chiếm
+    redis_url: str = "redis://localhost:6380"
     model_chat: str = "claude-haiku-4-5"
     storage_dir: str = "./storage/reports"
     # Cổng báo cáo CEO (funtional-plan 6.8) — chưa có API spec thật nên mặc định mock
