@@ -91,5 +91,8 @@ def get_llm_client() -> LLMClient:
     from app.config import get_settings
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.anthropic_api_key,
+        base_url=settings.anthropic_base_url or None,  # None = api.anthropic.com
+    )
     return AnthropicLLMClient(client, model=settings.model_chat)

@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     refresh_ttl_days: int = 30
     env: str = "dev"
     anthropic_api_key: str = ""
+    # Rỗng = api.anthropic.com; set khi đi qua gateway tương thích Anthropic API
+    # (lưu ý model id có thể cần prefix theo gateway, vd "anthropic/claude-...")
+    anthropic_base_url: str = ""
     # Host port 6380/5435 — cổng mặc định 6379/5433 hay bị project khác trên máy dev chiếm
     redis_url: str = "redis://localhost:6380"
     model_chat: str = "claude-haiku-4-5"
