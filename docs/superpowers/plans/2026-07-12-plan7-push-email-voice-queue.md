@@ -1,38 +1,38 @@
-﻿# Plan 7 â€” Push notification, Email theo ma tráº­n, Voice note, Queue UI
+# Plan 7 — Push notification, Email theo ma trận, Voice note, Queue UI
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans. Checkbox (`- [ ]`) Ä‘á»ƒ tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans. Checkbox (`- [ ]`) để tracking.
 
-**Goal:** HoÃ n thiá»‡n 4 khoáº£ng trá»‘ng cÃ²n láº¡i cá»§a funtional-plan: push notification tháº­t (Expo Push), email theo ma tráº­n tÆ°Æ¡ng tÃ¡c, ghi Ã¢m/voice note (transcription stub), vÃ  UI hÃ ng Ä‘á»£i (há»§y/Æ°u tiÃªn) trÃªn FE.
+**Goal:** Hoàn thiện 4 khoảng trống còn lại của funtional-plan: push notification thật (Expo Push), email theo ma trận tương tác, ghi âm/voice note (transcription stub), và UI hàng đợi (hủy/ưu tiên) trên FE.
 
-**Architecture:** Má»i tÃ­ch há»£p ngoÃ i (Expo Push, SMTP, STT) Ä‘á»u Ä‘á»©ng sau client protocol + mock máº·c Ä‘á»‹nh qua config â€” pattern nhÆ° portal_service. Notification táº­p trung vá» helper `notify()` (ghi báº£ng + báº¯n push best-effort, khÃ´ng bao giá» raise). Email/voice lÃ  model má»›i cÃ³ `workspace_id`, quyá»n á»Ÿ service layer.
+**Architecture:** Mọi tích hợp ngoài (Expo Push, SMTP, STT) đều đứng sau client protocol + mock mặc định qua config — pattern như portal_service. Notification tập trung về helper `notify()` (ghi bảng + bắn push best-effort, không bao giờ raise). Email/voice là model mới có `workspace_id`, quyền ở service layer.
 
-**Tech Stack:** BE nhÆ° cÅ© (+`python-multipart` cho upload). FE: expo-notifications, expo-audio.
+**Tech Stack:** BE như cũ (+`python-multipart` cho upload). FE: expo-notifications, expo-audio.
 
 ## Global Constraints (CLAUDE.md)
-- workspace_id má»i báº£ng; quyá»n á»Ÿ service layer; actor tá»« JWT; TDD, má»—i task 1 commit; export openapi khi Ä‘á»•i contract.
+- workspace_id mọi bảng; quyền ở service layer; actor từ JWT; TDD, mỗi task 1 commit; export openapi khi đổi contract.
 
-## Quyáº¿t Ä‘á»‹nh thiáº¿t káº¿
-- **Push:** `devices.push_token` (nullable). `PUT /api/v1/devices/push-token` (actor tá»± Ä‘Äƒng kÃ½ cho device_uuid cá»§a mÃ¬nh). `push_service.PushClient`: `MockPushClient` (default, `push_mock=True`) / `ExpoPushClient` (POST exp.host/--/api/v2/push/send). `notify()` helper thay 4 chá»— `db.add(Notification(...))` hiá»‡n cÃ³ (assign_task, task_update, account_locked, unlock_request) â€” push best-effort trÆ°á»›c commit, nuá»‘t lá»—i.
-- **Email:** ma tráº­n: employee â‡Ž employee; cÃ²n láº¡i tá»± do (trong workspace). Model `EmailMessage(sender_id, recipient_id, subject, body)`. Tool `send_email` **sensitive** (tÃ¡i dÃ¹ng flow xÃ¡c nháº­n 2 bÆ°á»›c sáºµn cÃ³). `EmailClient`: Mock default (`email_mock=True`); real client CHÆ¯A implement â€” chá» product chá»‘t OAuth send-as hay SMTP (phá»¥ lá»¥c funtional-plan). REST: `GET /api/v1/emails?box=inbox|sent`.
-- **Voice note:** model `VoiceNote(author_id, file_path, transcript, language, tags, task_id?, project_id?)` â€” cÃ¡ nhÃ¢n nhÆ° Note. `POST /api/v1/voice-notes` (multipart) lÆ°u file vÃ o `storage_dir/voice/{workspace_id}/`, transcription qua `TranscriptionClient` (Mock default `stt_mock=True`, tráº£ transcript rá»—ng + language "und"; real STT chá» chá»n provider). GET list (filter tag/ngÃ y) + GET file. Tools: `list_voice_notes`, `get_voice_note` (Ä‘á»c transcript Ä‘á»ƒ AI biáº¿n thÃ nh task qua tool sáºµn cÃ³).
-- **Queue UI (FE):** danh sÃ¡ch request queued trong mÃ n chat: nÃºt Há»§y (`POST /chat-requests/{id}/cancel`), nÃºt Æ¯u tiÃªn (`POST /chat-requests/{id}/reorder` body `{before_id: null}` = lÃªn Ä‘áº§u). FE Ä‘Äƒng kÃ½ push token khi Ä‘Äƒng nháº­p (guarded â€” Expo Go khÃ´ng há»— trá»£ remote push, chá»‰ log). Ghi Ã¢m má»™t cháº¡m á»Ÿ tab HÃ´m nay â†’ upload voice note.
+## Quyết định thiết kế
+- **Push:** `devices.push_token` (nullable). `PUT /api/v1/devices/push-token` (actor tự đăng ký cho device_uuid của mình). `push_service.PushClient`: `MockPushClient` (default, `push_mock=True`) / `ExpoPushClient` (POST exp.host/--/api/v2/push/send). `notify()` helper thay 4 chỗ `db.add(Notification(...))` hiện có (assign_task, task_update, account_locked, unlock_request) — push best-effort trước commit, nuốt lỗi.
+- **Email:** ma trận: employee ⇎ employee; còn lại tự do (trong workspace). Model `EmailMessage(sender_id, recipient_id, subject, body)`. Tool `send_email` **sensitive** (tái dùng flow xác nhận 2 bước sẵn có). `EmailClient`: Mock default (`email_mock=True`); real client CHƯA implement — chờ product chốt OAuth send-as hay SMTP (phụ lục funtional-plan). REST: `GET /api/v1/emails?box=inbox|sent`.
+- **Voice note:** model `VoiceNote(author_id, file_path, transcript, language, tags, task_id?, project_id?)` — cá nhân như Note. `POST /api/v1/voice-notes` (multipart) lưu file vào `storage_dir/voice/{workspace_id}/`, transcription qua `TranscriptionClient` (Mock default `stt_mock=True`, trả transcript rỗng + language "und"; real STT chờ chọn provider). GET list (filter tag/ngày) + GET file. Tools: `list_voice_notes`, `get_voice_note` (đọc transcript để AI biến thành task qua tool sẵn có).
+- **Queue UI (FE):** danh sách request queued trong màn chat: nút Hủy (`POST /chat-requests/{id}/cancel`), nút Ưu tiên (`POST /chat-requests/{id}/reorder` body `{before_id: null}` = lên đầu). FE đăng ký push token khi đăng nhập (guarded — Expo Go không hỗ trợ remote push, chỉ log). Ghi âm một chạm ở tab Hôm nay → upload voice note.
 
-### Task 1: Push â€” token + client + notify()
-- [x] `devices.push_token` String(128) nullable; `PUT /api/v1/devices/push-token` {device_uuid, push_token} (chá»‰ device cá»§a chÃ­nh actor, 404 náº¿u khÃ´ng cÃ³); `app/services/push_service.py` (MockPushClient ghi láº¡i `sent`, ExpoPushClient httpx, `get_push_client()` theo `settings.push_mock=True`); `app/services/notify.py::notify(db, *, workspace_id, recipient_id, type, payload)` â€” add Notification + push tá»›i má»i push_token cá»§a recipient, try/except nuá»‘t lá»—i; thay 4 call-site. Test: Ä‘Äƒng kÃ½ token; assign task â†’ MockPushClient nháº­n Ä‘Ãºng recipient/type; lá»—i push khÃ´ng phÃ¡ transaction. Commit `feat(be): expo push token + notify fanout`.
+### Task 1: Push — token + client + notify()
+- [x] `devices.push_token` String(128) nullable; `PUT /api/v1/devices/push-token` {device_uuid, push_token} (chỉ device của chính actor, 404 nếu không có); `app/services/push_service.py` (MockPushClient ghi lại `sent`, ExpoPushClient httpx, `get_push_client()` theo `settings.push_mock=True`); `app/services/notify.py::notify(db, *, workspace_id, recipient_id, type, payload)` — add Notification + push tới mọi push_token của recipient, try/except nuốt lỗi; thay 4 call-site. Test: đăng ký token; assign task → MockPushClient nhận đúng recipient/type; lỗi push không phá transaction. Commit `feat(be): expo push token + notify fanout`.
 
-### Task 2: Email theo ma tráº­n
-- [x] Model `EmailMessage`; `app/services/email_service.py::send_email(db, actor, recipient_id, subject, body)` â€” cÃ¹ng workspace (404), ma tráº­n employeeâ‡Žemployee (403 `interaction_not_allowed`), ghi row + `EmailClient.send` (mock); `list_emails(db, actor, box)`. Tool `send_email` sensitive. REST `GET /api/v1/emails`. Test: employeeâ†’employee 403; employeeâ†’ceo OK; managerâ†’manager OK; tool náº±m trong SENSITIVE_TOOLS; inbox/sent Ä‘Ãºng. Commit `feat(be): role-matrix email (mock client) + send_email tool`.
+### Task 2: Email theo ma trận
+- [x] Model `EmailMessage`; `app/services/email_service.py::send_email(db, actor, recipient_id, subject, body)` — cùng workspace (404), ma trận employee⇎employee (403 `interaction_not_allowed`), ghi row + `EmailClient.send` (mock); `list_emails(db, actor, box)`. Tool `send_email` sensitive. REST `GET /api/v1/emails`. Test: employee→employee 403; employee→ceo OK; manager→manager OK; tool nằm trong SENSITIVE_TOOLS; inbox/sent đúng. Commit `feat(be): role-matrix email (mock client) + send_email tool`.
 
 ### Task 3: Voice note
-- [x] `python-multipart` vÃ o requirements. Model `VoiceNote`; `app/services/voice_service.py`: `create_voice_note(db, actor, filename, data, tags, task_id, project_id)` (lÆ°u file an toÃ n â€” uuid filename, Ä‘Ãºng workspace dir; transcription mock; link task/project pháº£i visible), `list_voice_notes(db, actor, tag?, on_date?)` (author-only), `get_file(db, actor, id)`. REST: POST multipart, GET list, GET `/{id}/file` (FileResponse). Tools `list_voice_notes`, `get_voice_note`. Test: upload â†’ file tá»“n táº¡i Ä‘Ãºng thÆ° má»¥c workspace + transcript mock; author-only; path khÃ´ng traversal (uuid filename). Commit `feat(be): voice note upload + transcription stub + tools`.
+- [x] `python-multipart` vào requirements. Model `VoiceNote`; `app/services/voice_service.py`: `create_voice_note(db, actor, filename, data, tags, task_id, project_id)` (lưu file an toàn — uuid filename, đúng workspace dir; transcription mock; link task/project phải visible), `list_voice_notes(db, actor, tag?, on_date?)` (author-only), `get_file(db, actor, id)`. REST: POST multipart, GET list, GET `/{id}/file` (FileResponse). Tools `list_voice_notes`, `get_voice_note`. Test: upload → file tồn tại đúng thư mục workspace + transcript mock; author-only; path không traversal (uuid filename). Commit `feat(be): voice note upload + transcription stub + tools`.
 
 ### Task 4: Migration + openapi
 - [x] Migration tay: `devices.push_token`, `email_messages`, `voice_notes`. Full pytest. Export openapi. Commit `chore(be): plan7 migration + openapi refresh`.
 
-### Task 5: FE queue UI + push Ä‘Äƒng kÃ½ + ghi Ã¢m
-- [x] `src/api/chat.ts` thÃªm `reorderRequest`; mÃ n chat: khá»‘i "HÃ ng Ä‘á»£i" liá»‡t kÃª queued (ná»™i dung rÃºt gá»n + nÃºt âœ• há»§y + nÃºt â¬† Æ°u tiÃªn).
-- [x] `expo-notifications`: sau Ä‘Äƒng nháº­p, xin quyá»n + `getExpoPushTokenAsync` (try/catch â€” Expo Go bá» qua), `PUT /devices/push-token`.
-- [x] `expo-audio`: nÃºt "ðŸŽ™ï¸ Ghi Ã¢m nhanh" á»Ÿ tab HÃ´m nay (báº¥m ghi/báº¥m dá»«ng â†’ upload `POST /voice-notes`), hiá»‡n danh sÃ¡ch ghi Ã¢m hÃ´m nay. Typecheck + expo export. Commit `feat(fe): queue controls + push token + quick voice note`.
+### Task 5: FE queue UI + push đăng ký + ghi âm
+- [x] `src/api/chat.ts` thêm `reorderRequest`; màn chat: khối "Hàng đợi" liệt kê queued (nội dung rút gọn + nút ✕ hủy + nút ⬆ ưu tiên).
+- [x] `expo-notifications`: sau đăng nhập, xin quyền + `getExpoPushTokenAsync` (try/catch — Expo Go bỏ qua), `PUT /devices/push-token`.
+- [x] `expo-audio`: nút "🎙️ Ghi âm nhanh" ở tab Hôm nay (bấm ghi/bấm dừng → upload `POST /voice-notes`), hiện danh sách ghi âm hôm nay. Typecheck + expo export. Commit `feat(fe): queue controls + push token + quick voice note`.
 
-## Ghi chÃº chá» product
-- Email real (OAuth send-as vs SMTP) vÃ  STT provider (nháº­n diá»‡n ngÃ´n ngá»¯) chÆ°a chá»‘t â€” mock sáºµn interface.
+## Ghi chú chờ product
+- Email real (OAuth send-as vs SMTP) và STT provider (nhận diện ngôn ngữ) chưa chốt — mock sẵn interface.
