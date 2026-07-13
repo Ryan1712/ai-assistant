@@ -51,3 +51,28 @@ async def test_lock_root_ceo_tool_is_forbidden(db_session):
 def test_lock_and_unlock_are_marked_sensitive():
     assert SENSITIVE_TOOLS == {"lock_user", "unlock_user", "delete_instruction", "send_email"}
     assert TOOLS["create_invite"].sensitive is False
+
+
+@pytest.mark.asyncio
+async def test_list_users_tool_is_company_directory_for_everyone(db_session):
+    """E2E 2026-07-13: agent bí user_id (giao việc/gửi email/khóa) vì không có tool
+    danh bạ. list_users = danh bạ công ty — MỌI vai trò thấy đủ thành viên workspace
+    mình (như member list Slack); quyền HÀNH ĐỘNG vẫn chặn ở service layer."""
+    ws, ceo = await _ceo(db_session)
+    emp = User(workspace_id=ws.id, email="e@a.vn", password_hash="x", full_name="E",
+              role=Role.employee)
+    ws2 = Workspace(name="B")
+    db_session.add_all([emp, ws2])
+    await db_session.flush()
+    outsider = User(workspace_id=ws2.id, email="x@b.vn", password_hash="x", full_name="X",
+                   role=Role.ceo, is_root=True)
+    db_session.add(outsider)
+    await db_session.flush()
+    await db_session.commit()
+
+    result = await call_tool(db_session, emp, "list_users", {})
+    emails = {u["email"] for u in result["users"]}
+    assert emails == {"c@a.vn", "e@a.vn"}  # thấy CEO, không thấy workspace khác
+    u = next(u for u in result["users"] if u["email"] == "c@a.vn")
+    assert u["role"] == "ceo" and u["full_name"] == "C" and "id" in u
+    assert TOOLS["list_users"].sensitive is False

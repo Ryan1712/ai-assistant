@@ -7,6 +7,7 @@ from typing import Awaitable, Callable
 
 from fastapi import HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Role, TaskStatus, User
@@ -269,6 +270,18 @@ class UnlockUserToolIn(BaseModel):
     target_id: uuid.UUID
 
 
+async def _list_users(db, actor, body: NoArgsIn) -> dict:
+    """Danh bạ công ty — mọi vai trò thấy đủ thành viên workspace mình (để lấy
+    user_id khi giao việc/gửi email/khóa...). Quyền HÀNH ĐỘNG lên từng người vẫn
+    kiểm ở service layer của tool tương ứng; đây chỉ là thông tin danh bạ."""
+    rows = await db.execute(
+        select(User).where(User.workspace_id == actor.workspace_id)
+        .order_by(User.full_name.asc())
+    )
+    return {"users": [{"id": str(u.id), "full_name": u.full_name, "email": u.email,
+                       "role": u.role.value} for u in rows.scalars()]}
+
+
 async def _create_invite(db, actor, body: CreateInviteToolIn) -> dict:
     invite = await auth_service.create_invite(db, actor=actor, role=body.role.value,
                                               manager_id=body.manager_id)
@@ -286,6 +299,9 @@ async def _unlock_user(db, actor, body: UnlockUserToolIn) -> dict:
     return {"user_id": str(body.target_id), "locked": False}
 
 
+_register("list_users", "Danh bạ công ty: liệt kê thành viên (id, tên, email, vai trò). "
+          "Dùng để tra user_id theo tên trước khi giao task, gửi email, khóa/mở tài khoản "
+          "— đừng bao giờ hỏi người dùng user_id.", NoArgsIn, _list_users)
 _register("create_invite", "Tạo lời mời vào workspace kèm vai trò (chỉ CEO).",
           CreateInviteToolIn, _create_invite)
 _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi mọi thiết bị "
