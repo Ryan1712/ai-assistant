@@ -120,6 +120,48 @@ async def test_process_conversation_blocks_queue_while_awaiting_confirmation(eng
 
 
 @pytest.mark.asyncio
+async def test_process_conversation_stops_when_queue_held(engine, db_session):
+    """5.7: mất mạng/đóng app → queue_held; worker không tự chạy tiếp."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, queue_held=True)
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="viec dang do", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id,
+                           chat_request_id=req.id, role=MessageRole.user,
+                           content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[])
+    pub = FakeEventPublisher()
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": pub,
+        "is_cancelled": never_cancelled,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.queued  # được ghi nhớ, không chạy
+    assert len(llm.calls) == 0
+
+
+@pytest.mark.asyncio
 async def test_enqueue_conversation_uses_conversation_scoped_job_id():
     class _FakePool:
         def __init__(self):

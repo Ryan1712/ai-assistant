@@ -10,7 +10,7 @@ from app.agent.llm_client import get_llm_client
 from app.agent.loop import run_agent_loop
 from app.agent.publisher import get_event_publisher
 from app.config import get_settings
-from app.models import ChatRequest, ChatRequestStatus
+from app.models import ChatRequest, ChatRequestStatus, Conversation
 
 
 async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
@@ -38,6 +38,11 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 # tool_result phai theo ngay sau tool_use. Vi vay dung han xu ly toan
                 # bo queue cua conversation nay cho toi khi resolve_confirmation duoc
                 # goi (chuyen request dang paused ve lai `queued` va enqueue lai job).
+                return
+            conv = await db.get(Conversation, conversation_id)
+            if conv is not None and conv.queue_held:
+                # 5.7: mat mang/dong app -> khong tu chay tiep; cho nguoi dung go
+                # "tiep tuc cong viec" (send_message clear co + enqueue lai job).
                 return
             req = (await db.execute(
                 select(ChatRequest).where(
