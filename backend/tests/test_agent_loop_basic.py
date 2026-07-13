@@ -54,6 +54,77 @@ async def test_text_only_response_completes_request(db_session):
 
 
 @pytest.mark.asyncio
+async def test_system_prompt_contains_actor_identity_and_date(db_session):
+    """Smoke test LLM thật 2026-07-13: agent hỏi 'cần user ID của bạn' vì system
+    prompt không nói người dùng là ai — danh tính phải từ JWT/actor, model không
+    được phép hỏi."""
+    ws, ceo, conv = await _world(db_session)
+    req = _make_request(ws, conv, ceo, content="giao task cho chính tôi")
+    db_session.add(req)
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[[
+        TextDelta(text="ok"),
+        StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1),
+    ]])
+    await run_agent_loop(db_session, req, llm, FakeEventPublisher())
+
+    system = llm.calls[0]["system"]
+    assert ceo.full_name in system
+    assert str(ceo.id) in system
+    assert "ceo" in system  # vai trò
+    from datetime import datetime, timezone
+    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in system  # ngày hôm nay
+
+
+@pytest.mark.asyncio
+async def test_empty_model_response_does_not_store_empty_message(db_session):
+    """Smoke test LLM thật 2026-07-13: model (qua gateway) có thể trả về lượt rỗng —
+    nếu lưu Message content=[] thì mọi lần gọi API sau của conversation fail 400
+    (Anthropic cấm content rỗng)."""
+    ws, ceo, conv = await _world(db_session)
+    req = _make_request(ws, conv, ceo)
+    db_session.add(req)
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[[
+        StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=0),
+    ]])
+    await run_agent_loop(db_session, req, llm, FakeEventPublisher())
+
+    assert req.status.value == "done"
+    assistants = (await db_session.execute(select(Message).where(
+        Message.role == MessageRole.assistant))).scalars().all()
+    assert assistants == []  # không lưu message rỗng
+
+
+@pytest.mark.asyncio
+async def test_history_skips_messages_with_empty_content(db_session):
+    """Tự chữa conversation đã dính message rỗng từ trước khi có guard."""
+    ws, ceo, conv = await _world(db_session)
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=None,
+                           role=MessageRole.assistant, content=[]))  # message rỗng cũ
+    req = _make_request(ws, conv, ceo)
+    db_session.add(req)
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[[
+        TextDelta(text="ok"),
+        StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1),
+    ]])
+    await run_agent_loop(db_session, req, llm, FakeEventPublisher())
+
+    history = llm.calls[0]["messages"]
+    assert all(m["content"] for m in history)  # không còn content rỗng gửi lên API
+
+
+@pytest.mark.asyncio
 async def test_non_sensitive_tool_executes_and_loop_continues(db_session):
     ws, ceo, conv = await _world(db_session)
     req = _make_request(ws, conv, ceo, content="tao project Website")

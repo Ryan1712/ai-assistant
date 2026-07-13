@@ -15,11 +15,23 @@ from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User
 from app.services import instruction_service
 
-SYSTEM_PROMPT = (
-    "Ban la tro ly AI quan ly cong viec. Thuc hien yeu cau cua nguoi dung bang cach "
-    "goi tool phu hop. Neu tool tra ve error, hay bao lai ro rang cho nguoi dung, "
-    "khong tu suy dien hoac chon doi tuong thay the."
-)
+def _build_system_prompt(actor: User) -> str:
+    """System prompt theo từng request: danh tính actor lấy từ JWT (không bao giờ
+    hỏi user ID), ngày hiện tại, và thiên hướng hành động thay vì hỏi vặt."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return (
+        "Bạn là trợ lý AI quản lý công việc của công ty.\n"
+        f"Người đang nói chuyện với bạn: {actor.full_name} "
+        f"(id: {actor.id}, vai trò: {actor.role.value}). "
+        "Khi người dùng nói 'tôi'/'của tôi'/'cho tôi' thì chính là người này — dùng id ở trên, "
+        "TUYỆT ĐỐI không hỏi lại user ID.\n"
+        f"Hôm nay là {today} (UTC).\n"
+        "Thực hiện yêu cầu bằng cách gọi tool phù hợp. Khi đủ thông tin bắt buộc thì hành động "
+        "ngay và chọn mặc định hợp lý cho tham số tùy chọn, đừng hỏi vặt. Thiếu thông tin thì "
+        "ưu tiên tự tra bằng tool list (project/task/người) trước khi hỏi người dùng. "
+        "Nếu tool trả về error, báo lại rõ ràng cho người dùng, không tự suy diễn hoặc chọn "
+        "đối tượng thay thế."
+    )
 
 # Chặn vòng lặp agent chạy vô hạn nếu model cứ gọi tool không nhạy cảm mà không bao
 # giờ tới end_turn (buggy/adversarial). Nếu không có chặn này, arq job_timeout (mặc
@@ -38,7 +50,9 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID) -> list[di
         select(Message).where(Message.conversation_id == conversation_id)
         .order_by(Message.created_at.asc(), Message.id.asc())
     )
-    return [{"role": m.role.value, "content": m.content} for m in rows.scalars()]
+    # Bỏ message content rỗng (dữ liệu cũ trước guard bên dưới) — Anthropic API
+    # từ chối request có message rỗng.
+    return [{"role": m.role.value, "content": m.content} for m in rows.scalars() if m.content]
 
 
 async def _never_cancelled(_request_id: uuid.UUID) -> bool:
@@ -95,7 +109,7 @@ async def run_agent_loop(
             history = await _load_history(db, req.conversation_id)
             # Instruction đọc từ DB mỗi lượt gọi LLM → CEO cập nhật là "AI nạp lại
             # ngay", không cần cache/invalidation hay restart worker.
-            system_prompt = SYSTEM_PROMPT
+            system_prompt = _build_system_prompt(actor)
             instructions_text = await instruction_service.active_instructions_text(
                 db, req.workspace_id)
             if instructions_text:
@@ -121,9 +135,13 @@ async def run_agent_loop(
             for tu in done.tool_uses:
                 assistant_content.append({"type": "tool_use", "id": tu.id, "name": tu.name,
                                           "input": tu.input})
-            db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
-                           chat_request_id=req.id, role=MessageRole.assistant,
-                           content=assistant_content))
+            if assistant_content:
+                # Lượt rỗng (model/gateway trả về không text không tool) mà vẫn lưu
+                # content=[] thì mọi lần gọi API sau của conversation fail 400.
+                db.add(Message(workspace_id=req.workspace_id,
+                               conversation_id=req.conversation_id,
+                               chat_request_id=req.id, role=MessageRole.assistant,
+                               content=assistant_content))
             db.add(UsageLog(workspace_id=req.workspace_id, chat_request_id=req.id,
                             model=get_settings().model_chat, input_tokens=done.input_tokens,
                             output_tokens=done.output_tokens,
