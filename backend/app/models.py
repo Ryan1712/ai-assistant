@@ -300,6 +300,8 @@ class Conversation(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 5.7: mất mạng/đóng app → hold queue; chỉ "tiếp tục công việc" mới clear
+    queue_held: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
