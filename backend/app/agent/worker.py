@@ -94,3 +94,8 @@ class WorkerSettings:
     # except Exception trong run_agent_loop, kẹt request ở status=running vĩnh viễn).
     max_jobs = 10
     job_timeout = 600
+    # keep_result=0: job_id cố định conv:{id} chỉ để dedup khi job ĐANG chạy.
+    # Nếu giữ result (default 3600s), enqueue cùng job_id sau khi job xong bị arq
+    # từ chối lặng lẽ → tin nhắn thứ 2 trong 1 giờ không bao giờ được xử lý
+    # (bug tìm ra khi smoke test LLM thật 2026-07-13).
+    keep_result = 0

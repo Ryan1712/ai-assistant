@@ -194,3 +194,11 @@ def test_worker_settings_has_explicit_max_jobs_and_job_timeout():
     what normally ends a runaway job, not arq killing it via CancelledError."""
     assert WorkerSettings.max_jobs == 10
     assert WorkerSettings.job_timeout == 600
+
+
+def test_worker_settings_does_not_keep_result():
+    """Bug tìm ra khi chạy LLM thật (2026-07-13): job_id cố định conv:{id} + arq
+    keep_result mặc định 3600s ⇒ sau khi job xong, mọi enqueue cùng conversation
+    trong 1 giờ bị arq từ chối lặng lẽ — tin nhắn thứ 2 không bao giờ được xử lý.
+    keep_result=0 giải phóng job_id ngay khi xong (vẫn dedup lúc đang chạy)."""
+    assert WorkerSettings.keep_result == 0
