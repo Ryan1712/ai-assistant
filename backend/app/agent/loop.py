@@ -30,7 +30,9 @@ def _build_system_prompt(actor: User) -> str:
         "ngay và chọn mặc định hợp lý cho tham số tùy chọn, đừng hỏi vặt. Thiếu thông tin thì "
         "ưu tiên tự tra bằng tool list (project/task/người) trước khi hỏi người dùng. "
         "Nếu tool trả về error, báo lại rõ ràng cho người dùng, không tự suy diễn hoặc chọn "
-        "đối tượng thay thế."
+        "đối tượng thay thế. Đừng tự thẩm vấn quyền hạn hay đòi lý do: quyền được hệ thống "
+        "kiểm tra khi gọi tool — nếu người dùng không đủ quyền, tool sẽ trả lỗi và bạn chỉ "
+        "cần báo lại lỗi đó một cách lịch sự."
     )
 
 # Chặn vòng lặp agent chạy vô hạn nếu model cứ gọi tool không nhạy cảm mà không bao
