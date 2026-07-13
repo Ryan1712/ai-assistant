@@ -17,7 +17,8 @@ from app.schemas import (
 )
 from app.services import (
     auth_service, dashboard_service, email_service, instruction_service, note_service,
-    portal_service, report_service, skill_service, voice_service, work_service,
+    portal_service, report_schedule_service, report_service, skill_service, voice_service,
+    work_service,
 )
 
 
@@ -327,6 +328,56 @@ _register("generate_report",
           "Tạo báo cáo Excel tổng hợp task, filter tùy chọn theo project/người/khoảng "
           "thời gian/trạng thái (chỉ CEO). Trả về report_id + tóm tắt số liệu; "
           "file tải qua ứng dụng.", GenerateReportToolIn, _generate_report)
+
+
+class CreateReportScheduleToolIn(BaseModel):
+    weekday: int | None = None
+    hour: int
+    minute: int = 0
+    project_id: uuid.UUID | None = None
+    assignee_id: uuid.UUID | None = None
+    status: TaskStatus | None = None
+    recipient_id: uuid.UUID | None = None
+
+
+class DeleteReportScheduleToolIn(BaseModel):
+    schedule_id: uuid.UUID
+
+
+def _schedule_out(s) -> dict:
+    return {"id": str(s.id), "weekday": s.weekday, "hour": s.hour, "minute": s.minute,
+           "project_id": str(s.project_id) if s.project_id else None,
+           "assignee_id": str(s.assignee_id) if s.assignee_id else None,
+           "status": s.status.value if s.status else None,
+           "recipient_id": str(s.recipient_id), "active": s.active,
+           "next_run_at": s.next_run_at.isoformat()}
+
+
+async def _create_report_schedule(db, actor, body: CreateReportScheduleToolIn) -> dict:
+    sched = await report_schedule_service.create_schedule(db, actor, **body.model_dump())
+    return _schedule_out(sched)
+
+
+async def _list_report_schedules(db, actor, body: NoArgsIn) -> dict:
+    rows = await report_schedule_service.list_schedules(db, actor)
+    return {"schedules": [_schedule_out(s) for s in rows]}
+
+
+async def _delete_report_schedule(db, actor, body: DeleteReportScheduleToolIn) -> dict:
+    await report_schedule_service.delete_schedule(db, actor, body.schedule_id)
+    return {"schedule_id": str(body.schedule_id), "deleted": True}
+
+
+_register("create_report_schedule",
+          "Đặt lịch tự động gửi báo cáo tiến độ định kỳ (chỉ CEO, gói Advanced). "
+          "Tự tính weekday từ ngôn ngữ tự nhiên: 0=Thứ Hai...6=Chủ Nhật, để trống "
+          "(null) nếu là hàng ngày. Giờ theo UTC. VD 'mỗi sáng thứ 2 lúc 8h' → "
+          "weekday=0, hour=8, minute=0.", CreateReportScheduleToolIn,
+          _create_report_schedule)
+_register("list_report_schedules", "Liệt kê lịch báo cáo định kỳ đang có (chỉ CEO).",
+          NoArgsIn, _list_report_schedules)
+_register("delete_report_schedule", "Hủy 1 lịch báo cáo định kỳ theo id (chỉ CEO).",
+          DeleteReportScheduleToolIn, _delete_report_schedule)
 
 
 class SendEmailToolIn(BaseModel):

@@ -324,3 +324,30 @@ class ChatRequestEditIn(BaseModel):
 
 class ReorderIn(BaseModel):
     before_id: uuid.UUID | None = None
+
+
+class ReportScheduleCreateIn(BaseModel):
+    weekday: int | None = Field(default=None, ge=0, le=6)  # 0=Mon..6=Sun, None=daily
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
+    project_id: uuid.UUID | None = None
+    assignee_id: uuid.UUID | None = None
+    status: TaskStatus | None = None
+    recipient_id: uuid.UUID | None = None
+
+
+class ReportScheduleOut(BaseModel):
+    id: uuid.UUID
+    weekday: int | None
+    hour: int
+    minute: int
+    project_id: uuid.UUID | None
+    assignee_id: uuid.UUID | None
+    status: TaskStatus | None
+    recipient_id: uuid.UUID
+    active: bool
+    last_run_at: dt.datetime | None
+    next_run_at: dt.datetime
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}

@@ -2253,6 +2253,121 @@
         }
       }
     },
+    "/api/v1/report-schedules": {
+      "get": {
+        "tags": [
+          "report-schedules"
+        ],
+        "summary": "List Report Schedules",
+        "operationId": "list_report_schedules_api_v1_report_schedules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReportScheduleOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Report Schedules Api V1 Report Schedules Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "report-schedules"
+        ],
+        "summary": "Create Report Schedule",
+        "operationId": "create_report_schedule_api_v1_report_schedules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportScheduleCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportScheduleOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/report-schedules/{schedule_id}": {
+      "delete": {
+        "tags": [
+          "report-schedules"
+        ],
+        "summary": "Delete Report Schedule",
+        "operationId": "delete_report_schedule_api_v1_report_schedules__schedule_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/conversations": {
       "get": {
         "tags": [
@@ -3546,6 +3661,196 @@
         },
         "type": "object",
         "title": "ReorderIn"
+      },
+      "ReportScheduleCreateIn": {
+        "properties": {
+          "weekday": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 6.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekday"
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute",
+            "default": 0
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recipient_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hour"
+        ],
+        "title": "ReportScheduleCreateIn"
+      },
+      "ReportScheduleOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "weekday": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekday"
+          },
+          "hour": {
+            "type": "integer",
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "title": "Minute"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recipient_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recipient Id"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "next_run_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Next Run At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "weekday",
+          "hour",
+          "minute",
+          "project_id",
+          "assignee_id",
+          "status",
+          "recipient_id",
+          "active",
+          "last_run_at",
+          "next_run_at",
+          "created_at"
+        ],
+        "title": "ReportScheduleOut"
       },
       "Role": {
         "type": "string",
