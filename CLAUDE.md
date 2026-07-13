@@ -1,7 +1,7 @@
 # AI Assistant — Trợ lý AI Quản lý Công việc (SaaS)
 
 App mobile chat-first: CEO/manager/nhân viên điều hành công việc bằng cách nhắn cho AI.
-Đội 2 dev: BE (Python, kiêm AI/LLM) + FE (React Native/Expo).
+Solo dev (từ 2026-07-13): 1 người làm full-stack — BE (Python, kiêm AI/LLM) + FE (React Native/Expo).
 
 ## Tài liệu nguồn (đọc trước khi làm việc lớn)
 - Spec chức năng: `funtional-plan.md` (tên file cố ý giữ nguyên, đừng "sửa chính tả")
