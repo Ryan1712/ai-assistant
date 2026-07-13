@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from arq.connections import RedisSettings
+from arq.cron import cron
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -11,6 +12,7 @@ from app.agent.loop import run_agent_loop
 from app.agent.publisher import get_event_publisher
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
+from app.services import report_schedule_service
 
 
 async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
@@ -60,6 +62,13 @@ async def enqueue_conversation(arq_pool, conversation_id: uuid.UUID):
                                       _job_id=f"conv:{conversation_id}")
 
 
+async def check_report_schedules(ctx: dict) -> None:
+    """arq cron (mỗi phút): quét ReportSchedule tới hạn, sinh báo cáo + notify
+    (funtional-plan 6.5 nâng cao — báo cáo định kỳ tự động, gói Advanced)."""
+    async with ctx["session_factory"]() as db:
+        await report_schedule_service.run_due_schedules(db)
+
+
 async def _is_cancelled_redis(ctx: dict, request_id: uuid.UUID) -> bool:
     return bool(await ctx["redis"].exists(f"cancel:{request_id}"))
 
@@ -83,6 +92,7 @@ async def _shutdown(ctx: dict) -> None:
 
 class WorkerSettings:
     functions = [process_conversation]
+    cron_jobs = [cron(check_report_schedules, second=0)]
     on_startup = _startup
     on_shutdown = _shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

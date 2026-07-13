@@ -196,6 +196,36 @@ def test_worker_settings_has_explicit_max_jobs_and_job_timeout():
     assert WorkerSettings.job_timeout == 600
 
 
+def test_worker_settings_registers_report_schedule_cron():
+    """Plan 9: báo cáo định kỳ tự động — arq cron quét ReportSchedule mỗi phút."""
+    from app.agent.worker import check_report_schedules
+
+    assert WorkerSettings.cron_jobs is not None
+    names = [j.name for j in WorkerSettings.cron_jobs]
+    assert "cron:check_report_schedules" in names
+    job = next(j for j in WorkerSettings.cron_jobs if j.name == "cron:check_report_schedules")
+    assert job.coroutine is check_report_schedules
+
+
+@pytest.mark.asyncio
+async def test_check_report_schedules_calls_run_due_schedules(engine, monkeypatch):
+    from app.agent import worker as worker_module
+
+    called = {}
+
+    async def fake_run_due_schedules(db):
+        called["db"] = db
+        return []
+
+    monkeypatch.setattr(worker_module.report_schedule_service, "run_due_schedules",
+                        fake_run_due_schedules)
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False)}
+
+    await worker_module.check_report_schedules(ctx)
+
+    assert "db" in called
+
+
 def test_worker_settings_does_not_keep_result():
     """Bug tìm ra khi chạy LLM thật (2026-07-13): job_id cố định conv:{id} + arq
     keep_result mặc định 3600s ⇒ sau khi job xong, mọi enqueue cùng conversation
