@@ -11,6 +11,7 @@ from app import security
 from app.agent.publisher import EventPublisher, get_event_publisher
 from app.db import get_db
 from app.models import Conversation
+from app.services import continuity, presence
 
 router = APIRouter()
 
@@ -53,7 +54,13 @@ async def conversation_ws(
         await websocket.close(code=4401)
         return
     await websocket.accept()
+    presence.connect(conversation_id)
     try:
         await stream_events(websocket.send_json, publisher.subscribe(conversation_id))
     except WebSocketDisconnect:
         pass
+    finally:
+        # Socket cuối cùng đóng = mất mạng/đóng app → hold queue (5.7); reconnect
+        # KHÔNG tự resume, chỉ tin nhắn "tiếp tục công việc" mới clear.
+        if presence.disconnect(conversation_id) == 0:
+            await continuity.hold_queue_if_pending(db, conversation_id)

@@ -15,6 +15,7 @@ from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
     MessageOut, MessageSendIn, ReorderIn,
 )
+from app.services import continuity
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
 chat_requests_router = APIRouter(prefix="/api/v1/chat-requests", tags=["chat"])
@@ -73,6 +74,10 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
     db.add(Message(workspace_id=actor.workspace_id, conversation_id=conv.id,
                    chat_request_id=req.id, role=MessageRole.user,
                    content=[{"type": "text", "text": body.content}]))
+    if conv.queue_held and continuity.is_resume_phrase(body.content):
+        # 5.7: "tiếp tục công việc" → mở lại queue; request này vào cuối hàng
+        # nên AI làm nốt việc cũ trước rồi mới trả lời nó.
+        conv.queue_held = False
     await db.commit()
     await enqueue_conversation(arq_pool, conv.id)
     return req

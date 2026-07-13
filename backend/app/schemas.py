@@ -285,6 +285,7 @@ class ConversationCreateIn(BaseModel):
 class ConversationOut(BaseModel):
     id: uuid.UUID
     title: str | None
+    queue_held: bool = False
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}
