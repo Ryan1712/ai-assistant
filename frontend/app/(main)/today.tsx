@@ -5,8 +5,9 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -31,6 +32,12 @@ function QuickVoiceCard() {
   const [notes, setNotes] = useState<VoiceNote[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+  }, []);
 
   const loadNotes = useCallback(async () => {
     try {
@@ -51,6 +58,9 @@ function QuickVoiceCard() {
         if (recorder.uri) {
           await uploadVoiceNote(recorder.uri);
           await loadNotes();
+          setSaved(true); // peak-end: lưu xong phải thấy ngay là đã lưu
+          if (savedTimer.current) clearTimeout(savedTimer.current);
+          savedTimer.current = setTimeout(() => setSaved(false), 2500);
         }
       } else {
         const perm = await AudioModule.requestRecordingPermissionsAsync();
@@ -86,6 +96,7 @@ function QuickVoiceCard() {
         </Text>
       </TouchableOpacity>
       {error && <Text style={styles.error}>{error}</Text>}
+      {saved && <Text style={styles.saved}>✓ Đã lưu ghi âm</Text>}
       {notes.length === 0 ? (
         <Text style={styles.empty}>Chưa có ghi âm hôm nay</Text>
       ) : (
@@ -153,6 +164,9 @@ export default function Today() {
       contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
     >
+      {!data && (
+        <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+      )}
       {data && (
         <>
           <View style={styles.counters}>
@@ -234,4 +248,5 @@ const styles = StyleSheet.create({
   },
   recordBtnActive: { backgroundColor: colors.danger },
   error: { color: colors.danger, marginBottom: spacing.sm },
+  saved: { color: colors.success, fontWeight: "700", marginBottom: spacing.sm },
 });

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -43,6 +44,7 @@ export default function Chat() {
   const [rows, setRows] = useState<Row[]>([]);
   const [queue, setQueue] = useState<ChatRequest[]>([]);
   const [held, setHeld] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [pendingConfirm, setPendingConfirm] = useState<{
     requestId: string;
@@ -112,13 +114,17 @@ export default function Chat() {
 
   useEffect(() => {
     (async () => {
-      const convs = await listConversations();
-      const conv = convs[0] ?? (await createConversation("Cuộc trò chuyện đầu tiên"));
-      setConversationId(conv.id);
-      setHeld(conv.queue_held);
-      await loadHistory(conv.id);
-      await refreshQueue(conv.id);
-      closeWs.current = await openConversationStream(conv.id, onWsEvent(conv.id));
+      try {
+        const convs = await listConversations();
+        const conv = convs[0] ?? (await createConversation("Cuộc trò chuyện đầu tiên"));
+        setConversationId(conv.id);
+        setHeld(conv.queue_held);
+        await loadHistory(conv.id);
+        await refreshQueue(conv.id);
+        closeWs.current = await openConversationStream(conv.id, onWsEvent(conv.id));
+      } finally {
+        setLoading(false);
+      }
     })();
     return () => closeWs.current?.();
   }, [loadHistory, onWsEvent, refreshQueue]);
@@ -227,7 +233,16 @@ export default function Chat() {
         ref={listRef}
         data={rows}
         keyExtractor={(r) => r.key}
-        contentContainerStyle={{ padding: 12, gap: 8 }}
+        ListEmptyComponent={
+          loading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+          ) : (
+            <Text style={styles.emptyChat}>
+              Chưa có tin nhắn — nhắn cho AI để giao việc, hỏi tiến độ, tạo note…
+            </Text>
+          )
+        }
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.sm }}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (
           <View
@@ -319,6 +334,7 @@ const styles = StyleSheet.create({
   },
   queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs, gap: spacing.sm },
   queueBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  emptyChat: { color: colors.textMuted, textAlign: "center", marginTop: spacing.xxl },
   bubble: { borderRadius: radius.lg, padding: spacing.md, maxWidth: "85%" },
   userBubble: { backgroundColor: colors.primary, alignSelf: "flex-end" },
   aiBubble: { backgroundColor: colors.surfaceAlt, alignSelf: "flex-start" },
