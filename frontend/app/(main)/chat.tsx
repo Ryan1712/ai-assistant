@@ -23,6 +23,7 @@ import {
   stopAll,
 } from "../../src/api/chat";
 import { WsEvent, openConversationStream } from "../../src/api/ws";
+import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 type Row =
   | { key: string; kind: "user" | "assistant"; text: string }
@@ -156,17 +157,17 @@ export default function Chat() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#f9fafb" }}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       {queue.length > 0 && (
         <View style={styles.queueBar}>
-          <Text style={{ flex: 1 }}>
+          <Text style={{ flex: 1, color: colors.text }}>
             Đang xử lý {running ? 1 : 0}/{queue.length}
             {running ? ` — “${running.content.slice(0, 40)}”` : ""}
           </Text>
           <TouchableOpacity onPress={() => conversationId && stopAll(conversationId)}>
-            <Text style={{ color: "#dc2626", fontWeight: "600" }}>Dừng tất cả</Text>
+            <Text style={{ color: colors.danger, fontWeight: "700" }}>Dừng tất cả</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -175,7 +176,7 @@ export default function Chat() {
           <Text style={styles.queueTitle}>Hàng đợi ({queuedOnly.length})</Text>
           {queuedOnly.map((q) => (
             <View key={q.id} style={styles.queueItem}>
-              <Text style={{ flex: 1 }} numberOfLines={1}>
+              <Text style={{ flex: 1, color: colors.text }} numberOfLines={1}>
                 {q.content}
               </Text>
               <TouchableOpacity
@@ -183,14 +184,14 @@ export default function Chat() {
                 onPress={() => prioritize(q.id)}
                 accessibilityLabel="Ưu tiên lên đầu"
               >
-                <Text style={{ color: "#2563eb", fontWeight: "700" }}>⬆</Text>
+                <Text style={{ color: colors.primary, fontWeight: "700" }}>⬆</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.queueBtn}
                 onPress={() => cancelQueued(q.id)}
                 accessibilityLabel="Hủy yêu cầu"
               >
-                <Text style={{ color: "#dc2626", fontWeight: "700" }}>✕</Text>
+                <Text style={{ color: colors.danger, fontWeight: "700" }}>✕</Text>
               </TouchableOpacity>
             </View>
           ))}
@@ -213,7 +214,7 @@ export default function Chat() {
                   : styles.aiBubble,
             ]}
           >
-            <Text style={item.kind === "user" ? { color: "#fff" } : undefined}>
+            <Text style={{ color: item.kind === "user" ? colors.onPrimary : colors.text }}>
               {item.text}
               {item.kind === "streaming" ? " ▍" : ""}
             </Text>
@@ -222,15 +223,15 @@ export default function Chat() {
       />
       {pendingConfirm && (
         <View style={styles.confirmBar}>
-          <Text style={{ marginBottom: 8 }}>
+          <Text style={{ marginBottom: spacing.sm, color: colors.text }}>
             AI muốn thực hiện hành động nhạy cảm: {pendingConfirm.toolName}. Xác nhận?
           </Text>
-          <View style={{ flexDirection: "row", gap: 12 }}>
+          <View style={{ flexDirection: "row", gap: spacing.md }}>
             <TouchableOpacity style={styles.okBtn} onPress={() => resolveConfirm(true)}>
-              <Text style={{ color: "#fff" }}>Đồng ý</Text>
+              <Text style={{ color: colors.onPrimary }}>Đồng ý</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.denyBtn} onPress={() => resolveConfirm(false)}>
-              <Text style={{ color: "#fff" }}>Từ chối</Text>
+              <Text style={{ color: colors.onPrimary }}>Từ chối</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -239,13 +240,14 @@ export default function Chat() {
         <TextInput
           style={styles.input}
           placeholder="Nhắn cho trợ lý AI… (gửi không cần chờ)"
+          placeholderTextColor={colors.textMuted}
           value={input}
           onChangeText={setInput}
           onSubmitEditing={submit}
           multiline
         />
         <TouchableOpacity style={styles.sendBtn} onPress={submit}>
-          <Text style={{ color: "#fff", fontWeight: "700" }}>Gửi</Text>
+          <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>Gửi</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -256,50 +258,71 @@ const styles = StyleSheet.create({
   queueBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fef3c7",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: colors.warningBarBg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   queueList: {
-    backgroundColor: "#fffbeb",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: colors.warningBg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    borderColor: "#fde68a",
+    borderColor: colors.warningBorder,
   },
-  queueTitle: { fontWeight: "600", fontSize: 12, color: "#92400e", marginBottom: 2 },
-  queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: 4, gap: 8 },
-  queueBtn: { paddingHorizontal: 8, paddingVertical: 2 },
-  bubble: { borderRadius: 12, padding: 10, maxWidth: "85%" },
-  userBubble: { backgroundColor: "#2563eb", alignSelf: "flex-end" },
-  aiBubble: { backgroundColor: "#e5e7eb", alignSelf: "flex-start" },
-  systemBubble: { backgroundColor: "#fee2e2", alignSelf: "center" },
-  confirmBar: { backgroundColor: "#fff7ed", padding: 12, borderTopWidth: 1, borderColor: "#fdba74" },
-  okBtn: { backgroundColor: "#16a34a", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  denyBtn: { backgroundColor: "#dc2626", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  queueTitle: {
+    ...type.caption,
+    fontWeight: "700",
+    color: colors.warningText,
+    marginBottom: spacing.xs,
+  },
+  queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs, gap: spacing.sm },
+  queueBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  bubble: { borderRadius: radius.lg, padding: spacing.md, maxWidth: "85%" },
+  userBubble: { backgroundColor: colors.primary, alignSelf: "flex-end" },
+  aiBubble: { backgroundColor: colors.surfaceAlt, alignSelf: "flex-start" },
+  systemBubble: { backgroundColor: colors.dangerBg, alignSelf: "center" },
+  confirmBar: {
+    backgroundColor: colors.confirmBg,
+    padding: spacing.md,
+    borderTopWidth: 1,
+    borderColor: colors.confirmBorder,
+  },
+  okBtn: {
+    backgroundColor: colors.success,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  denyBtn: {
+    backgroundColor: colors.danger,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
   inputBar: {
     flexDirection: "row",
     alignItems: "flex-end",
-    padding: 10,
-    gap: 8,
+    padding: spacing.md,
+    gap: spacing.sm,
     borderTopWidth: 1,
-    borderColor: "#e5e7eb",
-    backgroundColor: "#fff",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     maxHeight: 120,
-    fontSize: 16,
+    fontSize: type.body.fontSize,
+    color: colors.text,
   },
   sendBtn: {
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
 });

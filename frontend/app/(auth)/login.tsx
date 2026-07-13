@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { Link, Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ErrorText, Field, PrimaryButton } from "../../src/ui/form";
+import { colors, spacing, type } from "../../src/ui/theme";
 
 export default function Login() {
   const { login } = useAuth();
@@ -24,19 +25,21 @@ export default function Login() {
   };
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#f9fafb" }}>
+    <View
+      style={{ flex: 1, justifyContent: "center", padding: spacing.xl, backgroundColor: colors.bg }}
+    >
       <Stack.Screen options={{ title: "Đăng nhập" }} />
-      <Text style={{ fontSize: 28, fontWeight: "700", marginBottom: 24 }}>Trợ lý AI</Text>
+      <Text style={[type.title, { marginBottom: spacing.xl }]}>Trợ lý AI</Text>
       <Field placeholder="Email" value={email} onChangeText={setEmail}
              keyboardType="email-address" />
       <Field placeholder="Mật khẩu" value={password} onChangeText={setPassword} secureTextEntry />
       <ErrorText error={error} />
       <PrimaryButton title="Đăng nhập" onPress={submit} busy={busy} />
-      <View style={{ marginTop: 20, gap: 8 }}>
-        <Link href="/(auth)/signup-code" style={{ color: "#2563eb" }}>
+      <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
+        <Link href="/(auth)/signup-code" style={{ color: colors.primary }}>
           Nhân viên mới? Đăng ký bằng mã mời công ty
         </Link>
-        <Link href="/(auth)/signup-workspace" style={{ color: "#2563eb" }}>
+        <Link href="/(auth)/signup-workspace" style={{ color: colors.primary }}>
           Tạo công ty mới (CEO)
         </Link>
       </View>

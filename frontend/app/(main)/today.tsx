@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { DashTask, TodayDashboard, getTodayDashboard } from "../../src/api/dashboard";
 import { VoiceNote, listVoiceNotes, uploadVoiceNote } from "../../src/api/voice";
+import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 function localToday(): string {
   const d = new Date();
@@ -76,7 +77,7 @@ function QuickVoiceCard() {
         onPress={toggle}
         disabled={busy}
       >
-        <Text style={{ color: "#fff", fontWeight: "700" }}>
+        <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
           {busy
             ? "Đang tải lên…"
             : recorderState.isRecording
@@ -148,8 +149,8 @@ export default function Today() {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: "#f9fafb" }}
-      contentContainerStyle={{ padding: 12, gap: 12 }}
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
     >
       {data && (
@@ -203,29 +204,34 @@ export default function Today() {
 }
 
 const styles = StyleSheet.create({
-  counters: { flexDirection: "row", gap: 12 },
+  counters: { flexDirection: "row", gap: spacing.md },
   counter: {
     flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
     alignItems: "center",
   },
-  counterNum: { fontSize: 24, fontWeight: "700" },
-  counterLabel: { color: "#6b7280", fontSize: 12 },
-  card: { backgroundColor: "#fff", borderRadius: 12, padding: 14 },
-  cardTitle: { fontWeight: "700", marginBottom: 8, fontSize: 15 },
-  empty: { color: "#9ca3af" },
-  taskLine: { flexDirection: "row", paddingVertical: 6, borderTopWidth: 1, borderColor: "#f3f4f6" },
-  percent: { color: "#2563eb", fontWeight: "600" },
-  updateLine: { paddingVertical: 6, borderTopWidth: 1, borderColor: "#f3f4f6" },
+  counterNum: { ...type.metric },
+  counterLabel: { ...type.caption },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
+  cardTitle: { ...type.heading, marginBottom: spacing.sm },
+  empty: { color: colors.textMuted },
+  taskLine: {
+    flexDirection: "row",
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
+  },
+  percent: { color: colors.primary, fontWeight: "700" },
+  updateLine: { paddingVertical: spacing.sm, borderTopWidth: 1, borderColor: colors.divider },
   recordBtn: {
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingVertical: 10,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
-  recordBtnActive: { backgroundColor: "#dc2626" },
-  error: { color: "#dc2626", marginBottom: 8 },
+  recordBtnActive: { backgroundColor: colors.danger },
+  error: { color: colors.danger, marginBottom: spacing.sm },
 });

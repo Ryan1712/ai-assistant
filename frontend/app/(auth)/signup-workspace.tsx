@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ErrorText, Field, PrimaryButton } from "../../src/ui/form";
+import { colors, spacing } from "../../src/ui/theme";
 
 export default function SignupWorkspace() {
   const { signupWorkspace } = useAuth();
@@ -31,7 +32,9 @@ export default function SignupWorkspace() {
   };
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#f9fafb" }}>
+    <View
+      style={{ flex: 1, justifyContent: "center", padding: spacing.xl, backgroundColor: colors.bg }}
+    >
       <Stack.Screen options={{ title: "Tạo công ty mới" }} />
       <Field placeholder="Tên công ty" value={workspaceName} onChangeText={setWorkspaceName}
              autoCapitalize="words" />

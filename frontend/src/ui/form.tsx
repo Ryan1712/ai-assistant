@@ -7,11 +7,12 @@ import {
   TextInputProps,
   TouchableOpacity,
 } from "react-native";
+import { colors, radius, spacing, type } from "./theme";
 
 export function Field(props: TextInputProps) {
   return (
     <TextInput
-      placeholderTextColor="#9ca3af"
+      placeholderTextColor={colors.textMuted}
       autoCapitalize="none"
       style={styles.field}
       {...props}
@@ -30,7 +31,11 @@ export function PrimaryButton({
 }) {
   return (
     <TouchableOpacity style={styles.button} onPress={onPress} disabled={busy}>
-      {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{title}</Text>}
+      {busy ? (
+        <ActivityIndicator color={colors.onPrimary} />
+      ) : (
+        <Text style={styles.buttonText}>{title}</Text>
+      )}
     </TouchableOpacity>
   );
 }
@@ -43,21 +48,22 @@ export function ErrorText({ error }: { error: string | null }) {
 const styles = StyleSheet.create({
   field: {
     borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
-    fontSize: 16,
-    backgroundColor: "#fff",
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.md,
+    fontSize: type.body.fontSize,
+    color: colors.text,
+    backgroundColor: colors.surface,
   },
   button: {
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingVertical: 14,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.lg,
     alignItems: "center",
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  error: { color: "#dc2626", marginBottom: 10 },
+  buttonText: { color: colors.onPrimary, fontSize: type.body.fontSize, fontWeight: "700" },
+  error: { color: colors.danger, marginBottom: spacing.sm },
 });

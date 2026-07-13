@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ErrorText, Field, PrimaryButton } from "../../src/ui/form";
+import { colors, spacing } from "../../src/ui/theme";
 
 export default function SignupCode() {
   const { signupCode } = useAuth();
@@ -36,7 +37,9 @@ export default function SignupCode() {
   };
 
   return (
-    <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#f9fafb" }}>
+    <View
+      style={{ flex: 1, justifyContent: "center", padding: spacing.xl, backgroundColor: colors.bg }}
+    >
       <Stack.Screen options={{ title: "Đăng ký bằng mã mời" }} />
       <Field placeholder="Mã mời công ty (8 ký tự)" value={inviteCode}
              onChangeText={setInviteCode} autoCapitalize="characters" />

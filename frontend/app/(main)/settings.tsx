@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useAuth } from "../../src/auth/AuthContext";
 import { Subscription, getInviteCode, getSubscription } from "../../src/api/dashboard";
+import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 export default function Settings() {
   const { user, signOut } = useAuth();
@@ -18,11 +19,11 @@ export default function Settings() {
   }, [user]);
 
   return (
-    <View style={{ flex: 1, padding: 16, gap: 12, backgroundColor: "#f9fafb" }}>
+    <View style={{ flex: 1, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.bg }}>
       <View style={styles.card}>
         <Text style={styles.title}>{user?.full_name}</Text>
-        <Text style={{ color: "#6b7280" }}>{user?.email}</Text>
-        <Text style={{ marginTop: 4 }}>
+        <Text style={{ color: colors.textSecondary }}>{user?.email}</Text>
+        <Text style={{ marginTop: spacing.xs, color: colors.text }}>
           Vai trò: {user?.role === "ceo" ? "CEO" : user?.role === "manager" ? "Manager" : "Nhân viên"}
           {user?.is_root ? " (gốc)" : ""}
         </Text>
@@ -30,9 +31,9 @@ export default function Settings() {
       {sub && (
         <View style={styles.card}>
           <Text style={styles.title}>Gói dịch vụ</Text>
-          <Text>{sub.plan === "advanced" ? "Advanced" : "Basic"}</Text>
+          <Text style={{ color: colors.text }}>{sub.plan === "advanced" ? "Advanced" : "Basic"}</Text>
           {sub.limits && (
-            <Text style={{ color: "#6b7280", marginTop: 4 }}>
+            <Text style={{ color: colors.textSecondary, marginTop: spacing.xs }}>
               Giới hạn: {sub.limits.projects} project · {sub.limits.skills} skill ·{" "}
               {sub.limits.members} thành viên
             </Text>
@@ -45,21 +46,21 @@ export default function Settings() {
           <Text selectable style={styles.code}>
             {inviteCode}
           </Text>
-          <Text style={{ color: "#6b7280" }}>
+          <Text style={{ color: colors.textSecondary }}>
             Gửi mã này cho nhân viên để họ tự đăng ký vào công ty.
           </Text>
         </View>
       )}
       <TouchableOpacity style={styles.logout} onPress={signOut}>
-        <Text style={{ color: "#dc2626", fontWeight: "600" }}>Đăng xuất</Text>
+        <Text style={{ color: colors.danger, fontWeight: "700" }}>Đăng xuất</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: "#fff", borderRadius: 12, padding: 14 },
-  title: { fontWeight: "700", marginBottom: 4, fontSize: 15 },
-  code: { fontSize: 24, fontWeight: "700", letterSpacing: 3, marginVertical: 6 },
-  logout: { alignItems: "center", padding: 14 },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
+  title: { ...type.heading, marginBottom: spacing.xs },
+  code: { ...type.metric, letterSpacing: 3, marginVertical: spacing.sm },
+  logout: { alignItems: "center", padding: spacing.lg },
 });
