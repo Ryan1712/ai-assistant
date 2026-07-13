@@ -2983,6 +2983,11 @@
             ],
             "title": "Title"
           },
+          "queue_held": {
+            "type": "boolean",
+            "title": "Queue Held",
+            "default": false
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
