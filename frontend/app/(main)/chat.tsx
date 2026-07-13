@@ -12,6 +12,7 @@ import {
 import {
   ChatRequest,
   Message,
+  RESUME_PHRASE,
   cancelRequest,
   confirmRequest,
   createConversation,
@@ -41,6 +42,7 @@ export default function Chat() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [queue, setQueue] = useState<ChatRequest[]>([]);
+  const [held, setHeld] = useState(false);
   const [input, setInput] = useState("");
   const [pendingConfirm, setPendingConfirm] = useState<{
     requestId: string;
@@ -113,6 +115,7 @@ export default function Chat() {
       const convs = await listConversations();
       const conv = convs[0] ?? (await createConversation("Cuộc trò chuyện đầu tiên"));
       setConversationId(conv.id);
+      setHeld(conv.queue_held);
       await loadHistory(conv.id);
       await refreshQueue(conv.id);
       closeWs.current = await openConversationStream(conv.id, onWsEvent(conv.id));
@@ -125,7 +128,16 @@ export default function Chat() {
     const content = input.trim();
     setInput("");
     const req = await sendMessage(conversationId, content);
+    if (held && content.toLowerCase() === RESUME_PHRASE) setHeld(false);
     setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: content }]);
+    await refreshQueue(conversationId);
+  };
+
+  const resumeQueue = async () => {
+    if (!conversationId) return;
+    const req = await sendMessage(conversationId, RESUME_PHRASE);
+    setHeld(false);
+    setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: RESUME_PHRASE }]);
     await refreshQueue(conversationId);
   };
 
@@ -160,6 +172,20 @@ export default function Chat() {
       style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      {held && (
+        <View style={styles.heldBar}>
+          <Text style={{ flex: 1, color: colors.warningText }}>
+            ⏸ Việc dang dở đang chờ — gõ “{RESUME_PHRASE}” để AI làm nốt
+          </Text>
+          <TouchableOpacity
+            style={styles.resumeBtn}
+            onPress={resumeQueue}
+            accessibilityLabel="Tiếp tục công việc"
+          >
+            <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>▶ Tiếp tục</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {queue.length > 0 && (
         <View style={styles.queueBar}>
           <Text style={{ flex: 1, color: colors.text }}>
@@ -255,6 +281,22 @@ export default function Chat() {
 }
 
 const styles = StyleSheet.create({
+  heldBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.warningBg,
+    borderBottomWidth: 1,
+    borderColor: colors.warningBorder,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  resumeBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
   queueBar: {
     flexDirection: "row",
     alignItems: "center",
