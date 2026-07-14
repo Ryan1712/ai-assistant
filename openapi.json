@@ -2368,6 +2368,54 @@
         }
       }
     },
+    "/api/v1/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Search",
+        "operationId": "search_api_v1_search_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/conversations": {
       "get": {
         "tags": [
@@ -3860,6 +3908,185 @@
           "employee"
         ],
         "title": "Role"
+      },
+      "SearchNoteOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "note_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Note Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "content",
+          "note_date"
+        ],
+        "title": "SearchNoteOut"
+      },
+      "SearchOut": {
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/SearchTaskOut"
+            },
+            "type": "array",
+            "title": "Tasks"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/SearchNoteOut"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "voice_notes": {
+            "items": {
+              "$ref": "#/components/schemas/SearchVoiceNoteOut"
+            },
+            "type": "array",
+            "title": "Voice Notes"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/SearchUserOut"
+            },
+            "type": "array",
+            "title": "Users"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SearchSkillOut"
+            },
+            "type": "array",
+            "title": "Skills"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tasks",
+          "notes",
+          "voice_notes",
+          "users",
+          "skills"
+        ],
+        "title": "SearchOut"
+      },
+      "SearchSkillOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SkillKind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "SearchSkillOut"
+      },
+      "SearchTaskOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Project Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "project_id"
+        ],
+        "title": "SearchTaskOut"
+      },
+      "SearchUserOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "full_name",
+          "email",
+          "role"
+        ],
+        "title": "SearchUserOut"
+      },
+      "SearchVoiceNoteOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "transcript": {
+            "type": "string",
+            "title": "Transcript"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "transcript",
+          "created_at"
+        ],
+        "title": "SearchVoiceNoteOut"
       },
       "SignupCodeIn": {
         "properties": {

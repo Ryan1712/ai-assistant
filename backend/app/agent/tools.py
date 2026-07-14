@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +17,8 @@ from app.schemas import (
 )
 from app.services import (
     auth_service, dashboard_service, email_service, instruction_service, note_service,
-    portal_service, report_schedule_service, report_service, skill_service, voice_service,
-    work_service,
+    portal_service, report_schedule_service, report_service, search_service, skill_service,
+    voice_service, work_service,
 )
 
 
@@ -534,6 +534,19 @@ _register("create_note", "Tạo ghi chú cá nhân (text), gắn tag/ngày/task/
           "Note là riêng tư của người tạo.", CreateNoteToolIn, _create_note)
 _register("list_notes", "Liệt kê ghi chú cá nhân của chính người dùng, lọc theo ngày "
           "(on_date) hoặc tag.", ListNotesToolIn, _list_notes)
+
+
+class SearchToolIn(BaseModel):
+    q: str = Field(min_length=1)
+
+
+async def _search(db, actor, body: SearchToolIn) -> dict:
+    return await search_service.search(db, actor, body.q)
+
+
+_register("search", "Tìm kiếm xuyên suốt theo từ khóa: task, note, ghi âm, người, skill "
+          "(chỉ trong phạm vi actor được thấy). Dùng khi user hỏi 'tìm ... liên quan tới X'.",
+          SearchToolIn, _search)
 
 
 SENSITIVE_TOOLS: frozenset[str] = frozenset(

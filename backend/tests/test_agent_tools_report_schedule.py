@@ -22,7 +22,7 @@ def test_report_schedule_tools_registered_and_not_sensitive():
                  "delete_report_schedule"):
         assert name in TOOLS
         assert TOOLS[name].sensitive is False
-    assert len(TOOLS) == 38  # +3 report-schedule tools (2026-07-13)
+    assert len(TOOLS) == 39  # +3 report-schedule tools (2026-07-13) +search (2026-07-14)
 
 
 @pytest.mark.asyncio
