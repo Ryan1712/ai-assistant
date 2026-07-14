@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { Subscription, getInviteCode, getSubscription } from "../../src/api/dashboard";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 export default function Settings() {
   const { user, signOut } = useAuth();
+  const router = useRouter();
   const [sub, setSub] = useState<Subscription | null>(null);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
 
@@ -39,6 +41,12 @@ export default function Settings() {
             </Text>
           )}
         </View>
+      )}
+      {user?.role === "ceo" && sub?.plan === "advanced" && (
+        <TouchableOpacity style={styles.card} onPress={() => router.push("/report-schedules")}>
+          <Text style={styles.title}>📅 Báo cáo định kỳ</Text>
+          <Text style={{ color: colors.textSecondary }}>Xem và hủy lịch gửi báo cáo tự động</Text>
+        </TouchableOpacity>
       )}
       {inviteCode && (
         <View style={styles.card}>
