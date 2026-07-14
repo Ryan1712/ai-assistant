@@ -28,6 +28,10 @@ export default function MainLayout() {
         options={{ title: "Trợ lý AI", tabBarIcon: () => <Icon glyph="💬" /> }}
       />
       <Tabs.Screen
+        name="search"
+        options={{ title: "Tìm kiếm", tabBarIcon: () => <Icon glyph="🔍" /> }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{ title: "Cài đặt", tabBarIcon: () => <Icon glyph="⚙️" /> }}
       />
