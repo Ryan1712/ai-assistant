@@ -351,3 +351,43 @@ class ReportScheduleOut(BaseModel):
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}
+
+
+class SearchTaskOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    status: TaskStatus
+    project_id: uuid.UUID
+
+
+class SearchNoteOut(BaseModel):
+    id: uuid.UUID
+    content: str
+    note_date: dt.date
+
+
+class SearchVoiceNoteOut(BaseModel):
+    id: uuid.UUID
+    transcript: str
+    created_at: dt.datetime
+
+
+class SearchUserOut(BaseModel):
+    id: uuid.UUID
+    full_name: str
+    email: str
+    role: str
+
+
+class SearchSkillOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: SkillKind
+
+
+class SearchOut(BaseModel):
+    tasks: list[SearchTaskOut]
+    notes: list[SearchNoteOut]
+    voice_notes: list[SearchVoiceNoteOut]
+    users: list[SearchUserOut]
+    skills: list[SearchSkillOut]
