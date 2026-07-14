@@ -35,6 +35,7 @@ export default function MainLayout() {
         name="settings"
         options={{ title: "Cài đặt", tabBarIcon: () => <Icon glyph="⚙️" /> }}
       />
+      <Tabs.Screen name="tasks/[id]" options={{ href: null }} />
     </Tabs>
   );
 }
