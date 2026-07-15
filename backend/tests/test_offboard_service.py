@@ -156,3 +156,18 @@ async def test_offboard_is_idempotent_on_already_locked_user(db_session):
     await auth_service.offboard_user(db_session, ceo, mgr.id)
     result = await auth_service.offboard_user(db_session, ceo, mgr.id, successor.id)
     assert result["tasks_reassigned"] == 1
+
+
+@pytest.mark.asyncio
+async def test_successor_who_is_own_direct_report_does_not_become_self_managed(db_session):
+    ws, ceo, mgr, emp, successor, project, task = await _seed(db_session)
+    successor.manager_id = mgr.id  # successor la 1 direct report cua chinh mgr
+    await db_session.commit()
+
+    result = await auth_service.offboard_user(db_session, ceo, mgr.id, successor.id)
+
+    await db_session.refresh(successor)
+    assert successor.manager_id != successor.id
+    assert successor.manager_id == mgr.id  # khong bi doi vi successor bi loai khoi phep gan lai
+    # emp (direct report khac) van duoc chuyen sang successor binh thuong
+    assert result["reports_reassigned"] == 1

@@ -304,7 +304,8 @@ async def offboard_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID,
         projects_reassigned = result.rowcount or 0
 
         result = await db.execute(update(User).where(
-            User.workspace_id == actor.workspace_id, User.manager_id == target_id
+            User.workspace_id == actor.workspace_id, User.manager_id == target_id,
+            User.id != successor_id,
         ).values(manager_id=successor_id))
         reports_reassigned = result.rowcount or 0
 
