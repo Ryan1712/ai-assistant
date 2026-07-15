@@ -50,7 +50,7 @@ async def test_lock_root_ceo_tool_is_forbidden(db_session):
 
 def test_lock_and_unlock_are_marked_sensitive():
     assert SENSITIVE_TOOLS == {"lock_user", "unlock_user", "delete_instruction", "send_email",
-                               "offboard_user"}
+                               "offboard_user", "change_user_role"}
     assert TOOLS["create_invite"].sensitive is False
 
 

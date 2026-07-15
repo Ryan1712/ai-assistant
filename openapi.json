@@ -545,6 +545,62 @@
         }
       }
     },
+    "/api/v1/users/{user_id}/change-role": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Change Role",
+        "operationId": "change_role_api_v1_users__user_id__change_role_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRoleIn",
+                "default": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/invites": {
       "post": {
         "tags": [
@@ -3043,6 +3099,46 @@
           "file"
         ],
         "title": "Body_upload_voice_note_api_v1_voice_notes_post"
+      },
+      "ChangeRoleIn": {
+        "properties": {
+          "new_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "new_manager_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Manager Id"
+          },
+          "successor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor Id"
+          }
+        },
+        "type": "object",
+        "title": "ChangeRoleIn"
       },
       "ChatRequestEditIn": {
         "properties": {

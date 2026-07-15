@@ -309,6 +309,19 @@ async def _offboard_user(db, actor, body: OffboardUserToolIn) -> dict:
     return await auth_service.offboard_user(db, actor, body.user_id, body.successor_id)
 
 
+class ChangeUserRoleToolIn(BaseModel):
+    user_id: uuid.UUID
+    new_role: Role | None = None
+    new_manager_id: uuid.UUID | None = None
+    successor_id: uuid.UUID | None = None
+
+
+async def _change_user_role(db, actor, body: ChangeUserRoleToolIn) -> dict:
+    return await auth_service.change_role(db, actor, body.user_id, new_role=body.new_role,
+                                          new_manager_id=body.new_manager_id,
+                                          successor_id=body.successor_id)
+
+
 _register("list_users", "Danh bạ công ty: liệt kê thành viên (id, tên, email, vai trò). "
           "Dùng để tra user_id theo tên trước khi giao task, gửi email, khóa/mở tài khoản "
           "— đừng bao giờ hỏi người dùng user_id.", NoArgsIn, _list_users)
@@ -324,6 +337,14 @@ _register("offboard_user",
           "task/project/nhân viên báo cáo trực tiếp (nếu có) cho 1 người kế thừa (chỉ CEO, hành "
           "động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).",
           OffboardUserToolIn, _offboard_user, sensitive=True)
+_register("change_user_role",
+          "Đổi vai trò (employee/manager/ceo) và/hoặc đổi người quản lý trực tiếp của 1 người "
+          "ĐANG làm việc (không khóa tài khoản, không đụng task đang được giao của họ). Nếu đổi "
+          "khỏi vai trò manager mà người đó đang có nhân viên báo cáo hoặc đang sở hữu project, "
+          "PHẢI cung cấp successor_id để bàn giao. Chỉ CEO gọi được; đổi liên quan tới vai trò CEO "
+          "(thăng ai đó thành CEO, hoặc đổi role của 1 CEO khác) chỉ root CEO gọi được — hành động "
+          "nhạy cảm, hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước.",
+          ChangeUserRoleToolIn, _change_user_role, sensitive=True)
 
 
 class GenerateReportToolIn(BaseModel):
