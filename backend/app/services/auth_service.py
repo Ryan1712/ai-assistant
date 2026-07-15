@@ -321,6 +321,95 @@ async def offboard_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID,
             "reports_reassigned": reports_reassigned}
 
 
+def _check_role_change_permission(actor: User, target: User, new_role: Role | None) -> None:
+    require_ceo(actor)
+    if target.is_root:
+        raise HTTPException(403, "cannot_change_root_ceo")
+    if target.role == Role.ceo or new_role == Role.ceo:
+        if not actor.is_root:
+            raise HTTPException(403, "only_root_can_change_ceo")
+
+
+async def change_role(db: AsyncSession, actor: User, target_id: uuid_mod.UUID, *,
+                      new_role: Role | None = None,
+                      new_manager_id: uuid_mod.UUID | None = None,
+                      successor_id: uuid_mod.UUID | None = None) -> dict:
+    if new_role is None and new_manager_id is None:
+        raise HTTPException(422, "no_change_requested")
+
+    target = await db.get(User, target_id)
+    if target is None or target.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "user_not_found")
+    _check_role_change_permission(actor, target, new_role)
+
+    if new_manager_id is not None:
+        if new_manager_id == target_id:
+            raise HTTPException(422, "invalid_manager")
+        manager = await db.get(User, new_manager_id)
+        if (manager is None or manager.workspace_id != actor.workspace_id
+                or manager.role != Role.manager):
+            raise HTTPException(422, "invalid_manager")
+
+    resulting_role = new_role if new_role is not None else target.role
+    resulting_manager_id = new_manager_id if new_manager_id is not None else target.manager_id
+    if resulting_role == Role.employee and resulting_manager_id is None:
+        raise HTTPException(422, "employee_requires_manager")
+
+    reports_reassigned = 0
+    projects_reassigned = 0
+    leaving_manager = (new_role is not None and target.role == Role.manager
+                       and new_role != Role.manager)
+
+    if leaving_manager:
+        has_reports = (await db.execute(select(User.id).where(
+            User.workspace_id == actor.workspace_id, User.manager_id == target_id))).first()
+        has_projects = (await db.execute(select(Project.id).where(
+            Project.workspace_id == actor.workspace_id, Project.owner_id == target_id))).first()
+
+        if has_reports or has_projects:
+            if successor_id is None:
+                raise HTTPException(422, "successor_required")
+            successor = await db.get(User, successor_id)
+            if successor is None or successor.workspace_id != actor.workspace_id:
+                raise HTTPException(404, "user_not_found")
+            if successor.id == target_id or successor.status == UserStatus.locked:
+                raise HTTPException(422, "invalid_successor")
+
+            result = await db.execute(update(User).where(
+                User.workspace_id == actor.workspace_id, User.manager_id == target_id,
+                User.id != successor_id,
+            ).values(manager_id=successor_id))
+            reports_reassigned = result.rowcount or 0
+
+            result = await db.execute(update(Project).where(
+                Project.workspace_id == actor.workspace_id, Project.owner_id == target_id
+            ).values(owner_id=successor_id))
+            projects_reassigned = result.rowcount or 0
+
+            await notify(db, workspace_id=actor.workspace_id, recipient_id=successor_id,
+                        type="management_handoff",
+                        payload={"from_user": str(target_id),
+                                 "reports_reassigned": reports_reassigned,
+                                 "projects_reassigned": projects_reassigned})
+
+    if new_role is not None:
+        target.role = new_role
+    if new_manager_id is not None:
+        target.manager_id = new_manager_id
+
+    await notify(db, workspace_id=actor.workspace_id, recipient_id=target_id,
+                type="role_changed",
+                payload={"role": target.role.value,
+                         "manager_id": str(target.manager_id) if target.manager_id else None})
+    await db.commit()
+
+    return {"role": target.role.value,
+            "manager_id": str(target.manager_id) if target.manager_id else None,
+            "successor_id": str(successor_id) if successor_id else None,
+            "reports_reassigned": reports_reassigned,
+            "projects_reassigned": projects_reassigned}
+
+
 async def request_unlock(db: AsyncSession, *, email: str, device_uuid: str) -> None:
     email = email.strip().lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
