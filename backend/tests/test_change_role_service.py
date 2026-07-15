@@ -233,3 +233,40 @@ async def test_locked_successor_rejected(db_session):
                                        new_manager_id=mgr2.id, successor_id=mgr2.id)
     assert exc.value.status_code == 422
     assert exc.value.detail == "invalid_successor"
+
+
+@pytest.mark.asyncio
+async def test_promote_employee_to_manager_clears_manager_id(db_session):
+    ws, ceo, mgr, mgr2, emp, ceo2, project = await _seed(db_session)
+    result = await auth_service.change_role(db_session, ceo, emp.id, new_role=Role.manager)
+    assert result["manager_id"] is None
+    await db_session.refresh(emp)
+    assert emp.manager_id is None
+
+
+@pytest.mark.asyncio
+async def test_promote_employee_to_ceo_clears_manager_id(db_session):
+    ws, ceo, mgr, mgr2, emp, ceo2, project = await _seed(db_session)
+    result = await auth_service.change_role(db_session, ceo, emp.id, new_role=Role.ceo)
+    assert result["manager_id"] is None
+    await db_session.refresh(emp)
+    assert emp.manager_id is None
+
+
+@pytest.mark.asyncio
+async def test_new_manager_id_rejected_when_resulting_role_not_employee(db_session):
+    ws, ceo, mgr, mgr2, emp, ceo2, project = await _seed(db_session)
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.change_role(db_session, ceo, emp.id, new_role=Role.manager,
+                                       new_manager_id=mgr2.id)
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "invalid_manager"
+
+
+@pytest.mark.asyncio
+async def test_new_manager_id_rejected_for_existing_manager_target(db_session):
+    ws, ceo, mgr, mgr2, emp, ceo2, project = await _seed(db_session)
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.change_role(db_session, ceo, mgr2.id, new_manager_id=mgr.id)
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "invalid_manager"

@@ -354,6 +354,8 @@ async def change_role(db: AsyncSession, actor: User, target_id: uuid_mod.UUID, *
     resulting_manager_id = new_manager_id if new_manager_id is not None else target.manager_id
     if resulting_role == Role.employee and resulting_manager_id is None:
         raise HTTPException(422, "employee_requires_manager")
+    if resulting_role != Role.employee and new_manager_id is not None:
+        raise HTTPException(422, "invalid_manager")
 
     reports_reassigned = 0
     projects_reassigned = 0
@@ -394,8 +396,11 @@ async def change_role(db: AsyncSession, actor: User, target_id: uuid_mod.UUID, *
 
     if new_role is not None:
         target.role = new_role
-    if new_manager_id is not None:
-        target.manager_id = new_manager_id
+    if resulting_role == Role.employee:
+        if new_manager_id is not None:
+            target.manager_id = new_manager_id
+    else:
+        target.manager_id = None
 
     await notify(db, workspace_id=actor.workspace_id, recipient_id=target_id,
                 type="role_changed",
