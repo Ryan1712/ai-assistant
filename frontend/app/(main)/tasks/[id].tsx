@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,11 +10,14 @@ import {
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
+import * as Sharing from "expo-sharing";
+import { File, Paths } from "expo-file-system";
 import { TaskDetail, getTask } from "../../../src/api/tasks";
 import {
   ATTACHMENT_MAX_SIZE,
   ATTACHMENT_MIME_TYPES,
   Attachment,
+  fetchAttachmentBytes,
   listTaskAttachments,
   uploadTaskAttachment,
 } from "../../../src/api/attachments";
@@ -26,16 +30,29 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AttachmentRow({ a }: { a: Attachment }) {
+function AttachmentRow({
+  a,
+  downloading,
+  onDownload,
+}: {
+  a: Attachment;
+  downloading: boolean;
+  onDownload: (a: Attachment) => void;
+}) {
   return (
-    <View style={styles.row}>
+    <TouchableOpacity
+      style={styles.row}
+      onPress={() => onDownload(a)}
+      disabled={downloading}
+    >
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1}>{a.original_filename}</Text>
         <Text style={{ color: colors.textSecondary }}>
           {formatFileSize(a.file_size)} — {new Date(a.created_at).toLocaleDateString("vi-VN")}
         </Text>
       </View>
-    </View>
+      {downloading && <ActivityIndicator color={colors.primary} />}
+    </TouchableOpacity>
   );
 }
 
@@ -43,6 +60,7 @@ function AttachmentsSection({ taskId }: { taskId: string }) {
   const [attachments, setAttachments] = useState<Attachment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {
     listTaskAttachments(taskId)
@@ -82,6 +100,25 @@ function AttachmentsSection({ taskId }: { taskId: string }) {
     }
   };
 
+  const handleDownload = async (a: Attachment) => {
+    setDownloadingId(a.id);
+    try {
+      const bytes = await fetchAttachmentBytes(a.id);
+      const file = new File(Paths.cache, `${a.id}_${a.original_filename}`);
+      file.create({ overwrite: true });
+      file.write(new Uint8Array(bytes));
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri);
+      } else {
+        Alert.alert("Thiết bị này không hỗ trợ chia sẻ file.");
+      }
+    } catch (e: any) {
+      Alert.alert("Không tải được file", String(e?.message ?? e));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   return (
     <View style={styles.card}>
       <View style={styles.sectionHeader}>
@@ -106,7 +143,12 @@ function AttachmentsSection({ taskId }: { taskId: string }) {
         </Text>
       )}
       {attachments?.map((a) => (
-        <AttachmentRow key={a.id} a={a} />
+        <AttachmentRow
+          key={a.id}
+          a={a}
+          downloading={downloadingId === a.id}
+          onDownload={handleDownload}
+        />
       ))}
     </View>
   );
