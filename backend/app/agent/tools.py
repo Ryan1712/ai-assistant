@@ -16,7 +16,7 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    auth_service, dashboard_service, email_service, instruction_service, note_service,
+    attachment_service, auth_service, dashboard_service, email_service, instruction_service, note_service,
     portal_service, report_schedule_service, report_service, search_service, skill_service,
     voice_service, work_service,
 )
@@ -560,6 +560,20 @@ _register("list_voice_notes", "Liệt kê ghi âm của chính người dùng (l
           "kèm transcript.", ListVoiceNotesToolIn, _list_voice_notes)
 _register("get_voice_note", "Đọc 1 ghi âm (transcript + metadata) — dùng để biến ghi âm "
           "thành task/cập nhật theo yêu cầu.", GetVoiceNoteToolIn, _get_voice_note)
+
+
+class ListTaskAttachmentsToolIn(BaseModel):
+    task_id: uuid.UUID
+
+
+async def _list_task_attachments(db, actor, body: ListTaskAttachmentsToolIn) -> dict:
+    attachments = await attachment_service.list_attachments(db, actor, body.task_id)
+    return {"attachments": attachments}
+
+
+_register("list_task_attachments", "Liệt kê tài liệu đính kèm của 1 task (tên file, dung "
+          "lượng, người đính kèm, thời gian).", ListTaskAttachmentsToolIn,
+          _list_task_attachments)
 
 
 _register("get_today_dashboard", "Tổng hợp 'Hôm nay' theo phạm vi quyền của người dùng: "
