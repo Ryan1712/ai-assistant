@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import plans, security
 from app.config import get_settings
 from app.models import (
-    Device, Invite, LoginEvent, Notification, RefreshToken, Role, User, UserStatus, Workspace,
+    Device, Invite, LoginEvent, Notification, Project, RefreshToken, Role, TaskAssignee,
+    User, UserStatus, Workspace,
 )
 from app.permissions import require_ceo
 from app.services.notify import notify
@@ -266,6 +267,54 @@ async def unlock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -
     _check_lock_permission(actor, target)
     target.status = UserStatus.active
     await db.commit()
+
+
+async def offboard_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID,
+                        successor_id: uuid_mod.UUID | None = None) -> dict:
+    await lock_user(db, actor, target_id)
+
+    tasks_reassigned = 0
+    projects_reassigned = 0
+    reports_reassigned = 0
+
+    if successor_id is not None:
+        successor = await db.get(User, successor_id)
+        if successor is None or successor.workspace_id != actor.workspace_id:
+            raise HTTPException(404, "user_not_found")
+        if successor.id == target_id or successor.status == UserStatus.locked:
+            raise HTTPException(422, "invalid_successor")
+
+        rows = (await db.execute(
+            select(TaskAssignee).where(TaskAssignee.user_id == target_id))).scalars().all()
+        for row in rows:
+            existing = await db.execute(select(TaskAssignee.id).where(
+                TaskAssignee.task_id == row.task_id, TaskAssignee.user_id == successor_id))
+            if existing.first() is None:
+                db.add(TaskAssignee(workspace_id=actor.workspace_id, task_id=row.task_id,
+                                    user_id=successor_id))
+            await db.delete(row)
+            tasks_reassigned += 1
+
+        result = await db.execute(update(Project).where(
+            Project.workspace_id == actor.workspace_id, Project.owner_id == target_id
+        ).values(owner_id=successor_id))
+        projects_reassigned = result.rowcount or 0
+
+        result = await db.execute(update(User).where(
+            User.workspace_id == actor.workspace_id, User.manager_id == target_id
+        ).values(manager_id=successor_id))
+        reports_reassigned = result.rowcount or 0
+
+        await notify(db, workspace_id=actor.workspace_id, recipient_id=successor_id,
+                    type="offboard_handoff",
+                    payload={"from_user": str(target_id), "tasks_reassigned": tasks_reassigned,
+                             "projects_reassigned": projects_reassigned,
+                             "reports_reassigned": reports_reassigned})
+        await db.commit()
+
+    return {"locked": True, "successor_id": str(successor_id) if successor_id else None,
+            "tasks_reassigned": tasks_reassigned, "projects_reassigned": projects_reassigned,
+            "reports_reassigned": reports_reassigned}
 
 
 async def request_unlock(db: AsyncSession, *, email: str, device_uuid: str) -> None:
