@@ -489,6 +489,62 @@
         }
       }
     },
+    "/api/v1/users/{user_id}/offboard": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Offboard User",
+        "operationId": "offboard_user_api_v1_users__user_id__offboard_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OffboardIn",
+                "default": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/invites": {
       "post": {
         "tags": [
@@ -3500,6 +3556,24 @@
           "project_id"
         ],
         "title": "NoteOut"
+      },
+      "OffboardIn": {
+        "properties": {
+          "successor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor Id"
+          }
+        },
+        "type": "object",
+        "title": "OffboardIn"
       },
       "ProjectCreateIn": {
         "properties": {

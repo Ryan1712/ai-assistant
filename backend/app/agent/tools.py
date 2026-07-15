@@ -300,6 +300,15 @@ async def _unlock_user(db, actor, body: UnlockUserToolIn) -> dict:
     return {"user_id": str(body.target_id), "locked": False}
 
 
+class OffboardUserToolIn(BaseModel):
+    user_id: uuid.UUID
+    successor_id: uuid.UUID | None = None
+
+
+async def _offboard_user(db, actor, body: OffboardUserToolIn) -> dict:
+    return await auth_service.offboard_user(db, actor, body.user_id, body.successor_id)
+
+
 _register("list_users", "Danh bạ công ty: liệt kê thành viên (id, tên, email, vai trò). "
           "Dùng để tra user_id theo tên trước khi giao task, gửi email, khóa/mở tài khoản "
           "— đừng bao giờ hỏi người dùng user_id.", NoArgsIn, _list_users)
@@ -310,6 +319,11 @@ _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi m
           sensitive=True)
 _register("unlock_user", "Mở khóa tài khoản 1 người (chỉ CEO, hành động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).",
           UnlockUserToolIn, _unlock_user, sensitive=True)
+_register("offboard_user",
+          "Cho 1 người nghỉ việc — khóa tài khoản (đăng xuất mọi thiết bị) và bàn giao toàn bộ "
+          "task/project/nhân viên báo cáo trực tiếp (nếu có) cho 1 người kế thừa (chỉ CEO, hành "
+          "động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).",
+          OffboardUserToolIn, _offboard_user, sensitive=True)
 
 
 class GenerateReportToolIn(BaseModel):
