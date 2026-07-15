@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 
 from app.api import (
-    auth, chat, dashboard, devices, emails, instructions, invites, notes, portal,
-    projects, report_schedules, reports, search, skills, subscription, tasks, users,
-    voice_notes, workspace, ws,
+    attachments, auth, chat, dashboard, devices, emails, instructions, invites, notes,
+    portal, projects, report_schedules, reports, search, skills, subscription, tasks,
+    users, voice_notes, workspace, ws,
 )
 from app.config import assert_safe_config, get_settings
 
@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(invites.router)
     app.include_router(projects.router)
     app.include_router(tasks.router)
+    app.include_router(attachments.router)
     app.include_router(skills.router)
     app.include_router(instructions.router)
     app.include_router(notes.router)
