@@ -10,6 +10,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = 'd1e2f3a4b5c6'
@@ -30,8 +31,8 @@ def upgrade() -> None:
     sa.Column('minute', sa.Integer(), nullable=False),
     sa.Column('project_id', sa.Uuid(), nullable=True),
     sa.Column('assignee_id', sa.Uuid(), nullable=True),
-    sa.Column('status', sa.Enum('todo', 'in_progress', 'blocked', 'done', name='taskstatus',
-                                create_type=False), nullable=True),
+    sa.Column('status', postgresql.ENUM('todo', 'in_progress', 'blocked', 'done',
+                                        name='taskstatus', create_type=False), nullable=True),
     sa.Column('active', sa.Boolean(), nullable=False),
     sa.Column('last_run_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('next_run_at', sa.DateTime(timezone=True), nullable=False),
