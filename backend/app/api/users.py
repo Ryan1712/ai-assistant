@@ -8,7 +8,7 @@ from app import permissions
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Device, User
-from app.schemas import DeviceOut, UserOut
+from app.schemas import DeviceOut, OffboardIn, UserOut
 from app.services import auth_service
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
@@ -59,3 +59,13 @@ async def unlock_user(
 ):
     await auth_service.unlock_user(db, actor, user_id)
     return Response(status_code=204)
+
+
+@router.post("/{user_id}/offboard")
+async def offboard_user(
+    user_id: uuid.UUID,
+    body: OffboardIn = OffboardIn(),
+    actor: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await auth_service.offboard_user(db, actor, user_id, body.successor_id)

@@ -391,3 +391,7 @@ class SearchOut(BaseModel):
     voice_notes: list[SearchVoiceNoteOut]
     users: list[SearchUserOut]
     skills: list[SearchSkillOut]
+
+
+class OffboardIn(BaseModel):
+    successor_id: uuid.UUID | None = None
