@@ -8,7 +8,7 @@ from app import permissions
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Device, User
-from app.schemas import DeviceOut, OffboardIn, UserOut
+from app.schemas import ChangeRoleIn, DeviceOut, OffboardIn, UserOut
 from app.services import auth_service
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
@@ -69,3 +69,15 @@ async def offboard_user(
     db: AsyncSession = Depends(get_db),
 ):
     return await auth_service.offboard_user(db, actor, user_id, body.successor_id)
+
+
+@router.post("/{user_id}/change-role")
+async def change_role(
+    user_id: uuid.UUID,
+    body: ChangeRoleIn = ChangeRoleIn(),
+    actor: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await auth_service.change_role(db, actor, user_id, new_role=body.new_role,
+                                          new_manager_id=body.new_manager_id,
+                                          successor_id=body.successor_id)

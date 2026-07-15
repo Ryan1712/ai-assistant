@@ -395,3 +395,9 @@ class SearchOut(BaseModel):
 
 class OffboardIn(BaseModel):
     successor_id: uuid.UUID | None = None
+
+
+class ChangeRoleIn(BaseModel):
+    new_role: Role | None = None
+    new_manager_id: uuid.UUID | None = None
+    successor_id: uuid.UUID | None = None
