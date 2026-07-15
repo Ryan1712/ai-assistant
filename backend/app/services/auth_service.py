@@ -285,10 +285,13 @@ async def offboard_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID,
             raise HTTPException(422, "invalid_successor")
 
         rows = (await db.execute(
-            select(TaskAssignee).where(TaskAssignee.user_id == target_id))).scalars().all()
+            select(TaskAssignee).where(
+                TaskAssignee.user_id == target_id,
+                TaskAssignee.workspace_id == actor.workspace_id))).scalars().all()
         for row in rows:
             existing = await db.execute(select(TaskAssignee.id).where(
-                TaskAssignee.task_id == row.task_id, TaskAssignee.user_id == successor_id))
+                TaskAssignee.task_id == row.task_id, TaskAssignee.user_id == successor_id,
+                TaskAssignee.workspace_id == actor.workspace_id))
             if existing.first() is None:
                 db.add(TaskAssignee(workspace_id=actor.workspace_id, task_id=row.task_id,
                                     user_id=successor_id))
