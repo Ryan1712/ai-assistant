@@ -48,6 +48,12 @@ export default function Settings() {
           <Text style={{ color: colors.textSecondary }}>Xem và hủy lịch gửi báo cáo tự động</Text>
         </TouchableOpacity>
       )}
+      {user?.role === "ceo" && (
+        <TouchableOpacity style={styles.card} onPress={() => router.push("/audit-log")}>
+          <Text style={styles.title}>📜 Nhật ký thay đổi</Text>
+          <Text style={{ color: colors.textSecondary }}>Xem lịch sử hoạt động của công ty</Text>
+        </TouchableOpacity>
+      )}
       {inviteCode && (
         <View style={styles.card}>
           <Text style={styles.title}>Mã mời công ty</Text>

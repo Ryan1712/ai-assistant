@@ -37,6 +37,7 @@ export default function MainLayout() {
       />
       <Tabs.Screen name="tasks/[id]" options={{ href: null }} />
       <Tabs.Screen name="report-schedules" options={{ href: null }} />
+      <Tabs.Screen name="audit-log" options={{ href: null }} />
     </Tabs>
   );
 }
