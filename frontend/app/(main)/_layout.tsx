@@ -39,6 +39,7 @@ export default function MainLayout() {
       <Tabs.Screen name="report-schedules" options={{ href: null }} />
       <Tabs.Screen name="audit-log" options={{ href: null }} />
       <Tabs.Screen name="team" options={{ href: null }} />
+      <Tabs.Screen name="team/[id]" options={{ href: null }} />
     </Tabs>
   );
 }
