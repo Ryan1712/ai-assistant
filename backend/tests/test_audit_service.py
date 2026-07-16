@@ -7,7 +7,7 @@ from app.models import (
     AccountEvent, Instruction, InstructionVersion, LoginEvent, Project, Role, Skill, SkillKind,
     SkillVersion, Task, TaskStatus, TaskUpdate, User, Workspace,
 )
-from app.services import audit_service
+from app.services import audit_service, auth_service
 
 
 async def _seed(db):
@@ -111,6 +111,24 @@ async def test_date_filter_excludes_outside_range(db_session):
 
 
 @pytest.mark.asyncio
+async def test_date_to_includes_entire_end_day(db_session):
+    ws, ceo, emp, task, instruction, skill = await _seed(db_session)
+    late_on_end_day = datetime(2026, 7, 16, 23, 0, 0, tzinfo=timezone.utc)
+    next_day = datetime(2026, 7, 17, 0, 30, 0, tzinfo=timezone.utc)
+    db_session.add_all([
+        LoginEvent(workspace_id=ws.id, user_id=emp.id, device_uuid="late",
+                  created_at=late_on_end_day),
+        LoginEvent(workspace_id=ws.id, user_id=emp.id, device_uuid="after",
+                  created_at=next_day),
+    ])
+    await db_session.commit()
+
+    events = await audit_service.list_audit_events(db_session, ceo, date_to=date(2026, 7, 16))
+    assert len(events) == 1
+    assert events[0]["summary"] == "Đăng nhập — late"
+
+
+@pytest.mark.asyncio
 async def test_sorted_newest_first(db_session):
     ws, ceo, emp, task, instruction, skill = await _seed(db_session)
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -157,3 +175,16 @@ async def test_cross_workspace_isolated(db_session):
     events = await audit_service.list_audit_events(db_session, ceo)
     assert len(events) == 1
     assert events[0]["summary"] == "Đăng nhập — y"
+
+
+@pytest.mark.asyncio
+async def test_offboard_shows_two_ordered_entries_in_timeline(db_session):
+    ws, ceo, emp, task, instruction, skill = await _seed(db_session)
+    await auth_service.offboard_user(db_session, ceo, emp.id)
+
+    events = await audit_service.list_audit_events(db_session, ceo)
+    account_events = [e for e in events if e["type"] == "account_event"]
+    assert len(account_events) == 2
+    assert [e["summary"] for e in account_events] == ["Nghỉ việc", "Khóa tài khoản"]
+    for e in account_events:
+        assert e["target_name"] == "Nhan Vien"

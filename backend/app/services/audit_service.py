@@ -5,7 +5,7 @@ chỉ AccountEvent là bảng mới (lịch sử khóa/mở/nghỉ việc/đổi
 lặp dữ liệu — mỗi lần gọi query lại 5 bảng, gộp + sort trong Python, không có bảng
 audit trung gian.
 """
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +21,7 @@ def _bounds(created_at_col, date_from: date | None, date_to: date | None) -> lis
     if date_from is not None:
         conds.append(created_at_col >= date_from)
     if date_to is not None:
-        conds.append(created_at_col <= date_to)
+        conds.append(created_at_col < date_to + timedelta(days=1))
     return conds
 
 
@@ -92,7 +92,8 @@ async def list_audit_events(db: AsyncSession, actor: User, *,
         e["target_user_id"] for e in events if "target_user_id" in e}
     names = {}
     if actor_ids:
-        rows = (await db.execute(select(User).where(User.id.in_(actor_ids)))).scalars()
+        rows = (await db.execute(select(User).where(
+            User.id.in_(actor_ids), User.workspace_id == actor.workspace_id))).scalars()
         names = {u.id: u.full_name for u in rows}
 
     for e in events:
