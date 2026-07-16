@@ -5245,6 +5245,22 @@
           "is_root": {
             "type": "boolean",
             "title": "Is Root"
+          },
+          "manager_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manager Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
           }
         },
         "type": "object",
@@ -5253,7 +5269,9 @@
           "email",
           "full_name",
           "role",
-          "is_root"
+          "is_root",
+          "manager_id",
+          "status"
         ],
         "title": "UserOut"
       },
