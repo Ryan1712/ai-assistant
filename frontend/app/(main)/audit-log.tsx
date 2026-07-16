@@ -14,7 +14,10 @@ const TYPE_ICON: Record<AuditEvent["type"], string> = {
 };
 
 function fmtDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function AuditEventRow({ e }: { e: AuditEvent }) {
@@ -42,6 +45,7 @@ export default function AuditLog() {
 
   const load = useCallback(() => {
     setError(null);
+    setEvents(null);
     listAuditEvents(dateFrom ? fmtDate(dateFrom) : undefined, dateTo ? fmtDate(dateTo) : undefined)
       .then(setEvents)
       .catch((e: any) => setError(String(e?.message ?? e)));
