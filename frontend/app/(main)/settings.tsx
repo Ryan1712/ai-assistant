@@ -54,6 +54,12 @@ export default function Settings() {
           <Text style={{ color: colors.textSecondary }}>Xem lịch sử hoạt động của công ty</Text>
         </TouchableOpacity>
       )}
+      {user?.role === "ceo" && (
+        <TouchableOpacity style={styles.card} onPress={() => router.push("/team")}>
+          <Text style={styles.title}>👥 Team</Text>
+          <Text style={{ color: colors.textSecondary }}>Quản lý nhân sự: khóa/mở, nghỉ việc, đổi vai trò</Text>
+        </TouchableOpacity>
+      )}
       {inviteCode && (
         <View style={styles.card}>
           <Text style={styles.title}>Mã mời công ty</Text>
