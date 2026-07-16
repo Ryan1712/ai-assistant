@@ -141,11 +141,11 @@ export default function TeamDetail() {
           try {
             await offboardUser(target.id, offboardSuccessor ?? undefined);
             setShowOffboard(false);
-            load();
           } catch (e: any) {
             setOffboardError(String(e?.message ?? e));
           } finally {
             setOffboardBusy(false);
+            load();
           }
         },
       },
