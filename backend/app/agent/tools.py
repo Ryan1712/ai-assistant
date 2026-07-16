@@ -16,9 +16,9 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    attachment_service, auth_service, dashboard_service, email_service, instruction_service, note_service,
-    portal_service, report_schedule_service, report_service, search_service, skill_service,
-    voice_service, work_service,
+    attachment_service, audit_service, auth_service, dashboard_service, email_service,
+    instruction_service, note_service, portal_service, report_schedule_service,
+    report_service, search_service, skill_service, voice_service, work_service,
 )
 
 
@@ -413,6 +413,22 @@ _register("list_report_schedules", "Liệt kê lịch báo cáo định kỳ đa
           NoArgsIn, _list_report_schedules)
 _register("delete_report_schedule", "Hủy 1 lịch báo cáo định kỳ theo id (chỉ CEO).",
           DeleteReportScheduleToolIn, _delete_report_schedule)
+
+
+class ListAuditEventsToolIn(BaseModel):
+    date_from: date | None = None
+    date_to: date | None = None
+
+
+async def _list_audit_events(db, actor, body: ListAuditEventsToolIn) -> dict:
+    events = await audit_service.list_audit_events(db, actor, date_from=body.date_from,
+                                                   date_to=body.date_to)
+    return {"events": events}
+
+
+_register("list_audit_events", "Xem nhật ký thay đổi công ty: cập nhật task, đăng nhập, "
+          "khóa/mở/nghỉ việc/đổi vai trò tài khoản, sửa instruction/skill (chỉ CEO, tối đa "
+          "200 dòng gần nhất).", ListAuditEventsToolIn, _list_audit_events)
 
 
 class SendEmailToolIn(BaseModel):
