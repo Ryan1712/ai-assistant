@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import plans, security
 from app.config import get_settings
 from app.models import (
-    Device, Invite, LoginEvent, Notification, Project, RefreshToken, Role, TaskAssignee,
-    User, UserStatus, Workspace,
+    AccountEvent, Device, Invite, LoginEvent, Notification, Project, RefreshToken, Role,
+    TaskAssignee, User, UserStatus, Workspace,
 )
 from app.permissions import require_ceo
 from app.services.notify import notify
@@ -255,6 +255,8 @@ async def lock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -> 
         .where(RefreshToken.user_id == target.id, RefreshToken.revoked_at.is_(None))
         .values(revoked_at=datetime.now(timezone.utc))
     )
+    db.add(AccountEvent(workspace_id=target.workspace_id, target_user_id=target.id,
+                        actor_id=actor.id, event_type="locked", detail="Khóa tài khoản"))
     await notify(db, workspace_id=target.workspace_id, recipient_id=target.id,
                  type="account_locked", payload={"by": str(actor.id)})
     await db.commit()
@@ -266,12 +268,17 @@ async def unlock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -
         raise HTTPException(404, "user_not_found")
     _check_lock_permission(actor, target)
     target.status = UserStatus.active
+    db.add(AccountEvent(workspace_id=target.workspace_id, target_user_id=target.id,
+                        actor_id=actor.id, event_type="unlocked", detail="Mở khóa tài khoản"))
     await db.commit()
 
 
 async def offboard_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID,
                         successor_id: uuid_mod.UUID | None = None) -> dict:
     await lock_user(db, actor, target_id)
+    db.add(AccountEvent(workspace_id=actor.workspace_id, target_user_id=target_id,
+                        actor_id=actor.id, event_type="offboarded", detail="Nghỉ việc"))
+    await db.commit()
 
     tasks_reassigned = 0
     projects_reassigned = 0
@@ -340,6 +347,7 @@ async def change_role(db: AsyncSession, actor: User, target_id: uuid_mod.UUID, *
     target = await db.get(User, target_id)
     if target is None or target.workspace_id != actor.workspace_id:
         raise HTTPException(404, "user_not_found")
+    old_role = target.role
     _check_role_change_permission(actor, target, new_role)
 
     if new_manager_id is not None:
@@ -406,6 +414,14 @@ async def change_role(db: AsyncSession, actor: User, target_id: uuid_mod.UUID, *
                 type="role_changed",
                 payload={"role": target.role.value,
                          "manager_id": str(target.manager_id) if target.manager_id else None})
+    detail_parts = []
+    if new_role is not None:
+        detail_parts.append(f"role: {old_role.value} -> {target.role.value}")
+    if new_manager_id is not None:
+        detail_parts.append(f"manager_id: {new_manager_id}")
+    db.add(AccountEvent(workspace_id=actor.workspace_id, target_user_id=target_id,
+                        actor_id=actor.id, event_type="role_changed",
+                        detail="; ".join(detail_parts) or "cap nhat quan ly"))
     await db.commit()
 
     return {"role": target.role.value,

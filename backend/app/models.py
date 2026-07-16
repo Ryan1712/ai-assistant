@@ -86,6 +86,17 @@ class LoginEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class AccountEvent(Base):
+    __tablename__ = "account_events"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    target_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    event_type: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Invite(Base):
     __tablename__ = "invites"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
