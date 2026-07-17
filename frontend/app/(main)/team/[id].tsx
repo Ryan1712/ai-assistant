@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
-  ChangeRoleResult,
   Device,
   TeamUser,
   changeRole,
@@ -108,7 +107,8 @@ export default function TeamDetail() {
   const manager = target?.manager_id ? users?.find((u) => u.id === target.manager_id) : null;
   const successorCandidates =
     users?.filter((u) => u.id !== target?.id && u.status !== "locked") ?? [];
-  const managerCandidates = users?.filter((u) => u.role === "manager") ?? [];
+  const managerCandidates =
+    users?.filter((u) => u.role === "manager" && u.status !== "locked") ?? [];
 
   const toggleLock = () => {
     if (!target) return;
@@ -168,14 +168,19 @@ export default function TeamDetail() {
     setRoleBusy(true);
     setRoleError(null);
     try {
-      const result: ChangeRoleResult = await changeRole(target.id, {
+      const result = await changeRole(target.id, {
         new_role: newRole ?? undefined,
         new_manager_id: newRole === "employee" ? newManager ?? undefined : undefined,
         successor_id: roleSuccessor ?? undefined,
       });
-      void result;
       setShowRoleForm(false);
       load();
+      if (result.reports_reassigned > 0 || result.projects_reassigned > 0) {
+        Alert.alert(
+          "Đã đổi vai trò",
+          `Đã bàn giao ${result.reports_reassigned} nhân sự báo cáo trực tiếp và ${result.projects_reassigned} project.`,
+        );
+      }
     } catch (e: any) {
       setRoleError(String(e?.message ?? e));
     } finally {
@@ -257,6 +262,7 @@ export default function TeamDetail() {
               onPress={() => {
                 setShowRoleForm((s) => !s);
                 setNewRole(target.role);
+                setNewManager(target.manager_id);
               }}
               style={{ marginTop: spacing.md }}
             >

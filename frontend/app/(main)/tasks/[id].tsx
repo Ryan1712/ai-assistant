@@ -188,7 +188,12 @@ function CommentsSection({ taskId }: { taskId: string }) {
     setError(null);
     try {
       const created = await addComment(taskId, content);
-      setComments((prev) => (prev ? [...prev, created] : [created]));
+      if (comments === null) {
+        // Fetch ban đầu từng lỗi — lấy lại danh sách đầy đủ thay vì giả định chỉ có bình luận vừa gửi.
+        setComments(await listComments(taskId));
+      } else {
+        setComments((prev) => (prev ? [...prev, created] : [created]));
+      }
       setDraft("");
     } catch (e: any) {
       setError(String(e?.message ?? e));
@@ -250,20 +255,22 @@ export default function TaskDetailScreen() {
       )}
       <ErrorText error={error} />
       {task && (
-        <>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{task.title}</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{task.title}</Text>
+          <Text style={styles.meta}>
+            {task.status} — {task.percent}%
+          </Text>
+          {task.description !== "" && <Text style={styles.body}>{task.description}</Text>}
+          {task.deadline && (
             <Text style={styles.meta}>
-              {task.status} — {task.percent}%
+              Deadline: {new Date(task.deadline).toLocaleDateString("vi-VN")}
             </Text>
-            {task.description !== "" && <Text style={styles.body}>{task.description}</Text>}
-            {task.deadline && (
-              <Text style={styles.meta}>
-                Deadline: {new Date(task.deadline).toLocaleDateString("vi-VN")}
-              </Text>
-            )}
-            <Text style={styles.meta}>Ưu tiên: {task.priority}</Text>
-          </View>
+          )}
+          <Text style={styles.meta}>Ưu tiên: {task.priority}</Text>
+        </View>
+      )}
+      {!error && (
+        <>
           <AttachmentsSection taskId={id} />
           <CommentsSection taskId={id} />
         </>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { Subscription, getInviteCode, getSubscription, switchPlan } from "../../src/api/dashboard";
@@ -17,7 +17,7 @@ export default function Settings() {
     setPlanBusy(true);
     switchPlan(sub.plan === "advanced" ? "basic" : "advanced")
       .then(setSub)
-      .catch(() => {})
+      .catch((e: any) => Alert.alert("Không đổi được gói", String(e?.message ?? e)))
       .finally(() => setPlanBusy(false));
   };
 

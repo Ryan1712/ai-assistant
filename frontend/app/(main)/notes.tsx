@@ -5,7 +5,11 @@ import { Field, PrimaryButton, ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function NoteRow({ note }: { note: Note }) {
@@ -60,11 +64,15 @@ export default function NotesScreen() {
       const created = await createNote({
         content: content.trim(),
         tags: tags.length > 0 ? tags : undefined,
+        note_date: todayIso(),
       });
-      // BE trả list mới nhất trước — thêm ghi chú vừa tạo lên đầu để khớp thứ tự.
-      setNotes((prev) => (prev ? [created, ...prev] : [created]));
       setContent("");
       setTagsText("");
+      // Chỉ thêm vào danh sách đang hiển thị nếu khớp bộ lọc tag hiện tại —
+      // BE trả list mới nhất trước nên thêm lên đầu để khớp thứ tự.
+      if (!tagFilter || created.tags.includes(tagFilter)) {
+        setNotes((prev) => (prev ? [created, ...prev] : [created]));
+      }
     } catch (e: any) {
       setCreateError(String(e?.message ?? e));
     } finally {

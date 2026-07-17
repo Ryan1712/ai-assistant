@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import {
   Skill,
@@ -78,12 +77,9 @@ function OptionPicker({
 }
 
 function TaskStateView({ ts }: { ts: TaskState }) {
-  const router = useRouter();
   return (
     <View style={styles.taskStateBox}>
-      <TouchableOpacity onPress={() => router.push(`/tasks/${ts.id}`)}>
-        <Text style={[styles.cardTitle, { color: colors.primary }]}>{ts.title} →</Text>
-      </TouchableOpacity>
+      <Text style={styles.cardTitle}>{ts.title}</Text>
       <Text style={{ color: colors.textSecondary }}>
         {ts.status} — {ts.percent}% — Ưu tiên: {ts.priority}
       </Text>
@@ -119,6 +115,7 @@ function SkillCard({
   usersError,
   usersLoading,
   onRequestUsers,
+  onVersionAdded,
 }: {
   skill: Skill;
   isCeo: boolean;
@@ -126,8 +123,8 @@ function SkillCard({
   usersError: string | null;
   usersLoading: boolean;
   onRequestUsers: () => void;
+  onVersionAdded: (skillId: string, version: number) => void;
 }) {
-  const [latestVersion, setLatestVersion] = useState(skill.latest_version);
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -161,11 +158,15 @@ function SkillCard({
     setVersionError(null);
     try {
       const result = await addSkillVersion(skill.id, content);
-      setLatestVersion(result.version);
+      onVersionAdded(skill.id, result.version);
       setVersionContent("");
       setVersionOpen(false);
-      // nội dung đã đổi — bỏ cache để lần mở tiếp theo lấy bản mới nhất
-      setDetail(null);
+      // Nội dung đã đổi — lấy lại ngay bản mới nhất thay vì để trống chờ collapse/expand lại.
+      setDetailLoading(true);
+      useSkill(skill.id)
+        .then(setDetail)
+        .catch((e: any) => setDetailError(String(e?.message ?? e)))
+        .finally(() => setDetailLoading(false));
     } catch (e: any) {
       setVersionError(String(e?.message ?? e));
     } finally {
@@ -194,7 +195,7 @@ function SkillCard({
       <TouchableOpacity onPress={toggleExpand}>
         <View style={styles.rowHeader}>
           <Text style={styles.cardTitle}>{skill.name}</Text>
-          <Text style={{ color: colors.textSecondary }}>v{latestVersion}</Text>
+          <Text style={{ color: colors.textSecondary }}>v{skill.latest_version}</Text>
         </View>
         <View style={styles.badgeRow}>
           <View style={styles.badge}>
@@ -424,6 +425,13 @@ export default function SkillsScreen() {
           usersError={usersError}
           usersLoading={usersLoading}
           onRequestUsers={requestUsers}
+          onVersionAdded={(skillId, version) =>
+            setSkills((prev) =>
+              prev
+                ? prev.map((x) => (x.id === skillId ? { ...x, latest_version: version } : x))
+                : prev,
+            )
+          }
         />
       ))}
     </ScrollView>
