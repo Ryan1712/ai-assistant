@@ -1,0 +1,194 @@
+# PROJECT_CONTEXT.md
+
+> **Last verified:** 2026-07-17
+> **Branch:** feature/task-comments-fe
+> **Verified against commit:** 42b4ed866d8191ebcfa9f51e878fb5e7fe558449
+
+Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
+
+## 1. Mục đích sản phẩm & vai trò người dùng
+
+App mobile (Expo/React Native) chat-first: người dùng điều hành công việc chủ yếu bằng cách nhắn cho AI, AI gọi tool để thực hiện thay vì người dùng thao tác qua menu. Đa công ty (multi-tenant) — mỗi `Workspace` có 1 CEO, dữ liệu cách ly tuyệt đối theo `workspace_id`.
+
+Ba vai trò (`app/models.py::Role`): `ceo`, `manager`, `employee`. CEO toàn quyền trong workspace; manager thấy/thao tác được task của bản thân + nhân viên dưới quyền (`manager_id`); employee chỉ thấy việc của chính mình. Chi tiết ma trận ở mục 6.
+
+## 2. Kiến trúc & tech stack
+
+```mermaid
+graph LR
+  FE["Expo RN app<br/>(fetch + WebSocket)"] -->|REST /api/v1/*| API["FastAPI (app/api/*)"]
+  FE -->|WebSocket /ws/conversations/:id| API
+  API --> DB[(Postgres)]
+  API -->|enqueue_job| Redis[(Redis / arq queue)]
+  Worker["arq worker<br/>(app/agent/worker.py)"] --> Redis
+  Worker --> DB
+  Worker -->|messages.create stream| Anthropic[Anthropic API / gateway tương thích]
+  Worker -->|publish events| Redis
+  API -->|subscribe| Redis
+```
+
+- **Backend**: Python, FastAPI 0.115, SQLAlchemy 2.0 (async, asyncpg prod / aiosqlite test), Alembic, Pydantic-settings, PyJWT+bcrypt, `anthropic` SDK 0.39, `arq` (Redis-backed job queue), `openpyxl` (xuất Excel).
+- **Frontend**: Expo SDK ~57, React 19.2 / React Native 0.86, Expo Router (file-based), không Redux/Zustand — state cục bộ bằng `useState`/`Context` (`AuthContext`).
+- **Hạ tầng dev** (`backend/docker-compose.yml`): Postgres 16 (host port 5435), Redis 7 (host port 6380), service `api` (FastAPI) + `worker` (arq, chạy `app.agent.worker.WorkerSettings`) tách biệt — worker mới thực sự gọi Anthropic.
+- Chat không chạy đồng bộ trong request HTTP: `POST .../messages` chỉ tạo `ChatRequest` (status `queued`) rồi `enqueue_job`; **worker** (`arq`) mới thực thi `run_agent_loop` và publish sự kiện qua Redis pub/sub; FE nhận qua WebSocket. Middleware/API không tự chạy agent loop — chạy `uvicorn` mà không có `arq worker` song song thì chat sẽ kẹt ở `queued` mãi.
+
+## 3. Cấu trúc repo (thư mục quan trọng)
+
+```
+backend/app/
+  api/            REST routers, 1 file/domain, prefix /api/v1/<domain>
+  agent/          loop.py (vòng lặp agent), worker.py (arq job + cron), tools.py (tool registry),
+                  llm_client.py (Anthropic wrapper), publisher.py (Redis pub/sub)
+  services/       business logic (1 file/domain), tất cả permission check nằm ở đây
+  models.py       toàn bộ SQLAlchemy models (28 bảng)
+  schemas.py      toàn bộ Pydantic request/response models
+  permissions.py  visible_user_ids / visible_task_ids / require_ceo... — nguồn chuẩn duy nhất cho quyền
+  config.py       Settings (env vars) + các cờ *_mock
+  security.py     JWT + bcrypt
+  deps.py         get_current_user (JWT bearer)
+alembic/versions/ 10 migration (xem mục 9)
+backend/tests/    ~65 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
+
+frontend/app/
+  (auth)/         login, signup-workspace, signup-code
+  (main)/         _layout.tsx = Tabs (5 tab chính + nhiều route ẩn href:null)
+frontend/src/
+  api/            1 file/domain, tất cả gọi qua apiFetch (src/api/client.ts)
+  ui/             theme.ts (design tokens), form.tsx (Field/PrimaryButton/ErrorText)
+  auth/           AuthContext (JWT access+refresh trong SecureStore/AsyncStorage)
+```
+
+## 4. Backend domains & API đã implement
+
+Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer (`require_ceo`, `get_visible_task_or_404`...), không bao giờ ở tầng router hay prompt.
+
+| Domain (router) | Endpoint chính | Ghi chú quyền |
+|---|---|---|
+| `auth` | signup-workspace, signup-invite, signup-code, login, refresh, logout, unlock-request | signup-code = tự đăng ký bằng mã mời chung workspace |
+| `users` | GET /me, GET "" (danh sách theo quyền thấy), GET /{id}/devices, POST /{id}/lock, /unlock, /offboard, /change-role | devices + lock/unlock/offboard/change-role: CEO-only |
+| `invites` | POST "" (tạo lời mời kèm role+manager_id) | CEO-only; REST endpoint này chưa có màn hình FE nào gọi trực tiếp, nhưng cùng logic (`auth_service.create_invite`) được expose qua agent tool `create_invite` nên vẫn dùng được qua chat. Flow tự đăng ký phổ biến hiện tại là mã mời chung workspace (`workspace.invite_code`), không phải route này. |
+| `workspace` | GET/POST /invite-code (rotate) | CEO-only |
+| `projects` | POST, GET, PATCH | create/patch CEO-only; list theo `visible_project_ids`; **không có DELETE** |
+| `tasks` | POST, GET, GET/{id}, PATCH, POST/DELETE assignees, POST/GET updates, POST/GET comments | create CEO-only; list/get theo `visible_task_ids`; **không có DELETE task** |
+| `attachments` | POST/GET tasks/{id}/attachments, GET /attachments/{id}/file | whitelist đuôi file + giới hạn 20MB, quyền qua task-visibility |
+| `skills` | POST, GET, POST /{id}/versions, POST /{id}/grants, GET /{id}/use | create/version/grant CEO-only; list: CEO thấy hết, người khác chỉ thấy skill được cấp; `use` bypass `visible_task_ids` có chủ đích (xem mục 6) |
+| `instructions` | POST, GET, PATCH, DELETE | toàn bộ CEO-only kể cả list |
+| `notes` | POST, GET (?on_date, ?tag) | ghi chú cá nhân — chỉ tác giả thấy, không ai khác kể cả CEO |
+| `voice_notes` | POST, GET, GET/{id}, GET/{id}/file | STT mock (xem mục 8) |
+| `emails` | GET ?box=inbox\|sent | **không có POST gửi** — gửi mail chỉ qua chat/agent tool `send_email` |
+| `portal` | GET /reports, GET /reports/{id} | CEO + gói Advanced; mock (mục 8) |
+| `reports` | GET "" (list), GET /{id}/download (xlsx) | CEO-only; tạo report chỉ qua agent tool `generate_report` hoặc `ReportSchedule` cron, không có POST tạo qua REST |
+| `report_schedules` | POST, GET, DELETE | CEO + Advanced; cron `check_report_schedules` (arq, mỗi phút) tự sinh report tới hạn |
+| `notifications` | GET (?unread_only), POST /{id}/read, POST /read-all | mỗi user chỉ thấy thông báo của chính mình |
+| `audit` | GET /audit-events (?date_from, ?date_to) | CEO-only, gộp 5 nguồn (task update, login, khóa/mở, đổi instruction/skill, account event) |
+| `search` | GET ?q= | gộp task/note/voice_note/user/skill, tôn trọng quyền từng loại |
+| `dashboard` | GET /today | task quá hạn/đến hạn/đang làm + cập nhật 24h + note hôm nay, theo phạm vi quyền actor |
+| `subscription` | GET, PATCH | PATCH = CEO-only, mock chuyển Basic/Advanced không có thanh toán thật |
+| `devices` | PUT /push-token | tự đăng ký device hiện tại, không cần CEO |
+| `chat` (`conversations`, `chat-requests`) | POST/GET/PATCH conversations, POST messages, GET requests, POST stop-all, POST/PATCH/POST(cancel/confirm/reorder) chat-requests | chi tiết mục 6 |
+| `ws` | WebSocket `/ws/conversations/{id}?token=` | stream token/status realtime qua Redis pub/sub |
+
+## 5. Frontend: màn hình & navigation đã implement
+
+`(main)/_layout.tsx` là `Tabs` với **5 tab chính**: Hôm nay, Công việc, Trợ lý AI, Tìm kiếm, Cài đặt — cộng nhiều route ẩn (`href: null`) điều hướng bằng `router.push`.
+
+| Route | Vai trò truy cập | Ghi chú |
+|---|---|---|
+| `today.tsx` (tab) | mọi role | dashboard: counters, ghi âm nhanh, quá hạn/đến hạn/đang làm, cập nhật 24h, ghi chú hôm nay; link sang Notifications + Notes |
+| `tasks.tsx` (tab) | mọi role | duyệt/lọc: Của tôi/Tôi quản lý/Quá hạn/Bị chặn/Đã hoàn thành; chỉ đọc — tạo/sửa vẫn qua chat |
+| `chat.tsx` (tab) | mọi role | streaming qua WebSocket, hàng đợi, dừng/hủy/ưu tiên, xác nhận hành động nhạy cảm, hold-queue khi mất mạng; nhận `?id=` để mở đúng conversation |
+| `search.tsx` (tab) | mọi role | |
+| `settings.tsx` (tab) | mọi role | entry point tới hầu hết route ẩn CEO-only bên dưới |
+| `conversations.tsx` | mọi role | tạo/tìm/đổi tên conversation, mở lại đúng cuộc trò chuyện |
+| `projects.tsx` | mọi role (theo `visible_project_ids`) | đọc, expand xem task trong project |
+| `tasks/[id].tsx` | theo quyền task | chi tiết, đính kèm, thảo luận (bình luận) |
+| `team.tsx` / `team/[id].tsx` | CEO-only | danh sách/chi tiết nhân sự, khóa/mở, nghỉ việc, đổi vai trò, log thiết bị |
+| `notes.tsx` | mọi role | ghi chú cá nhân |
+| `instructions.tsx` | CEO-only | quản lý chỉ dẫn AI |
+| `skills.tsx` | mọi role (CEO thêm quyền tạo/version/cấp quyền) | |
+| `emails.tsx` | mọi role | chỉ đọc |
+| `portal.tsx` | CEO + Advanced | |
+| `notifications.tsx` | mọi role | |
+| `reports.tsx` | CEO-only | tải + chia sẻ file Excel |
+| `report-schedules.tsx` | CEO + Advanced | |
+| `audit-log.tsx` | CEO-only | |
+
+FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích sản phẩm — hành động quản trị qua chat).
+
+## 6. AI agent: loop, tool, hàng đợi, streaming, xác nhận
+
+- **Model**: đọc từ `Settings.model_chat` (mặc định `"claude-haiku-4-5"`), không hardcode trong code nghiệp vụ. `anthropic_base_url` rỗng = gọi thẳng `api.anthropic.com`; set giá trị khác để qua gateway tương thích Anthropic API.
+- **Hàng đợi**: mỗi tin nhắn → 1 `ChatRequest` (`queued`), `enqueue_conversation` gửi job arq `process_conversation` với `_job_id=f"conv:{id}"` (dedup theo conversation). Worker xử lý **tuần tự từng request theo `queue_position`** cho tới khi rỗng hàng đợi của conversation đó.
+- **Streaming**: `AnthropicLLMClient.stream()` đọc raw SSE event, tự accumulate theo `message_start` mới nhất (không dùng helper `messages.stream()` — có bug thực tế với gateway beeknoee). Mỗi `text_delta` publish `{"type":"token",...}` qua Redis, FE nhận qua WebSocket `/ws/conversations/{id}`.
+- **Vòng lặp** (`run_agent_loop`, `app/agent/loop.py`): mỗi lượt build lại system prompt (nạp `Instruction` mới nhất từ DB — CEO sửa là AI dùng ngay, không cache/restart), gọi model, nếu `stop_reason == tool_use` thì gọi tool tương ứng (`call_tool`) và lưu `tool_result` vào lịch sử, lặp lại. Giới hạn cứng **`MAX_ITERATIONS = 25`** để chặn vòng lặp vô hạn.
+- **Xác nhận hành động nhạy cảm**: 6 tool đánh dấu `sensitive=True` — `lock_user`, `unlock_user`, `offboard_user`, `change_user_role`, `send_email`, `delete_instruction`. Khi model gọi 1 trong 6 tool này, loop dừng ở `awaiting_confirmation`, publish `confirmation_required`, FE hiện nút Đồng ý/Từ chối; `POST /chat-requests/{id}/confirm` mới thực thi tool thật.
+- **Dừng/hủy**: `POST stop-all` set các request `queued` → `cancelled`, request `running` được đánh dấu qua Redis key `cancel:{id}` (loop tự kiểm tra `is_cancelled` giữa các bước).
+- **Mất mạng / "tiếp tục công việc"**: socket cuối cùng đóng → `continuity.hold_queue_if_pending` set `Conversation.queue_held=True`, worker thấy cờ này thì **không tự chạy tiếp**; chỉ khi user gửi đúng cụm `RESUME_PHRASE` ("tiếp tục công việc") thì `send_message` clear cờ và enqueue lại.
+- **Tool registry**: `app/agent/tools.py`, **45 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission.
+- **Report định kỳ**: `arq.cron` chạy `check_report_schedules` mỗi phút (không qua LLM), độc lập với vòng lặp chat.
+
+## 7. Phân quyền & cách ly đa công ty
+
+Nguồn chuẩn duy nhất: `app/permissions.py`.
+
+- Mọi bảng trừ `workspaces` có cột `workspace_id`; mọi query lọc theo `actor.workspace_id` — xác nhận qua review, không có ngoại lệ nào lọt lưới trong nhánh này.
+- `visible_user_ids`: CEO → cả workspace; manager → chính mình + `manager_id == actor.id`; employee → chỉ chính mình.
+- `visible_task_ids`: CEO → toàn bộ; manager → task giao cho mình/nhân viên dưới quyền **+ task thuộc project mà mình là `owner_id`**; employee → task giao cho mình.
+- `get_visible_task_or_404`: 404 (không phải 403) khi ngoài phạm vi — không lộ sự tồn tại của task.
+- **Ngoại lệ có chủ đích**: `GET /skills/{id}/use` cấp quyền đọc `task_state` sống cho bất kỳ user nào được **grant skill**, kể cả khi task đó không nằm trong `visible_task_ids` thông thường của họ (thiết kế Plan 2: skill = ủy quyền xem state qua kênh riêng, không phải lỗ hổng). Vì kênh skill có phạm vi quyền **rộng hơn** route `/tasks/{id}` thông thường (vốn dùng `get_visible_task_or_404`, chặt hơn), FE không được giả định 2 kênh này tương đương — không tự thêm điều hướng/liên kết chéo từ dữ liệu đọc qua skill sang các route dùng permission chặt hơn nếu chưa kiểm tra người dùng thực sự có quyền ở route đích.
+- Actor luôn lấy từ JWT (`get_current_user`, payload `sub`/`ws`/`role`) — không bao giờ từ tham số client hay model.
+
+## 8. Tích hợp thật vs mock
+
+Cờ trong `app/config.py`, tất cả **mặc định `True` (mock)** — bật thật chỉ cần set cờ tương ứng `false` + cấu hình provider, TRỪ 2 trường hợp ghi rõ "chưa có code thật" bên dưới (những trường hợp đó cần viết thêm implementation, không chỉ đổi cờ).
+
+| Tích hợp | Cờ | Trạng thái |
+|---|---|---|
+| LLM (Anthropic) | — (không có cờ mock) | **Thật** — gọi `anthropic.AsyncAnthropic` thật, cần `ANTHROPIC_API_KEY`. Phần duy nhất bắt buộc phải thật để chat có nghĩa. |
+| Push notification | `push_mock` | **Mặc định mock**, nhưng đã có implementation thật (`ExpoPushClient`, gọi Expo Push API) — chỉ cần set `push_mock=false`. FE đã đăng ký `push_token` khi login (`registerPushTokenBestEffort`); gửi thật qua Expo chưa được verify end-to-end trong phiên này. |
+| Cổng CEO (ceo.9learning.edu.vn) | `portal_mock` | **Mặc định mock** (`MockPortalClient` trả 2 report giả lập cứng), nhưng đã có implementation thật (`HttpPortalClient`, gọi `portal_base_url`) — chỉ cần set `portal_mock=false`. Chưa xác minh với API thật vì cổng chưa công bố spec chính thức. |
+| Gửi email | `email_mock` | **Mặc định mock** (`MockEmailClient` chỉ ghi `EmailMessage` vào DB). **Chưa có implementation thật** — `get_email_client()` raise `NotImplementedError` khi tắt mock; cần chọn OAuth send-as hay SMTP rồi viết code trước khi dùng được. |
+| Speech-to-text (voice note) | `stt_mock` | **Mặc định mock** (trả `transcript=""`, `language="und"`). **Chưa có implementation thật** — `get_transcription_client()` raise `NotImplementedError` khi tắt mock; cần chọn provider rồi viết code. |
+| Subscription/thanh toán | không có cờ — không có tích hợp | Hoàn toàn mock: `PATCH /subscription` chỉ đổi cột `plan`, không có Stripe/VNPay/... nào. Chỉ dùng để enforce giới hạn tính năng theo gói (`app/plans.py`). |
+
+## 9. Database & migrations
+
+Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **10 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `attachments_table` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `reports` → `account_events_table`. Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
+
+28 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
+
+## 10. Test & lệnh verify
+
+Chạy trong `backend/` (venv `.venv`):
+```
+docker compose up -d postgres redis         # 5435/6380
+alembic upgrade head
+pytest tests/ -v                            # ~345 test hiện tại, toàn bộ pass trên nhánh này
+uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
+arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
+python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
+```
+Frontend (`frontend/`): **không có test suite tự động** — xác minh duy nhất là `npx tsc --noEmit` (bắt buộc 0 lỗi trước khi coi là xong). Chạy thật qua `expo start` cần xác minh tay trên thiết bị/simulator — chưa có ai verify UI bằng cách này trong phiên làm việc tạo ra các màn hình mới nhất.
+
+## 11. Hạn chế đã biết, API còn thiếu, việc còn lại
+
+**Còn thiếu / chưa làm** (không phải "sẽ làm" — liệt kê thực tế, không suy đoán ưu tiên):
+- Không có API xóa Project hoặc Task (chỉ có create/patch).
+- `invites.py` (POST tạo lời mời kèm role+manager cụ thể) chưa có màn hình FE riêng — chỉ dùng được qua chat (tool `create_invite`) hoặc trực tiếp gọi REST. Nếu cần UI mời theo role/manager cụ thể (khác mã mời chung ở Settings) thì phải xây thêm màn hình, backend đã sẵn sàng.
+- Không có UI chọn loại thông báo muốn nhận (functional-plan có nhắc, chưa thấy trong code) — Notification Center hiện tại chỉ liệt kê + đánh dấu đã đọc, không có cấu hình per-type.
+- Skill: chỉ có "cấp quyền xem/dùng" (grant), không có phân biệt view/edit/use ở mức chi tiết hơn.
+- Không có API sửa/xóa comment hoặc note (chỉ thêm mới + liệt kê — cố ý theo tiền lệ, không phải thiếu sót).
+- Chưa xác minh UI thật của 4 tab/màn hình mới nhất (Conversations, Tasks/Projects, Notification Center, Report Center) qua Expo dev server — chỉ mới qua `tsc` + review code.
+- Email và STT chưa có implementation thật (chỉ mock, xem mục 8) — cần viết code provider trước khi dùng được, không chỉ đổi cờ.
+- Push và Portal đã có implementation thật trong code nhưng đang chạy ở chế độ mock theo cờ mặc định (xem mục 8) — bật thật chỉ cần đổi cờ + (với Portal) có spec API thật của cổng.
+
+**Không phải thiếu — cố ý** (đừng nhầm là gap): tạo/sửa Project/Task chỉ qua chat (không có form CRUD ở FE); gửi email chỉ qua chat; report chỉ tạo qua chat hoặc lịch tự động.
+
+## 12. File nên đọc trước khi sửa
+
+- `CLAUDE.md` (repo root) — quy ước bất di bất dịch: workspace_id, quyền ở service layer, actor từ JWT, model từ config, TDD, export_openapi sau khi đổi contract.
+- `frontend/AGENTS.md` + `frontend/DESIGN.md` — bắt buộc đọc trước khi sửa bất kỳ screen nào (design tokens, không hardcode màu/spacing).
+- `funtional-plan.md` — spec sản phẩm gốc; đối chiếu với code thực tế trước khi tin, vài chỗ đã lệch (vd flow invite).
+- `app/permissions.py`, `app/agent/tools.py`, `app/agent/loop.py` — 3 file quyết định "ai làm được gì" và "AI làm được gì qua chat".
+- `frontend/src/api/client.ts` — mọi lỗi API đều đi qua `ApiError{status, detail}`, xử lý theo pattern đã có trong các screen hiện tại thay vì viết lại.
+- `docs/superpowers/specs/` và `docs/superpowers/plans/` — lịch sử thiết kế từng tính năng (tham khảo bối cảnh, không phải nguồn sự thật cho trạng thái hiện tại).
