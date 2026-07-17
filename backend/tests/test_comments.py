@@ -40,3 +40,15 @@ async def test_outsider_cannot_see_comments(client):
     assert (await client.get(f"/api/v1/tasks/{tid}/comments", headers=_h(m2))).status_code == 404
     assert (await client.post(f"/api/v1/tasks/{tid}/comments", headers=_h(m2),
                               json={"content": "x"})).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_comment_includes_author_name(client):
+    ceo_h, e1, e2, tid = await _task_with_two_employees(client)
+    r = await client.post(f"/api/v1/tasks/{tid}/comments", headers=_h(e1),
+                          json={"content": "xin chao"})
+    assert r.status_code == 201, r.text
+    assert r.json()["author_name"] == "e1@a.vn"
+
+    lst = await client.get(f"/api/v1/tasks/{tid}/comments", headers=_h(e2))
+    assert lst.json()[0]["author_name"] == "e1@a.vn"

@@ -190,17 +190,28 @@ async def list_task_updates(db: AsyncSession, actor: User, task_id: uuid.UUID) -
 
 
 async def add_comment(db: AsyncSession, actor: User, task_id: uuid.UUID,
-                      content: str) -> TaskComment:
+                      content: str) -> dict:
     task = await get_visible_task_or_404(db, actor, task_id)
     comment = TaskComment(workspace_id=actor.workspace_id, task_id=task.id,
                           author_id=actor.id, content=content)
     db.add(comment)
     await db.commit()
-    return comment
+    return {"id": comment.id, "task_id": comment.task_id, "author_id": comment.author_id,
+            "author_name": actor.full_name, "content": comment.content,
+            "created_at": comment.created_at}
 
 
-async def list_comments(db: AsyncSession, actor: User, task_id: uuid.UUID) -> list[TaskComment]:
+async def list_comments(db: AsyncSession, actor: User, task_id: uuid.UUID) -> list[dict]:
     task = await get_visible_task_or_404(db, actor, task_id)
-    rows = await db.execute(select(TaskComment).where(TaskComment.task_id == task.id)
-                            .order_by(TaskComment.created_at.asc(), TaskComment.id.asc()))
-    return list(rows.scalars())
+    rows = (await db.execute(select(TaskComment).where(TaskComment.task_id == task.id)
+                             .order_by(TaskComment.created_at.asc(), TaskComment.id.asc()))).scalars()
+    comments = list(rows)
+    author_ids = {c.author_id for c in comments}
+    names: dict = {}
+    if author_ids:
+        users = (await db.execute(select(User).where(
+            User.id.in_(author_ids), User.workspace_id == actor.workspace_id))).scalars()
+        names = {u.id: u.full_name for u in users}
+    return [{"id": c.id, "task_id": c.task_id, "author_id": c.author_id,
+            "author_name": names.get(c.author_id, "?"), "content": c.content,
+            "created_at": c.created_at} for c in comments]

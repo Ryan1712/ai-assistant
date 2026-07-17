@@ -175,6 +175,7 @@ class CommentOut(BaseModel):
     id: uuid.UUID
     task_id: uuid.UUID
     author_id: uuid.UUID
+    author_name: str
     content: str
     created_at: dt.datetime
 

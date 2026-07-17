@@ -3460,6 +3460,10 @@
             "format": "uuid",
             "title": "Author Id"
           },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
+          },
           "content": {
             "type": "string",
             "title": "Content"
@@ -3475,6 +3479,7 @@
           "id",
           "task_id",
           "author_id",
+          "author_name",
           "content",
           "created_at"
         ],

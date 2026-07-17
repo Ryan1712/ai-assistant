@@ -207,13 +207,13 @@ async def _list_task_updates(db, actor, body: ListTaskUpdatesToolIn) -> dict:
 
 async def _add_comment(db, actor, body: AddCommentToolIn) -> dict:
     comment = await work_service.add_comment(db, actor, body.task_id, body.content)
-    return {"id": str(comment.id), "task_id": str(comment.task_id), "content": comment.content}
+    return {"id": str(comment["id"]), "task_id": str(comment["task_id"]), "content": comment["content"]}
 
 
 async def _list_comments(db, actor, body: ListCommentsToolIn) -> dict:
     comments = await work_service.list_comments(db, actor, body.task_id)
-    return {"comments": [{"id": str(c.id), "author_id": str(c.author_id), "content": c.content,
-                          "created_at": c.created_at.isoformat()} for c in comments]}
+    return {"comments": [{"id": str(c["id"]), "author_id": str(c["author_id"]), "content": c["content"],
+                          "created_at": c["created_at"].isoformat()} for c in comments]}
 
 
 async def _create_skill(db, actor, body: SkillCreateIn) -> dict:
