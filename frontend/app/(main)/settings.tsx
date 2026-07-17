@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
-import { Subscription, getInviteCode, getSubscription } from "../../src/api/dashboard";
+import { Subscription, getInviteCode, getSubscription, switchPlan } from "../../src/api/dashboard";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 export default function Settings() {
@@ -10,6 +10,16 @@ export default function Settings() {
   const router = useRouter();
   const [sub, setSub] = useState<Subscription | null>(null);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+
+  const togglePlan = () => {
+    if (!sub) return;
+    setPlanBusy(true);
+    switchPlan(sub.plan === "advanced" ? "basic" : "advanced")
+      .then(setSub)
+      .catch(() => {})
+      .finally(() => setPlanBusy(false));
+  };
 
   useEffect(() => {
     getSubscription().then(setSub).catch(() => {});
@@ -39,6 +49,17 @@ export default function Settings() {
               Giới hạn: {sub.limits.projects} project · {sub.limits.skills} skill ·{" "}
               {sub.limits.members} thành viên
             </Text>
+          )}
+          {user?.role === "ceo" && (
+            <TouchableOpacity onPress={togglePlan} disabled={planBusy} style={{ marginTop: spacing.sm }}>
+              {planBusy ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Text style={{ color: colors.primary, fontWeight: "700" }}>
+                  Chuyển sang {sub.plan === "advanced" ? "Basic" : "Advanced"} (mock)
+                </Text>
+              )}
+            </TouchableOpacity>
           )}
         </View>
       )}

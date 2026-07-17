@@ -31,5 +31,8 @@ export type Subscription = { plan: "basic" | "advanced"; limits: Record<string, 
 
 export const getSubscription = () => apiFetch<Subscription>("/api/v1/subscription");
 
+export const switchPlan = (plan: "basic" | "advanced") =>
+  apiFetch<Subscription>("/api/v1/subscription", { method: "PATCH", body: { plan } });
+
 export const getInviteCode = () =>
   apiFetch<{ invite_code: string }>("/api/v1/workspace/invite-code");
