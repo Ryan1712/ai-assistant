@@ -296,6 +296,16 @@ class ConversationOut(BaseModel):
     created_at: dt.datetime
 
 
+class ReportOut(BaseModel):
+    id: uuid.UUID
+    kind: str
+    filters: dict
+    summary: dict
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
+
 class NotificationOut(BaseModel):
     id: uuid.UUID
     type: str

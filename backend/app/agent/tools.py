@@ -366,6 +366,20 @@ _register("generate_report",
           "file tải qua ứng dụng.", GenerateReportToolIn, _generate_report)
 
 
+async def _list_reports(db, actor, body: NoArgsIn) -> dict:
+    reports = await report_service.list_reports(db, actor)
+    return {"reports": [
+        {"id": str(r.id), "kind": r.kind, "filters": r.filters, "summary": r.summary,
+         "created_at": r.created_at.isoformat()}
+        for r in reports
+    ]}
+
+
+_register("list_reports", "Liệt kê các báo cáo Excel đã tạo trước đây trong công ty "
+          "(chỉ CEO) — mỗi báo cáo kèm tóm tắt số liệu, tải file qua ứng dụng.",
+          NoArgsIn, _list_reports)
+
+
 class CreateReportScheduleToolIn(BaseModel):
     weekday: int | None = None
     hour: int

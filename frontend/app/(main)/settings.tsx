@@ -63,6 +63,12 @@ export default function Settings() {
           )}
         </View>
       )}
+      {user?.role === "ceo" && (
+        <TouchableOpacity style={styles.card} onPress={() => router.push("/reports")}>
+          <Text style={styles.title}>📊 Báo cáo</Text>
+          <Text style={{ color: colors.textSecondary }}>Xem và tải các báo cáo đã tạo</Text>
+        </TouchableOpacity>
+      )}
       {user?.role === "ceo" && sub?.plan === "advanced" && (
         <TouchableOpacity style={styles.card} onPress={() => router.push("/report-schedules")}>
           <Text style={styles.title}>📅 Báo cáo định kỳ</Text>

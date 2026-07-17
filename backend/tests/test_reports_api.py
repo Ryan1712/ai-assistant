@@ -69,3 +69,24 @@ async def test_missing_file_on_disk_404(client, db_session, storage_dir):
         f.unlink()
     resp = await client.get(f"/api/v1/reports/{report_id}/download", headers=headers)
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ceo_lists_own_workspace_reports(client, db_session, storage_dir):
+    headers, report_id = await _make_report(client, db_session)
+    resp = await client.get("/api/v1/reports", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["id"] == report_id
+    assert body[0]["kind"] == "task_summary"
+    assert body[0]["summary"]["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_non_ceo_cannot_list_reports(client, db_session, storage_dir):
+    headers, _ = await _make_report(client, db_session)
+    mgr = await _invite_and_join(client, headers, "manager", "m2@a.vn")
+    mgr_headers = {"Authorization": f"Bearer {mgr['access_token']}"}
+    resp = await client.get("/api/v1/reports", headers=mgr_headers)
+    assert resp.status_code == 403

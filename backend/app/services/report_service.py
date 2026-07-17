@@ -111,3 +111,12 @@ async def generate_report(db: AsyncSession, actor: User, *,
     await db.commit()
     return {"report_id": str(report.id), "summary": summary,
             "row_count": len(tasks), "filters_applied": filters}
+
+
+async def list_reports(db: AsyncSession, actor: User) -> list[Report]:
+    require_ceo(actor)
+    rows = await db.execute(
+        select(Report).where(Report.workspace_id == actor.workspace_id)
+        .order_by(Report.created_at.desc())
+    )
+    return list(rows.scalars())

@@ -9,10 +9,18 @@ from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Report, Role, User
+from app.schemas import ReportOut
+from app.services import report_service
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("", response_model=list[ReportOut])
+async def list_reports(actor: User = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    return await report_service.list_reports(db, actor)
 
 
 @router.get("/{report_id}/download", responses={
