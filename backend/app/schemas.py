@@ -30,6 +30,8 @@ class UserOut(BaseModel):
     full_name: str
     role: str
     is_root: bool
+    manager_id: uuid.UUID | None
+    status: str
 
     model_config = {"from_attributes": True}
 
