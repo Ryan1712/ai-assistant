@@ -11,8 +11,10 @@ import {
 import { useLocalSearchParams } from "expo-router";
 import {
   ChangeRoleResult,
+  Device,
   TeamUser,
   changeRole,
+  listUserDevices,
   listUsers,
   lockUser,
   offboardUser,
@@ -70,6 +72,8 @@ export default function TeamDetail() {
   const [users, setUsers] = useState<TeamUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
+  const [devices, setDevices] = useState<Device[] | null>(null);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
 
   const [showOffboard, setShowOffboard] = useState(false);
   const [offboardSuccessor, setOffboardSuccessor] = useState<string | null>(null);
@@ -92,6 +96,13 @@ export default function TeamDetail() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    listUserDevices(id)
+      .then(setDevices)
+      .catch((e: any) => setDevicesError(String(e?.message ?? e)));
+  }, [id]);
 
   const target = users?.find((u) => u.id === id) ?? null;
   const manager = target?.manager_id ? users?.find((u) => u.id === target.manager_id) : null;
@@ -295,6 +306,23 @@ export default function TeamDetail() {
               </View>
             )}
           </View>
+
+          <View style={styles.card}>
+            <Text style={styles.title}>Thiết bị đã đăng nhập</Text>
+            {devices === null && !devicesError && <ActivityIndicator color={colors.primary} />}
+            <ErrorText error={devicesError} />
+            {devices?.length === 0 && (
+              <Text style={{ color: colors.textMuted }}>Chưa có thiết bị nào đăng nhập</Text>
+            )}
+            {devices?.map((d) => (
+              <View key={d.device_uuid} style={styles.deviceRow}>
+                <Text style={type.body}>{d.device_name}</Text>
+                <Text style={{ color: colors.textSecondary }}>
+                  Đăng nhập gần nhất: {new Date(d.last_login_at).toLocaleString("vi-VN")}
+                </Text>
+              </View>
+            ))}
+          </View>
         </>
       )}
     </ScrollView>
@@ -317,6 +345,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  deviceRow: {
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
+  },
   pickerList: {
     marginTop: spacing.xs,
     borderWidth: 1,

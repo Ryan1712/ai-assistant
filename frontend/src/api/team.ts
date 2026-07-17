@@ -26,7 +26,16 @@ export type ChangeRoleResult = {
   projects_reassigned: number;
 };
 
+export type Device = {
+  device_uuid: string;
+  device_name: string;
+  last_login_at: string;
+};
+
 export const listUsers = () => apiFetch<TeamUser[]>("/api/v1/users");
+
+export const listUserDevices = (id: string) =>
+  apiFetch<Device[]>(`/api/v1/users/${id}/devices`);
 
 export const lockUser = (id: string) =>
   apiFetch<void>(`/api/v1/users/${id}/lock`, { method: "POST" });
