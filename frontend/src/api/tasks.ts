@@ -14,6 +14,4 @@ export type TaskDetail = {
 
 export const getTask = (id: string) => apiFetch<TaskDetail>(`/api/v1/tasks/${id}`);
 
-export type TaskSummary = { id: string; title: string };
-
-export const listTasks = () => apiFetch<TaskSummary[]>("/api/v1/tasks");
+export const listTasks = () => apiFetch<TaskDetail[]>("/api/v1/tasks");

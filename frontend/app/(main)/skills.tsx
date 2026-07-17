@@ -12,7 +12,7 @@ import {
   listSkills,
   useSkill,
 } from "../../src/api/skills";
-import { TaskSummary, listTasks } from "../../src/api/tasks";
+import { TaskDetail, listTasks } from "../../src/api/tasks";
 import { TeamUser, listUsers } from "../../src/api/team";
 import { ErrorText, Field, PrimaryButton } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
@@ -289,7 +289,7 @@ export default function SkillsScreen() {
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const [tasks, setTasks] = useState<TaskSummary[] | null>(null);
+  const [tasks, setTasks] = useState<TaskDetail[] | null>(null);
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [tasksLoading, setTasksLoading] = useState(false);
 

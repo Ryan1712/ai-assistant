@@ -24,6 +24,10 @@ export default function MainLayout() {
         options={{ title: "Hôm nay", tabBarIcon: () => <Icon glyph="📋" /> }}
       />
       <Tabs.Screen
+        name="tasks"
+        options={{ title: "Công việc", tabBarIcon: () => <Icon glyph="✅" /> }}
+      />
+      <Tabs.Screen
         name="chat"
         options={{ title: "Trợ lý AI", tabBarIcon: () => <Icon glyph="💬" /> }}
       />
@@ -46,6 +50,7 @@ export default function MainLayout() {
       <Tabs.Screen name="emails" options={{ href: null }} />
       <Tabs.Screen name="portal" options={{ href: null }} />
       <Tabs.Screen name="conversations" options={{ href: null }} />
+      <Tabs.Screen name="projects" options={{ href: null }} />
     </Tabs>
   );
 }
