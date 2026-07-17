@@ -119,13 +119,14 @@ function QuickVoiceCard() {
 }
 
 function TaskLine({ t }: { t: DashTask }) {
+  const router = useRouter();
   return (
-    <View style={styles.taskLine}>
+    <TouchableOpacity style={styles.taskLine} onPress={() => router.push(`/tasks/${t.id}`)}>
       <Text style={{ flex: 1 }} numberOfLines={1}>
         {t.title}
       </Text>
       <Text style={styles.percent}>{t.percent}%</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -195,13 +196,17 @@ export default function Today() {
               <Text style={styles.empty}>Chưa có cập nhật mới</Text>
             ) : (
               data.recent_updates.map((u, i) => (
-                <View key={i} style={styles.updateLine}>
+                <TouchableOpacity
+                  key={i}
+                  style={styles.updateLine}
+                  onPress={() => router.push(`/tasks/${u.task_id}`)}
+                >
                   <Text style={{ fontWeight: "600" }}>
                     {u.author} — {u.task_title}
                     {u.percent != null ? ` (${u.percent}%)` : ""}
                   </Text>
                   <Text>{u.content}</Text>
-                </View>
+                </TouchableOpacity>
               ))
             )}
           </View>

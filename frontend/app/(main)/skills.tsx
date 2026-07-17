@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import {
   Skill,
@@ -77,9 +78,12 @@ function OptionPicker({
 }
 
 function TaskStateView({ ts }: { ts: TaskState }) {
+  const router = useRouter();
   return (
     <View style={styles.taskStateBox}>
-      <Text style={styles.cardTitle}>{ts.title}</Text>
+      <TouchableOpacity onPress={() => router.push(`/tasks/${ts.id}`)}>
+        <Text style={[styles.cardTitle, { color: colors.primary }]}>{ts.title} →</Text>
+      </TouchableOpacity>
       <Text style={{ color: colors.textSecondary }}>
         {ts.status} — {ts.percent}% — Ưu tiên: {ts.priority}
       </Text>
