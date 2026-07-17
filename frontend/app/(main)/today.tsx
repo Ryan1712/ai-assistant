@@ -172,6 +172,9 @@ export default function Today() {
       )}
       {data && (
         <>
+          <TouchableOpacity onPress={() => router.push("/notifications")} style={{ alignSelf: "flex-end" }}>
+            <Text style={{ color: colors.primary, fontWeight: "700" }}>🔔 Thông báo</Text>
+          </TouchableOpacity>
           <View style={styles.counters}>
             <View style={styles.counter}>
               <Text style={styles.counterNum}>{data.counters.overdue}</Text>

@@ -295,6 +295,16 @@ class ConversationOut(BaseModel):
     queue_held: bool = False
     created_at: dt.datetime
 
+
+class NotificationOut(BaseModel):
+    id: uuid.UUID
+    type: str
+    payload: dict
+    read_at: dt.datetime | None
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
     model_config = {"from_attributes": True}
 
 

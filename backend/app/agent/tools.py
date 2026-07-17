@@ -17,8 +17,9 @@ from app.schemas import (
 )
 from app.services import (
     attachment_service, audit_service, auth_service, dashboard_service, email_service,
-    instruction_service, note_service, portal_service, report_schedule_service,
-    report_service, search_service, skill_service, voice_service, work_service,
+    instruction_service, note_service, notification_service, portal_service,
+    report_schedule_service, report_service, search_service, skill_service, voice_service,
+    work_service,
 )
 
 
@@ -612,6 +613,26 @@ async def _search(db, actor, body: SearchToolIn) -> dict:
 _register("search", "Tìm kiếm xuyên suốt theo từ khóa: task, note, ghi âm, người, skill "
           "(chỉ trong phạm vi actor được thấy). Dùng khi user hỏi 'tìm ... liên quan tới X'.",
           SearchToolIn, _search)
+
+
+class ListNotificationsToolIn(BaseModel):
+    unread_only: bool = False
+
+
+async def _list_notifications(db, actor, body: ListNotificationsToolIn) -> dict:
+    notifs = await notification_service.list_notifications(db, actor,
+                                                            unread_only=body.unread_only)
+    return {"notifications": [
+        {"id": str(n.id), "type": n.type, "payload": n.payload,
+         "read_at": n.read_at.isoformat() if n.read_at else None,
+         "created_at": n.created_at.isoformat()}
+        for n in notifs
+    ]}
+
+
+_register("list_notifications", "Xem thông báo của chính actor (task được giao, cập nhật "
+          "tiến độ, đổi vai trò, yêu cầu mở khóa...). unread_only=true để chỉ xem chưa đọc.",
+          ListNotificationsToolIn, _list_notifications)
 
 
 SENSITIVE_TOOLS: frozenset[str] = frozenset(
