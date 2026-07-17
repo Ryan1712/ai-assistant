@@ -21,7 +21,8 @@ import {
   listTaskAttachments,
   uploadTaskAttachment,
 } from "../../../src/api/attachments";
-import { ErrorText } from "../../../src/ui/form";
+import { Comment, addComment, listComments } from "../../../src/api/comments";
+import { ErrorText, Field } from "../../../src/ui/form";
 import { colors, radius, spacing, type } from "../../../src/ui/theme";
 
 function formatFileSize(bytes: number): string {
@@ -154,6 +155,71 @@ function AttachmentsSection({ taskId }: { taskId: string }) {
   );
 }
 
+function CommentRow({ c }: { c: Comment }) {
+  return (
+    <View style={styles.row}>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontWeight: "700" }}>{c.author_name}</Text>
+        <Text style={type.body}>{c.content}</Text>
+        <Text style={{ color: colors.textSecondary }}>
+          {new Date(c.created_at).toLocaleString("vi-VN")}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function CommentsSection({ taskId }: { taskId: string }) {
+  const [comments, setComments] = useState<Comment[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    listComments(taskId)
+      .then(setComments)
+      .catch((e: any) => setError(String(e?.message ?? e)));
+  }, [taskId]);
+
+  const handleSend = async () => {
+    const content = draft.trim();
+    if (!content) return;
+    setSending(true);
+    setError(null);
+    try {
+      const created = await addComment(taskId, content);
+      setComments((prev) => (prev ? [...prev, created] : [created]));
+      setDraft("");
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>Thảo luận</Text>
+      {comments === null && !error && <ActivityIndicator color={colors.primary} />}
+      <ErrorText error={error} />
+      {comments?.length === 0 && (
+        <Text style={{ color: colors.textMuted }}>Chưa có bình luận nào</Text>
+      )}
+      {comments?.map((c) => (
+        <CommentRow key={c.id} c={c} />
+      ))}
+      <Field placeholder="Viết bình luận..." value={draft} onChangeText={setDraft} multiline />
+      <TouchableOpacity onPress={handleSend} disabled={sending || !draft.trim()}>
+        {sending ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : (
+          <Text style={{ color: colors.primary, fontWeight: "700" }}>Gửi</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [task, setTask] = useState<TaskDetail | null>(null);
@@ -199,6 +265,7 @@ export default function TaskDetailScreen() {
             <Text style={styles.meta}>Ưu tiên: {task.priority}</Text>
           </View>
           <AttachmentsSection taskId={id} />
+          <CommentsSection taskId={id} />
         </>
       )}
     </ScrollView>
