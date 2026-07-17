@@ -285,6 +285,10 @@ class ConversationCreateIn(BaseModel):
     title: str | None = None
 
 
+class ConversationRenameIn(BaseModel):
+    title: str
+
+
 class ConversationOut(BaseModel):
     id: uuid.UUID
     title: str | None

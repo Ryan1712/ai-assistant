@@ -10,8 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   ChatRequest,
+  Conversation,
   Message,
   RESUME_PHRASE,
   cancelRequest,
@@ -25,6 +27,7 @@ import {
   stopAll,
 } from "../../src/api/chat";
 import { WsEvent, openConversationStream } from "../../src/api/ws";
+import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 type Row =
@@ -40,11 +43,15 @@ function textOfMessage(m: Message): string {
 }
 
 export default function Chat() {
+  const { id: requestedId } = useLocalSearchParams<{ id?: string }>();
+  const router = useRouter();
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [queue, setQueue] = useState<ChatRequest[]>([]);
   const [held, setHeld] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [pendingConfirm, setPendingConfirm] = useState<{
     requestId: string;
@@ -113,21 +120,42 @@ export default function Chat() {
   );
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    setRows([]);
+    setQueue([]);
+    setHeld(false);
+    setConversationTitle(null);
+    closeWs.current?.();
     (async () => {
       try {
         const convs = await listConversations();
-        const conv = convs[0] ?? (await createConversation("Cuộc trò chuyện đầu tiên"));
+        let conv: Conversation | undefined;
+        if (requestedId) {
+          conv = convs.find((c) => c.id === requestedId);
+          if (!conv) throw new Error("Không tìm thấy cuộc trò chuyện này");
+        } else {
+          conv = convs[0] ?? (await createConversation("Cuộc trò chuyện đầu tiên"));
+        }
+        if (cancelled) return;
         setConversationId(conv.id);
+        setConversationTitle(conv.title);
         setHeld(conv.queue_held);
         await loadHistory(conv.id);
         await refreshQueue(conv.id);
         closeWs.current = await openConversationStream(conv.id, onWsEvent(conv.id));
+      } catch (e: any) {
+        if (!cancelled) setLoadError(String(e?.message ?? e));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-    return () => closeWs.current?.();
-  }, [loadHistory, onWsEvent, refreshQueue]);
+    return () => {
+      cancelled = true;
+      closeWs.current?.();
+    };
+  }, [requestedId, loadHistory, onWsEvent, refreshQueue]);
 
   const submit = async () => {
     if (!conversationId || !input.trim()) return;
@@ -178,6 +206,15 @@ export default function Chat() {
       style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <View style={styles.headerBar}>
+        <Text style={{ flex: 1, color: colors.textSecondary }} numberOfLines={1}>
+          {conversationTitle || "Cuộc trò chuyện"}
+        </Text>
+        <TouchableOpacity onPress={() => router.push("/conversations")}>
+          <Text style={{ color: colors.primary, fontWeight: "700" }}>🗂 Lịch sử</Text>
+        </TouchableOpacity>
+      </View>
+      <ErrorText error={loadError} />
       {held && (
         <View style={styles.heldBar}>
           <Text style={{ flex: 1, color: colors.warningText }}>
@@ -296,6 +333,16 @@ export default function Chat() {
 }
 
 const styles = StyleSheet.create({
+  headerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: colors.surface,
+  },
   heldBar: {
     flexDirection: "row",
     alignItems: "center",

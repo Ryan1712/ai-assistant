@@ -1,6 +1,11 @@
 import { apiFetch } from "./client";
 
-export type Conversation = { id: string; title: string | null; queue_held: boolean };
+export type Conversation = {
+  id: string;
+  title: string | null;
+  queue_held: boolean;
+  created_at: string;
+};
 
 // Cụm từ resume theo funtional-plan 5.7 — BE match không phân biệt hoa/thường/dấu
 export const RESUME_PHRASE = "tiếp tục công việc";
@@ -38,6 +43,12 @@ export const listConversations = () =>
 
 export const createConversation = (title?: string) =>
   apiFetch<Conversation>("/api/v1/conversations", { method: "POST", body: { title } });
+
+export const renameConversation = (conversationId: string, title: string) =>
+  apiFetch<Conversation>(`/api/v1/conversations/${conversationId}`, {
+    method: "PATCH",
+    body: { title },
+  });
 
 export const listMessages = (conversationId: string) =>
   apiFetch<Message[]>(`/api/v1/conversations/${conversationId}/messages`);

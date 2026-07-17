@@ -13,7 +13,7 @@ from app.deps import get_current_user
 from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole, User
 from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
-    MessageOut, MessageSendIn, ReorderIn,
+    ConversationRenameIn, MessageOut, MessageSendIn, ReorderIn,
 )
 from app.services import continuity
 
@@ -56,6 +56,16 @@ async def list_conversations(actor: User = Depends(get_current_user),
         Conversation.workspace_id == actor.workspace_id, Conversation.user_id == actor.id,
     ).order_by(Conversation.created_at.desc()))
     return list(rows.scalars())
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def rename_conversation(conversation_id: uuid.UUID, body: ConversationRenameIn,
+                              actor: User = Depends(get_current_user),
+                              db: AsyncSession = Depends(get_db)):
+    conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
+    conv.title = body.title
+    await db.commit()
+    return conv
 
 
 @router.post("/{conversation_id}/messages", response_model=ChatRequestOut, status_code=201)

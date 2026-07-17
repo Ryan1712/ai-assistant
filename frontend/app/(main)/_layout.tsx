@@ -45,6 +45,7 @@ export default function MainLayout() {
       <Tabs.Screen name="skills" options={{ href: null }} />
       <Tabs.Screen name="emails" options={{ href: null }} />
       <Tabs.Screen name="portal" options={{ href: null }} />
+      <Tabs.Screen name="conversations" options={{ href: null }} />
     </Tabs>
   );
 }
