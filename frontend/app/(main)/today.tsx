@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { DashTask, TodayDashboard, getTodayDashboard } from "../../src/api/dashboard";
 import { VoiceNote, listVoiceNotes, uploadVoiceNote } from "../../src/api/voice";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
@@ -142,6 +143,7 @@ function Section({ title, tasks, empty }: { title: string; tasks: DashTask[]; em
 }
 
 export default function Today() {
+  const router = useRouter();
   const [data, setData] = useState<TodayDashboard | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -204,7 +206,12 @@ export default function Today() {
             )}
           </View>
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>📝 Ghi chú hôm nay</Text>
+            <View style={styles.cardHeaderRow}>
+              <Text style={styles.cardTitle}>📝 Ghi chú hôm nay</Text>
+              <TouchableOpacity onPress={() => router.push("/notes")}>
+                <Text style={{ color: colors.primary, fontWeight: "700" }}>Xem tất cả</Text>
+              </TouchableOpacity>
+            </View>
             {data.notes_today.length === 0 ? (
               <Text style={styles.empty}>Chưa có ghi chú — nhắn AI “tạo note …”</Text>
             ) : (
@@ -230,6 +237,7 @@ const styles = StyleSheet.create({
   counterLabel: { ...type.caption },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
   cardTitle: { ...type.heading, marginBottom: spacing.sm },
+  cardHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   empty: { color: colors.textMuted },
   taskLine: {
     flexDirection: "row",

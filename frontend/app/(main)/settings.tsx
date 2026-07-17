@@ -69,6 +69,12 @@ export default function Settings() {
           <Text style={{ color: colors.textSecondary }}>Xem và hủy lịch gửi báo cáo tự động</Text>
         </TouchableOpacity>
       )}
+      {user?.role === "ceo" && sub?.plan === "advanced" && (
+        <TouchableOpacity style={styles.card} onPress={() => router.push("/portal")}>
+          <Text style={styles.title}>🌐 Báo cáo cổng CEO</Text>
+          <Text style={{ color: colors.textSecondary }}>Đọc báo cáo từ ceo.9learning.edu.vn</Text>
+        </TouchableOpacity>
+      )}
       {user?.role === "ceo" && (
         <TouchableOpacity style={styles.card} onPress={() => router.push("/audit-log")}>
           <Text style={styles.title}>📜 Nhật ký thay đổi</Text>
@@ -81,6 +87,24 @@ export default function Settings() {
           <Text style={{ color: colors.textSecondary }}>Quản lý nhân sự: khóa/mở, nghỉ việc, đổi vai trò</Text>
         </TouchableOpacity>
       )}
+      {user?.role === "ceo" && (
+        <TouchableOpacity style={styles.card} onPress={() => router.push("/instructions")}>
+          <Text style={styles.title}>🧭 Chỉ dẫn cho AI</Text>
+          <Text style={{ color: colors.textSecondary }}>Quy tắc/bối cảnh AI nạp lại ngay khi đổi</Text>
+        </TouchableOpacity>
+      )}
+      <TouchableOpacity style={styles.card} onPress={() => router.push("/skills")}>
+        <Text style={styles.title}>🧩 Skill</Text>
+        <Text style={{ color: colors.textSecondary }}>Hồ sơ năng lực & gói tri thức nghiệp vụ</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.card} onPress={() => router.push("/notes")}>
+        <Text style={styles.title}>📝 Ghi chú</Text>
+        <Text style={{ color: colors.textSecondary }}>Ghi chú cá nhân theo ngày/tag</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.card} onPress={() => router.push("/emails")}>
+        <Text style={styles.title}>✉️ Email</Text>
+        <Text style={{ color: colors.textSecondary }}>Xem hộp thư đến/đã gửi</Text>
+      </TouchableOpacity>
       {inviteCode && (
         <View style={styles.card}>
           <Text style={styles.title}>Mã mời công ty</Text>

@@ -40,6 +40,11 @@ export default function MainLayout() {
       <Tabs.Screen name="audit-log" options={{ href: null }} />
       <Tabs.Screen name="team" options={{ href: null }} />
       <Tabs.Screen name="team/[id]" options={{ href: null }} />
+      <Tabs.Screen name="notes" options={{ href: null }} />
+      <Tabs.Screen name="instructions" options={{ href: null }} />
+      <Tabs.Screen name="skills" options={{ href: null }} />
+      <Tabs.Screen name="emails" options={{ href: null }} />
+      <Tabs.Screen name="portal" options={{ href: null }} />
     </Tabs>
   );
 }
