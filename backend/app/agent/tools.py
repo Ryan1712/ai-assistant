@@ -649,6 +649,28 @@ _register("list_notifications", "Xem thông báo của chính actor (task đư�
           ListNotificationsToolIn, _list_notifications)
 
 
+async def _get_notification_preferences(db, actor, body: NoArgsIn) -> dict:
+    return await notification_service.get_preferences(actor)
+
+
+_register("get_notification_preferences", "Xem loại thông báo nào actor đã tự tắt "
+          "(mặc định mọi loại đều bật).", NoArgsIn, _get_notification_preferences)
+
+
+class SetNotificationPreferenceToolIn(BaseModel):
+    type: str = Field(description="vd: task_assigned, task_update, scheduled_report...")
+    enabled: bool
+
+
+async def _set_notification_preference(db, actor, body: SetNotificationPreferenceToolIn) -> dict:
+    return await notification_service.set_preference(db, actor, body.type, body.enabled)
+
+
+_register("set_notification_preference", "Bật/tắt 1 loại thông báo cho chính actor "
+          "(vd 'tắt thông báo cập nhật task' -> type=task_update, enabled=false).",
+          SetNotificationPreferenceToolIn, _set_notification_preference)
+
+
 SENSITIVE_TOOLS: frozenset[str] = frozenset(
     name for name, spec in TOOLS.items() if spec.sensitive
 )

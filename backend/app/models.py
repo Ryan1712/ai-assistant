@@ -62,6 +62,9 @@ class User(Base):
     manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     is_root: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.active)
+    # {} = mọi loại thông báo bật mặc định; key set False = user tự tắt loại đó
+    # (funtional-plan 6.6: "người dùng có thể tắt bớt loại thông báo nếu quá nhiều").
+    notification_prefs: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

@@ -36,3 +36,21 @@ async def mark_all_read(db: AsyncSession, actor: User) -> None:
         .values(read_at=datetime.now(timezone.utc))
     )
     await db.commit()
+
+
+async def get_preferences(actor: User) -> dict:
+    return dict(actor.notification_prefs or {})
+
+
+async def set_preference(db: AsyncSession, actor: User, type_: str, enabled: bool) -> dict:
+    # Reassign (không mutate in-place) để SQLAlchemy nhận diện thay đổi trên cột JSON.
+    actor.notification_prefs = {**(actor.notification_prefs or {}), type_: enabled}
+    await db.commit()
+    return dict(actor.notification_prefs)
+
+
+async def is_type_enabled(db: AsyncSession, recipient_id: uuid.UUID, type_: str) -> bool:
+    recipient = await db.get(User, recipient_id)
+    if recipient is None:
+        return True
+    return (recipient.notification_prefs or {}).get(type_, True)

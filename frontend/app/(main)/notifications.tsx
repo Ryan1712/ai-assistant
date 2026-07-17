@@ -3,12 +3,88 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import { useRouter } from "expo-router";
 import {
   Notification,
+  getNotificationPreferences,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  setNotificationPreference,
 } from "../../src/api/notifications";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
+
+const NOTIFICATION_TYPES: { type: string; label: string }[] = [
+  { type: "task_assigned", label: "Được giao task mới" },
+  { type: "task_update", label: "Cập nhật tiến độ task" },
+  { type: "account_locked", label: "Tài khoản bị khóa" },
+  { type: "role_changed", label: "Đổi vai trò" },
+  { type: "offboard_handoff", label: "Bàn giao khi có người nghỉ việc" },
+  { type: "management_handoff", label: "Bàn giao khi đổi quản lý" },
+  { type: "unlock_request", label: "Yêu cầu mở khóa tài khoản" },
+  { type: "scheduled_report", label: "Báo cáo định kỳ sẵn sàng" },
+];
+
+function PreferencesSection() {
+  const [open, setOpen] = useState(false);
+  const [prefs, setPrefs] = useState<Record<string, boolean> | null>(null);
+  const [busyType, setBusyType] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggleOpen = () => {
+    setOpen((o) => !o);
+    if (!prefs) {
+      getNotificationPreferences()
+        .then(setPrefs)
+        .catch((e: any) => setError(String(e?.message ?? e)));
+    }
+  };
+
+  const toggle = async (type: string, currentlyEnabled: boolean) => {
+    setBusyType(type);
+    setError(null);
+    try {
+      const updated = await setNotificationPreference(type, !currentlyEnabled);
+      setPrefs((prev) => ({ ...prev, ...updated }));
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setBusyType(null);
+    }
+  };
+
+  return (
+    <View style={styles.card}>
+      <TouchableOpacity onPress={toggleOpen}>
+        <Text style={{ color: colors.primary, fontWeight: "700" }}>
+          {open ? "Đóng cài đặt" : "⚙️ Cài đặt loại thông báo"}
+        </Text>
+      </TouchableOpacity>
+      {open && (
+        <View style={{ marginTop: spacing.sm }}>
+          {prefs === null && !error && <ActivityIndicator color={colors.primary} />}
+          <ErrorText error={error} />
+          {prefs &&
+            NOTIFICATION_TYPES.map(({ type: t, label }) => {
+              const enabled = prefs[t] ?? true;
+              return (
+                <View key={t} style={styles.prefRow}>
+                  <Text style={{ flex: 1, ...type.body }}>{label}</Text>
+                  <TouchableOpacity onPress={() => toggle(t, enabled)} disabled={busyType === t}>
+                    {busyType === t ? (
+                      <ActivityIndicator color={colors.primary} />
+                    ) : (
+                      <Text style={{ color: enabled ? colors.success : colors.textMuted, fontWeight: "700" }}>
+                        {enabled ? "Bật" : "Tắt"}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+        </View>
+      )}
+    </View>
+  );
+}
 
 function describe(n: Notification): { title: string; taskId?: string } {
   const p = n.payload as Record<string, any>;
@@ -98,6 +174,7 @@ export default function Notifications() {
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
     >
+      <PreferencesSection />
       {unreadCount > 0 && (
         <TouchableOpacity onPress={handleMarkAllRead} style={{ alignSelf: "flex-end" }}>
           <Text style={{ color: colors.primary, fontWeight: "700" }}>
@@ -146,4 +223,11 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
   },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
+  prefRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
+  },
 });

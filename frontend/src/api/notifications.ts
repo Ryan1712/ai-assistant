@@ -16,3 +16,12 @@ export const markNotificationRead = (id: string) =>
 
 export const markAllNotificationsRead = () =>
   apiFetch<void>("/api/v1/notifications/read-all", { method: "POST" });
+
+export const getNotificationPreferences = () =>
+  apiFetch<Record<string, boolean>>("/api/v1/notifications/preferences");
+
+export const setNotificationPreference = (type: string, enabled: boolean) =>
+  apiFetch<Record<string, boolean>>("/api/v1/notifications/preferences", {
+    method: "PATCH",
+    body: { type, enabled },
+  });

@@ -306,6 +306,11 @@ class ReportOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UpdateNotificationPreferenceIn(BaseModel):
+    type: str
+    enabled: bool
+
+
 class NotificationOut(BaseModel):
     id: uuid.UUID
     type: str
