@@ -58,4 +58,12 @@ export const grantSkill = (id: string, userId: string) =>
     body: { user_id: userId },
   });
 
+export type SkillGrant = { user_id: string; full_name: string };
+
+export const listSkillGrants = (id: string) =>
+  apiFetch<SkillGrant[]>(`/api/v1/skills/${id}/grants`);
+
+export const revokeSkillGrant = (id: string, userId: string) =>
+  apiFetch<void>(`/api/v1/skills/${id}/grants/${userId}`, { method: "DELETE" });
+
 export const useSkill = (id: string) => apiFetch<SkillDetail>(`/api/v1/skills/${id}/use`);

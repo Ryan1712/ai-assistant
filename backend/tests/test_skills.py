@@ -110,3 +110,39 @@ async def test_use_skill_requires_grant(client):
     m2 = await _invite_and_join(client, ceo_h, "manager", "m2@a.vn")
     assert (await client.get(f"/api/v1/skills/{sid}/use", headers=_h(m2))).status_code == 403
     assert (await client.get(f"/api/v1/skills/{sid}/use", headers=ceo_h)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_list_grants_and_revoke(client):
+    ceo_h = await _ceo_headers(client)
+    m1 = await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")
+    e1 = await _invite_and_join(client, ceo_h, "employee", "e1@a.vn", m1["user"]["id"])
+    s = await client.post("/api/v1/skills", headers=ceo_h,
+                          json={"name": "S", "kind": "knowledge", "content": "c"})
+    sid = s.json()["id"]
+    await client.post(f"/api/v1/skills/{sid}/grants", headers=ceo_h,
+                      json={"user_id": e1["user"]["id"]})
+
+    grants = await client.get(f"/api/v1/skills/{sid}/grants", headers=ceo_h)
+    assert grants.status_code == 200
+    assert [g["user_id"] for g in grants.json()] == [e1["user"]["id"]]
+    assert grants.json()[0]["full_name"] == "e1@a.vn"
+
+    revoked = await client.delete(f"/api/v1/skills/{sid}/grants/{e1['user']['id']}",
+                                  headers=ceo_h)
+    assert revoked.status_code == 204
+    assert (await client.get(f"/api/v1/skills/{sid}/grants", headers=ceo_h)).json() == []
+    # e1 khong con dung duoc skill nua
+    assert (await client.get(f"/api/v1/skills/{sid}/use", headers=_h(e1))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_only_ceo_lists_or_revokes_grants(client):
+    ceo_h = await _ceo_headers(client)
+    m1 = await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")
+    s = await client.post("/api/v1/skills", headers=ceo_h,
+                          json={"name": "S", "kind": "knowledge", "content": "c"})
+    sid = s.json()["id"]
+    assert (await client.get(f"/api/v1/skills/{sid}/grants", headers=_h(m1))).status_code == 403
+    assert (await client.delete(f"/api/v1/skills/{sid}/grants/{m1['user']['id']}",
+                                headers=_h(m1))).status_code == 403

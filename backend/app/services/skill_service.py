@@ -74,6 +74,27 @@ async def grant_skill(db: AsyncSession, actor: User, skill_id: uuid.UUID,
     return True
 
 
+async def list_grants(db: AsyncSession, actor: User, skill_id: uuid.UUID) -> list[dict]:
+    require_ceo(actor)
+    skill = await _get_skill_or_404(db, actor, skill_id)
+    rows = await db.execute(
+        select(SkillGrant.user_id, User.full_name).join(User, User.id == SkillGrant.user_id)
+        .where(SkillGrant.skill_id == skill.id).order_by(User.full_name.asc()))
+    return [{"user_id": str(uid), "full_name": name} for uid, name in rows.all()]
+
+
+async def revoke_grant(db: AsyncSession, actor: User, skill_id: uuid.UUID,
+                       user_id: uuid.UUID) -> None:
+    require_ceo(actor)
+    skill = await _get_skill_or_404(db, actor, skill_id)
+    grant = (await db.execute(select(SkillGrant).where(
+        SkillGrant.skill_id == skill.id, SkillGrant.user_id == user_id))).scalar_one_or_none()
+    if grant is None:
+        raise HTTPException(404, "grant_not_found")
+    await db.delete(grant)
+    await db.commit()
+
+
 async def list_skills(db: AsyncSession, actor: User) -> list[dict]:
     if actor.role == Role.ceo:
         rows = await db.execute(select(Skill).where(Skill.workspace_id == actor.workspace_id))

@@ -186,6 +186,15 @@ class UseSkillToolIn(BaseModel):
     skill_id: uuid.UUID
 
 
+class ListSkillGrantsToolIn(BaseModel):
+    skill_id: uuid.UUID
+
+
+class RevokeSkillGrantToolIn(BaseModel):
+    skill_id: uuid.UUID
+    user_id: uuid.UUID
+
+
 def _skill_tool_out(skill: dict) -> dict:
     return {"id": str(skill["id"]), "name": skill["name"], "kind": skill["kind"].value,
            "task_id": str(skill["task_id"]) if skill["task_id"] else None,
@@ -242,6 +251,15 @@ async def _use_skill(db, actor, body: UseSkillToolIn) -> dict:
     return await skill_service.use_skill(db, actor, body.skill_id)
 
 
+async def _list_skill_grants(db, actor, body: ListSkillGrantsToolIn) -> dict:
+    return {"grants": await skill_service.list_grants(db, actor, body.skill_id)}
+
+
+async def _revoke_skill_grant(db, actor, body: RevokeSkillGrantToolIn) -> dict:
+    await skill_service.revoke_grant(db, actor, body.skill_id, body.user_id)
+    return {"skill_id": str(body.skill_id), "user_id": str(body.user_id), "revoked": True}
+
+
 _register("add_task_update", "Cập nhật tiến độ 1 task (% và/hoặc trạng thái).",
           AddTaskUpdateToolIn, _add_task_update)
 _register("list_task_updates", "Lịch sử cập nhật tiến độ của 1 task, mới nhất trước.",
@@ -257,6 +275,10 @@ _register("grant_skill", "Cấp quyền dùng skill cho 1 người (chỉ CEO)."
 _register("list_skills", "Liệt kê skill actor được thấy/được cấp.", NoArgsIn, _list_skills)
 _register("use_skill", "Dùng skill: lấy nội dung version mới nhất + trạng thái task sống.",
           UseSkillToolIn, _use_skill)
+_register("list_skill_grants", "Xem những ai đang được cấp quyền dùng 1 skill (chỉ CEO).",
+          ListSkillGrantsToolIn, _list_skill_grants)
+_register("revoke_skill_grant", "Thu hồi quyền dùng skill của 1 người (chỉ CEO).",
+          RevokeSkillGrantToolIn, _revoke_skill_grant)
 
 
 class CreateInviteToolIn(BaseModel):

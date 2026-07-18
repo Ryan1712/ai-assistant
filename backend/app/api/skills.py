@@ -40,6 +40,20 @@ async def grant(skill_id: uuid.UUID, body: SkillGrantIn,
     return Response(status_code=201 if created else 200)
 
 
+@router.get("/{skill_id}/grants")
+async def list_grants(skill_id: uuid.UUID, actor: User = Depends(get_current_user),
+                      db: AsyncSession = Depends(get_db)):
+    return await skill_service.list_grants(db, actor, skill_id)
+
+
+@router.delete("/{skill_id}/grants/{user_id}", status_code=204)
+async def revoke_grant(skill_id: uuid.UUID, user_id: uuid.UUID,
+                       actor: User = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    await skill_service.revoke_grant(db, actor, skill_id, user_id)
+    return Response(status_code=204)
+
+
 @router.get("/{skill_id}/use", response_model=UseSkillOut)
 async def use_skill(skill_id: uuid.UUID, actor: User = Depends(get_current_user),
                     db: AsyncSession = Depends(get_db)):

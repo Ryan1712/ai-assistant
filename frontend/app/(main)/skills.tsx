@@ -4,12 +4,15 @@ import { useAuth } from "../../src/auth/AuthContext";
 import {
   Skill,
   SkillDetail,
+  SkillGrant,
   SkillKind,
   TaskState,
   addSkillVersion,
   createSkill,
   grantSkill,
+  listSkillGrants,
   listSkills,
+  revokeSkillGrant,
   useSkill,
 } from "../../src/api/skills";
 import { TaskDetail, listTasks } from "../../src/api/tasks";
@@ -139,6 +142,20 @@ function SkillCard({
   const [grantError, setGrantError] = useState<string | null>(null);
   const [grantSuccess, setGrantSuccess] = useState(false);
 
+  const [grants, setGrants] = useState<SkillGrant[] | null>(null);
+  const [grantsLoading, setGrantsLoading] = useState(false);
+  const [grantsError, setGrantsError] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  const loadGrants = () => {
+    setGrantsLoading(true);
+    setGrantsError(null);
+    listSkillGrants(skill.id)
+      .then(setGrants)
+      .catch((e: any) => setGrantsError(String(e?.message ?? e)))
+      .finally(() => setGrantsLoading(false));
+  };
+
   const toggleExpand = () => {
     setExpanded((e) => !e);
     if (!detail && !detailLoading) {
@@ -148,6 +165,20 @@ function SkillCard({
         .then(setDetail)
         .catch((e: any) => setDetailError(String(e?.message ?? e)))
         .finally(() => setDetailLoading(false));
+    }
+    if (isCeo && grants === null && !grantsLoading) loadGrants();
+  };
+
+  const handleRevoke = async (userId: string) => {
+    setRevokingId(userId);
+    setGrantsError(null);
+    try {
+      await revokeSkillGrant(skill.id, userId);
+      setGrants((prev) => (prev ? prev.filter((g) => g.user_id !== userId) : prev));
+    } catch (e: any) {
+      setGrantsError(String(e?.message ?? e));
+    } finally {
+      setRevokingId(null);
     }
   };
 
@@ -183,6 +214,12 @@ function SkillCard({
       await grantSkill(skill.id, userId);
       setGrantSuccess(true);
       setTimeout(() => setGrantSuccess(false), 2500);
+      const grantedUser = users?.find((u) => u.id === userId);
+      setGrants((prev) => {
+        if (!grantedUser) return prev;
+        const withoutDup = (prev ?? []).filter((g) => g.user_id !== userId);
+        return [...withoutDup, { user_id: userId, full_name: grantedUser.full_name }];
+      });
     } catch (e: any) {
       setGrantError(String(e?.message ?? e));
     } finally {
@@ -265,6 +302,28 @@ function SkillCard({
                 {grantBusy && <ActivityIndicator color={colors.primary} />}
                 <ErrorText error={grantError} />
                 {grantSuccess && <Text style={styles.successText}>Đã cấp quyền</Text>}
+
+                <Text style={{ ...type.caption, marginTop: spacing.md }}>Đang được cấp quyền</Text>
+                {grantsLoading && <ActivityIndicator color={colors.primary} />}
+                <ErrorText error={grantsError} />
+                {grants?.length === 0 && (
+                  <Text style={{ color: colors.textMuted }}>Chưa cấp cho ai</Text>
+                )}
+                {grants?.map((g) => (
+                  <View key={g.user_id} style={styles.grantRow}>
+                    <Text style={{ flex: 1, ...type.body }}>{g.full_name}</Text>
+                    <TouchableOpacity
+                      onPress={() => handleRevoke(g.user_id)}
+                      disabled={revokingId === g.user_id}
+                    >
+                      {revokingId === g.user_id ? (
+                        <ActivityIndicator color={colors.danger} />
+                      ) : (
+                        <Text style={{ color: colors.danger, fontWeight: "700" }}>Thu hồi</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
             </View>
           )}
@@ -491,6 +550,13 @@ const styles = StyleSheet.create({
   },
   pickerRow: {
     padding: spacing.sm,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
+  },
+  grantRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
     borderTopWidth: 1,
     borderColor: colors.divider,
   },
