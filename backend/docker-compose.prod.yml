@@ -1,0 +1,29 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    ports: ["127.0.0.1:8010:8000"]
+    env_file: .env
+    volumes: ["reports_data:/data/reports"]
+    depends_on: [postgres, redis]
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["arq", "app.agent.worker.WorkerSettings"]
+    env_file: .env
+    volumes: ["reports_data:/data/reports"]
+    depends_on: [postgres, redis]
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+volumes:
+  pgdata:
+  reports_data:
