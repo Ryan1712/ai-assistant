@@ -58,6 +58,7 @@ function VoiceNoteRow({
 }
 
 export default function VoiceNotesScreen() {
+  const router = useRouter();
   const [filter, setFilter] = useState<"today" | "all">("all");
   const [tagInput, setTagInput] = useState("");
   const [tagFilter, setTagFilter] = useState<string | undefined>(undefined);
@@ -97,10 +98,22 @@ export default function VoiceNotesScreen() {
   };
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={styles.headerBar}>
+        <TouchableOpacity
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/today"))}
+        >
+          <Text style={{ color: colors.primary, fontWeight: "700" }}>← Quay lại</Text>
+        </TouchableOpacity>
+        <Text style={{ flex: 1, textAlign: "center", color: colors.text, fontWeight: "700" }}>
+          Thư viện ghi âm
+        </Text>
+        <View style={{ width: 80 }} />
+      </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       <View style={styles.card}>
         <View style={styles.filterRow}>
           <TouchableOpacity onPress={() => setFilter("today")}>
@@ -147,11 +160,22 @@ export default function VoiceNotesScreen() {
           ))}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  headerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: colors.surface,
+  },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,

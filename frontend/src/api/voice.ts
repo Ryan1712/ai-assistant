@@ -1,3 +1,4 @@
+import fixWebmDuration from "fix-webm-duration";
 import { Platform } from "react-native";
 import { apiFetch, API_URL } from "./client";
 import { getTokens } from "../auth/tokenStore";
@@ -44,12 +45,16 @@ function extensionForMimeType(mimeType: string): string {
   return "webm";
 }
 
-export const uploadVoiceNote = async (uri: string) => {
+export const uploadVoiceNote = async (uri: string, durationMs?: number) => {
   const form = new FormData();
   if (Platform.OS === "web") {
     // Web: uri là blob: URL — {uri,name,type} kiểu RN bị FormData trình duyệt
     // serialize thành chuỗi "[object Object]", phải fetch ra Blob thật.
-    const blob = await (await fetch(uri)).blob();
+    const rawBlob = await (await fetch(uri)).blob();
+    // Chrome MediaRecorder ghi webm KHÔNG kèm duration hợp lệ trong header
+    // (bug quen thuộc) — nghe lại hiện thời lượng sai (vd 3s ra thành 2 phút).
+    // durationMs (thời gian ghi thật, đo lúc còn đang ghi) dùng để vá lại.
+    const blob = durationMs ? await fixWebmDuration(rawBlob, durationMs) : rawBlob;
     const ext = extensionForMimeType(blob.type || "audio/webm");
     form.append("file", blob, `note.${ext}`);
   } else {

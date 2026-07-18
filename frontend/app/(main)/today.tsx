@@ -65,9 +65,11 @@ function QuickVoiceCard() {
     try {
       if (recorderState.isRecording) {
         setBusy(true);
+        // Phai doc truoc khi stop() - recorder tu reset ve 0 ngay sau khi dung.
+        const durationMs = recorderState.durationMillis;
         await recorder.stop();
         if (recorder.uri) {
-          await uploadVoiceNote(recorder.uri);
+          await uploadVoiceNote(recorder.uri, durationMs);
           await loadNotes();
           setSaved(true); // peak-end: lưu xong phải thấy ngay là đã lưu
           if (savedTimer.current) clearTimeout(savedTimer.current);
