@@ -446,7 +446,7 @@ async def _delete_report_schedule(db, actor, body: DeleteReportScheduleToolIn) -
 _register("create_report_schedule",
           "Đặt lịch tự động gửi báo cáo tiến độ định kỳ (chỉ CEO, gói Advanced). "
           "Tự tính weekday từ ngôn ngữ tự nhiên: 0=Thứ Hai...6=Chủ Nhật, để trống "
-          "(null) nếu là hàng ngày. Giờ theo UTC. VD 'mỗi sáng thứ 2 lúc 8h' → "
+          "(null) nếu là hàng ngày. Giờ theo GIỜ VIỆT NAM (UTC+7). VD 'mỗi sáng thứ 2 lúc 8h' → "
           "weekday=0, hour=8, minute=0.", CreateReportScheduleToolIn,
           _create_report_schedule)
 _register("list_report_schedules", "Liệt kê lịch báo cáo định kỳ đang có (chỉ CEO).",

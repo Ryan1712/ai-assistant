@@ -15,17 +15,25 @@ from app.models import Project, ReportSchedule, TaskStatus, User, Workspace
 from app.permissions import require_ceo
 from app.services import report_service
 from app.services.notify import notify
+from app.tz import VN_TZ
 
 
 def compute_next_run(after: datetime, weekday: int | None, hour: int, minute: int) -> datetime:
-    """Lần chạy kế tiếp SAU `after` (không bao giờ trả về đúng `after`)."""
-    candidate = after.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if candidate <= after:
+    """Lần chạy kế tiếp SAU `after` (không bao giờ trả về đúng `after`).
+
+    weekday/hour/minute hiểu theo GIỜ VIỆT NAM (UTC+7) — CEO đặt '8h sáng thứ 2'
+    là 8h VN chứ không phải 8h UTC (=15h VN). Trả về datetime UTC (DB lưu UTC).
+    """
+    if after.tzinfo is None:
+        after = after.replace(tzinfo=timezone.utc)
+    after_vn = after.astimezone(VN_TZ)
+    candidate = after_vn.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= after_vn:
         candidate += timedelta(days=1)
     if weekday is not None:
         while candidate.weekday() != weekday:
             candidate += timedelta(days=1)
-    return candidate
+    return candidate.astimezone(timezone.utc)
 
 
 async def create_schedule(db: AsyncSession, actor: User, *, weekday: int | None,

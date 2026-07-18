@@ -48,7 +48,9 @@ async def test_due_schedule_generates_report_and_notifies(db_session, storage_di
     await db_session.refresh(sched)
     # SQLite không giữ tzinfo khi đọc lại — so sánh naive.
     assert sched.last_run_at == NOW.replace(tzinfo=None)
-    assert sched.next_run_at == (NOW + timedelta(days=1)).replace(tzinfo=None)
+    # NOW = 08:00 UTC = 15:00 VN (thứ Hai) → 8h VN đã qua trong ngày → 8h VN ngày mai
+    # = 01:00 UTC ngày mai (NOW + 17h, vì lệch UTC-7 cộng thêm 1 ngày).
+    assert sched.next_run_at == (NOW + timedelta(hours=17)).replace(tzinfo=None)
 
 
 @pytest.mark.asyncio

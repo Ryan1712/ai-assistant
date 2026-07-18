@@ -3,6 +3,7 @@ from fastapi import HTTPException
 
 from app.models import Project, Role, User, Workspace, WorkspacePlan
 from app.services import report_schedule_service as svc
+from app.tz import VN_TZ
 
 
 _seq = iter(range(1000))
@@ -32,8 +33,11 @@ async def test_ceo_creates_schedule_with_correct_next_run_at(db_session):
     assert sched.recipient_id == ceo.id  # mặc định = người tạo
     assert sched.active is True
     assert sched.next_run_at is not None
-    assert sched.next_run_at.hour == 8 and sched.next_run_at.minute == 0
-    assert sched.next_run_at.weekday() == 0
+    # next_run_at lưu UTC — weekday/hour/minute CEO đặt là giờ VN, nên so sánh
+    # phải convert ngược sang VN (giờ "now" thực tế lúc test chạy không cố định).
+    next_run_vn = sched.next_run_at.astimezone(VN_TZ)
+    assert next_run_vn.hour == 8 and next_run_vn.minute == 0
+    assert next_run_vn.weekday() == 0
 
 
 @pytest.mark.asyncio
