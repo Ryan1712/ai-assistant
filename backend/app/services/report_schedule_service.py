@@ -89,6 +89,41 @@ async def delete_schedule(db: AsyncSession, actor: User, schedule_id) -> None:
     await db.commit()
 
 
+async def _advance_next_run(db: AsyncSession, sched_id, now: datetime) -> None:
+    """Tiến last_run_at/next_run_at rồi commit — KHÔNG BAO GIỜ raise ra ngoài.
+
+    Đây là bước cuối cùng cho mỗi schedule trong `run_due_schedules`. Commit ở
+    đây thường phải flush luôn 1 Notification đang pending (notify() chỉ
+    db.add(), không tự commit), nên nó có thể fail vì lý do không liên quan gì
+    tới việc advance (vd lỗi DB tạm thời). Nếu commit đầu fail: rollback (bỏ
+    luôn Notification pending đó) rồi thử lại 1 lần CHỈ với 2 field advance —
+    để dù thế nào next_run_at cũng được persist, tránh cron kẹt lại lịch này
+    mỗi phút vĩnh viễn. Nếu vẫn fail lần 2, log và bỏ qua.
+    """
+    sched = await db.get(ReportSchedule, sched_id)
+    if sched is None:
+        return
+    sched.last_run_at = now
+    sched.next_run_at = compute_next_run(now, sched.weekday, sched.hour, sched.minute)
+    try:
+        await db.commit()
+        return
+    except Exception:
+        logger.exception("report schedule %s failed to commit advance", sched_id)
+        await db.rollback()
+
+    sched = await db.get(ReportSchedule, sched_id)
+    if sched is None:
+        return
+    sched.last_run_at = now
+    sched.next_run_at = compute_next_run(now, sched.weekday, sched.hour, sched.minute)
+    try:
+        await db.commit()
+    except Exception:
+        logger.exception("report schedule %s failed to advance even after retry", sched_id)
+        await db.rollback()
+
+
 async def run_due_schedules(db: AsyncSession, *, now: datetime | None = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     due_ids = [s.id for s in (await db.execute(select(ReportSchedule).where(
@@ -118,7 +153,7 @@ async def run_due_schedules(db: AsyncSession, *, now: datetime | None = None) ->
             sched = await db.get(ReportSchedule, sched_id)
             if sched is None:
                 continue
-        sched.last_run_at = now
-        sched.next_run_at = compute_next_run(now, sched.weekday, sched.hour, sched.minute)
-        await db.commit()
+        # Bước advance+commit tự bọc lỗi riêng (xem docstring _advance_next_run) —
+        # không được để commit ở đây lan ra ngoài vòng lặp như bug ban đầu của task.
+        await _advance_next_run(db, sched_id, now)
     return results

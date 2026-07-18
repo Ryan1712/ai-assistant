@@ -108,6 +108,56 @@ async def test_mot_lich_hong_khong_chan_lich_khac(db_session, storage_dir):
 
 
 @pytest.mark.asyncio
+async def test_commit_advance_fail_mot_lan_khong_chan_ca_tick(db_session, storage_dir, monkeypatch):
+    """Commit cuối (advance next_run_at, flush luôn Notification pending từ notify())
+    fail 1 lần vì lý do không liên quan (vd lỗi DB tạm thời) — không được lan ra ngoài
+    vòng lặp: schedule đang lỗi phải tự retry-commit riêng field advance, và schedule
+    tới sau nó trong cùng tick vẫn phải chạy bình thường."""
+    ws1, ceo1 = await _setup(db_session)
+    sched1 = await svc.create_schedule(db_session, ceo1, weekday=None, hour=8)
+    sched1.next_run_at = NOW - timedelta(minutes=1)
+    await db_session.commit()
+
+    ws2, ceo2 = await _setup(db_session)
+    sched2 = await svc.create_schedule(db_session, ceo2, weekday=None, hour=8)
+    sched2.next_run_at = NOW - timedelta(minutes=1)
+    await db_session.commit()
+
+    real_commit = db_session.commit
+    real_notify = svc.notify
+    state = {"arm_next_commit": False, "already_failed": False}
+
+    async def flaky_commit():
+        if state["arm_next_commit"] and not state["already_failed"]:
+            state["arm_next_commit"] = False
+            state["already_failed"] = True
+            raise RuntimeError("simulated transient commit failure")
+        await real_commit()
+
+    async def notify_then_arm(*args, **kwargs):
+        # notify() chỉ db.add(Notification), không tự commit — commit KẾ TIẾP sau
+        # notify() chính là bước advance+commit cuối vòng lặp mà ta muốn fail thử.
+        out = await real_notify(*args, **kwargs)
+        state["arm_next_commit"] = True
+        return out
+
+    monkeypatch.setattr(db_session, "commit", flaky_commit)
+    monkeypatch.setattr(svc, "notify", notify_then_arm)
+
+    results = await svc.run_due_schedules(db_session, now=NOW)
+
+    assert state["already_failed"] is True  # xác nhận kịch bản lỗi thực sự xảy ra
+    # Không raise; cả 2 schedule đều ra báo cáo dù 1 lần commit advance bị lỗi giữa chừng
+    assert {r["schedule_id"] for r in results} == {str(sched1.id), str(sched2.id)}
+
+    # next_run_at của CẢ HAI đều được advance — kể cả schedule bị fail-commit-rồi-retry
+    await db_session.refresh(sched1)
+    await db_session.refresh(sched2)
+    assert sched1.next_run_at > NOW.replace(tzinfo=None)
+    assert sched2.next_run_at > NOW.replace(tzinfo=None)
+
+
+@pytest.mark.asyncio
 async def test_two_due_schedules_in_different_workspaces_both_run(db_session, storage_dir):
     ws1, ceo1 = await _setup(db_session)
     ws2, ceo2 = await _setup(db_session)
