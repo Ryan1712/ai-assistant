@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { apiFetch, API_URL } from "./client";
 import { getTokens } from "../auth/tokenStore";
 
@@ -28,11 +29,27 @@ export async function voiceNoteAudioSource(id: string) {
   };
 }
 
-export const uploadVoiceNote = (uri: string) => {
-  const base = uri.split("/").pop() ?? "";
-  const name = /\.[a-z0-9]+$/i.test(base) ? base : "note.m4a";
+function extensionForMimeType(mimeType: string): string {
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("wav")) return "wav";
+  if (mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) return "m4a";
+  return "webm";
+}
+
+export const uploadVoiceNote = async (uri: string) => {
   const form = new FormData();
-  // RN FormData nhận {uri, name, type} cho file — cast vì DOM types không biết
-  form.append("file", { uri, name, type: "audio/m4a" } as unknown as Blob);
+  if (Platform.OS === "web") {
+    // Web: uri là blob: URL — {uri,name,type} kiểu RN bị FormData trình duyệt
+    // serialize thành chuỗi "[object Object]", phải fetch ra Blob thật.
+    const blob = await (await fetch(uri)).blob();
+    const ext = extensionForMimeType(blob.type || "audio/webm");
+    form.append("file", blob, `note.${ext}`);
+  } else {
+    const base = uri.split("/").pop() ?? "";
+    const name = /\.[a-z0-9]+$/i.test(base) ? base : "note.m4a";
+    // RN FormData nhận {uri, name, type} cho file — cast vì DOM types không biết
+    form.append("file", { uri, name, type: "audio/m4a" } as unknown as Blob);
+  }
   return apiFetch<VoiceNote>("/api/v1/voice-notes", { method: "POST", body: form });
 };
