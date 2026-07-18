@@ -1,4 +1,5 @@
-import { apiFetch } from "./client";
+import { apiFetch, API_URL } from "./client";
+import { getTokens } from "../auth/tokenStore";
 
 export type VoiceNote = {
   id: string;
@@ -10,8 +11,22 @@ export type VoiceNote = {
   created_at: string;
 };
 
-export const listVoiceNotes = (onDate?: string) =>
-  apiFetch<VoiceNote[]>(`/api/v1/voice-notes${onDate ? `?on_date=${onDate}` : ""}`);
+export const listVoiceNotes = (onDate?: string, tag?: string) => {
+  const params = new URLSearchParams();
+  if (onDate) params.set("on_date", onDate);
+  if (tag) params.set("tag", tag);
+  const qs = params.toString();
+  return apiFetch<VoiceNote[]>(`/api/v1/voice-notes${qs ? `?${qs}` : ""}`);
+};
+
+/** Audio source (uri + header xác thực) để phát ghi âm qua expo-audio. */
+export async function voiceNoteAudioSource(id: string) {
+  const tokens = await getTokens();
+  return {
+    uri: `${API_URL}/api/v1/voice-notes/${id}/file`,
+    headers: tokens?.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : undefined,
+  };
+}
 
 export const uploadVoiceNote = (uri: string) => {
   const base = uri.split("/").pop() ?? "";

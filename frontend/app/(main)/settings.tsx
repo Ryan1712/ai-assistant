@@ -103,6 +103,10 @@ export default function Settings() {
         <Text style={styles.title}>🧩 Skill</Text>
         <Text style={{ color: colors.textSecondary }}>Hồ sơ năng lực & gói tri thức nghiệp vụ</Text>
       </TouchableOpacity>
+      <TouchableOpacity style={styles.card} onPress={() => router.push("/voice-notes")}>
+        <Text style={styles.title}>🎙️ Ghi âm</Text>
+        <Text style={{ color: colors.textSecondary }}>Thư viện ghi âm cá nhân, nghe lại & lọc theo tag</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.card} onPress={() => router.push("/notes")}>
         <Text style={styles.title}>📝 Ghi chú</Text>
         <Text style={{ color: colors.textSecondary }}>Ghi chú cá nhân theo ngày/tag</Text>

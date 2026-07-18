@@ -28,6 +28,7 @@ function localToday(): string {
 }
 
 function QuickVoiceCard() {
+  const router = useRouter();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
   const [notes, setNotes] = useState<VoiceNote[]>([]);
@@ -82,7 +83,12 @@ function QuickVoiceCard() {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>🎙️ Ghi âm nhanh</Text>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <Text style={styles.cardTitle}>🎙️ Ghi âm nhanh</Text>
+        <TouchableOpacity onPress={() => router.push("/voice-notes")}>
+          <Text style={{ color: colors.primary, fontWeight: "700" }}>Thư viện →</Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity
         style={[styles.recordBtn, recorderState.isRecording && styles.recordBtnActive]}
         onPress={toggle}

@@ -53,6 +53,7 @@ export default function MainLayout() {
       <Tabs.Screen name="projects" options={{ href: null }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
       <Tabs.Screen name="reports" options={{ href: null }} />
+      <Tabs.Screen name="voice-notes" options={{ href: null }} />
     </Tabs>
   );
 }
