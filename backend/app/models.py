@@ -377,6 +377,11 @@ class VoiceNote(Base):
     file_path: Mapped[str] = mapped_column(String(512))
     transcript: Mapped[str] = mapped_column(Text, default="")
     language: Mapped[str] = mapped_column(String(16), default="und")
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # pending = chưa có STT thật; queued/processing/done/failed khi transcribe async chạy
+    transcript_status: Mapped[str] = mapped_column(String(16), default="pending",
+                                                    server_default="pending")
     tags: Mapped[list] = mapped_column(JSON, default=list)
     task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id"), nullable=True)

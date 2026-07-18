@@ -15,6 +15,8 @@ router = APIRouter(prefix="/api/v1/voice-notes", tags=["voice-notes"])
 
 @router.post("", status_code=201)
 async def upload_voice_note(file: UploadFile = File(...), tags: str = Form(""),
+                            title: str = Form(""),
+                            duration_seconds: float | None = Form(None),
                             task_id: uuid.UUID | None = Form(None),
                             project_id: uuid.UUID | None = Form(None),
                             actor: User = Depends(get_current_user),
@@ -23,6 +25,7 @@ async def upload_voice_note(file: UploadFile = File(...), tags: str = Form(""),
     data = await file.read()
     return await voice_service.create_voice_note(
         db, actor, filename=file.filename or "", data=data, tags=tag_list,
+        title=title.strip() or None, duration_seconds=duration_seconds,
         task_id=task_id, project_id=project_id)
 
 

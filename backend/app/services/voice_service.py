@@ -21,6 +21,7 @@ from app.models import User, VoiceNote
 from app.permissions import get_visible_task_or_404, visible_project_ids
 
 _ALLOWED_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".webm"}
+_MAX_FILE_SIZE = 25 * 1024 * 1024  # attachment có trần 20MB; voice cho nhỉnh hơn
 # Thị trường chính app là VN (UTC+7) — "on_date" từ client là ngày lịch theo giờ
 # VN, không phải UTC; created_at lưu UTC nên phải quy đổi trước khi so ngày,
 # tránh lệch ngày với ghi âm lúc 00:00-06:59 sáng giờ VN (cùng lớp bug với fix
@@ -53,6 +54,8 @@ def _voice_dir(workspace_id: uuid.UUID) -> Path:
 
 def _out(n: VoiceNote) -> dict:
     return {"id": str(n.id), "transcript": n.transcript, "language": n.language,
+            "transcript_status": n.transcript_status,
+            "title": n.title, "duration_seconds": n.duration_seconds,
             "tags": n.tags or [],
             "task_id": str(n.task_id) if n.task_id else None,
             "project_id": str(n.project_id) if n.project_id else None,
@@ -62,10 +65,14 @@ def _out(n: VoiceNote) -> dict:
 async def create_voice_note(db: AsyncSession, actor: User, *, filename: str, data: bytes,
                             tags: list[str] | None = None,
                             task_id: uuid.UUID | None = None,
-                            project_id: uuid.UUID | None = None) -> dict:
+                            project_id: uuid.UUID | None = None,
+                            title: str | None = None,
+                            duration_seconds: float | None = None) -> dict:
     ext = Path(filename or "").suffix.lower()
     if ext not in _ALLOWED_EXTS:
         raise HTTPException(422, "unsupported_audio_format")
+    if len(data) > _MAX_FILE_SIZE:
+        raise HTTPException(413, "file_too_large")
     if task_id is not None:
         await get_visible_task_or_404(db, actor, task_id)
     if project_id is not None and project_id not in await visible_project_ids(db, actor):
@@ -73,9 +80,14 @@ async def create_voice_note(db: AsyncSession, actor: User, *, filename: str, dat
 
     file_path = _voice_dir(actor.workspace_id) / f"{uuid.uuid4()}{ext}"
     file_path.write_bytes(data)
-    transcript, language = await get_transcription_client().transcribe(data, filename)
+    # Transcribe KHÔNG chạy đồng bộ ở đây nữa: STT thật sẽ chậm, block upload.
+    # Worker arq xử lý (Task 16); khi chưa có STT thật thì status=pending, có thể
+    # re-transcribe sau qua POST /voice-notes/{id}/transcribe.
+    status = "queued" if not get_settings().stt_mock else "pending"
     note = VoiceNote(workspace_id=actor.workspace_id, author_id=actor.id,
-                     file_path=str(file_path), transcript=transcript, language=language,
+                     file_path=str(file_path), transcript="", language="und",
+                     transcript_status=status, title=title,
+                     duration_seconds=duration_seconds,
                      tags=tags or [], task_id=task_id, project_id=project_id)
     db.add(note)
     await db.commit()

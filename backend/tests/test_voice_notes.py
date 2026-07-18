@@ -72,6 +72,43 @@ async def test_list_by_date_uses_vn_timezone_not_utc(client, db_session, storage
 
 
 @pytest.mark.asyncio
+async def test_upload_khong_transcribe_dong_bo_va_co_field_moi(client, db_session, storage_dir):
+    """create_voice_note KHONG goi STT dong bo nua: transcript luon rong,
+    transcript_status="pending" khi stt_mock=True (cho STT that qua async job -
+    Task 16). title/duration_seconds la field moi nhan tu client."""
+    from fastapi import HTTPException
+    from app.models import User
+    from app.services import voice_service
+
+    ceo_h = await _ceo_headers(client)
+    ceo = (await db_session.execute(select(User).where(User.email == "ceo@a.vn"))).scalar_one()
+
+    out = await voice_service.create_voice_note(
+        db_session, ceo, filename="a.m4a", data=b"xxx",
+        title="Hop giao ban", duration_seconds=12.5)
+    assert out["transcript"] == ""
+    assert out["transcript_status"] == "pending"   # stt_mock=True → chờ STT thật
+    assert out["title"] == "Hop giao ban"
+    assert out["duration_seconds"] == 12.5
+
+
+@pytest.mark.asyncio
+async def test_upload_qua_25mb_bi_chan(client, db_session, storage_dir):
+    from fastapi import HTTPException
+    from app.models import User
+    from app.services import voice_service
+
+    ceo_h = await _ceo_headers(client)
+    ceo = (await db_session.execute(select(User).where(User.email == "ceo@a.vn"))).scalar_one()
+
+    with pytest.raises(HTTPException) as ei:
+        await voice_service.create_voice_note(db_session, ceo, filename="a.m4a",
+                                               data=b"0" * (25 * 1024 * 1024 + 1))
+    assert ei.value.status_code == 413
+    assert ei.value.detail == "file_too_large"
+
+
+@pytest.mark.asyncio
 async def test_agent_tools_voice(client, db_session, storage_dir):
     ceo_h = await _ceo_headers(client)
     await client.post("/api/v1/voice-notes", headers=ceo_h,
