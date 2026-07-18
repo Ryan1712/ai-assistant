@@ -144,6 +144,16 @@ async def run_agent_loop(
                 else:
                     done = event
 
+            if done.stop_reason == "max_tokens":
+                # Trả lời bị cắt vì chạm trần output — nói thẳng cho người dùng
+                # thay vì im lặng như thể đã trả lời xong.
+                cut_note = ("\n\n⚠️ Câu trả lời đã chạm giới hạn độ dài và bị cắt — "
+                            "nhắn 'viết tiếp' để xem phần còn lại.")
+                text_parts.append(cut_note)
+                await publisher.publish(req.conversation_id,
+                                        {"type": "token", "chat_request_id": str(req.id),
+                                         "text": cut_note})
+
             assistant_content: list[dict] = []
             if text_parts:
                 assistant_content.append({"type": "text", "text": "".join(text_parts)})

@@ -54,6 +54,31 @@ async def test_text_only_response_completes_request(db_session):
 
 
 @pytest.mark.asyncio
+async def test_max_tokens_stop_reason_appends_cut_note(db_session):
+    """Trả lời bị cắt vì chạm trần output (stop_reason=max_tokens) phải nói thẳng
+    cho người dùng thay vì im lặng như thể đã trả lời xong."""
+    ws, ceo, conv = await _world(db_session)
+    req = _make_request(ws, conv, ceo)
+    db_session.add(req)
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[[
+        TextDelta(text="Day la mot cau tra loi dai"),
+        StreamDone(tool_uses=[], stop_reason="max_tokens", input_tokens=10, output_tokens=8192),
+    ]])
+    pub = FakeEventPublisher()
+
+    await run_agent_loop(db_session, req, llm, pub)
+
+    assert req.status.value == "done"
+    assert "chạm giới hạn độ dài" in req.result_summary
+    tokens = [e for _, e in pub.events if e["type"] == "token"]
+    assert "chạm giới hạn độ dài" in tokens[-1]["text"]
+
+
+@pytest.mark.asyncio
 async def test_system_prompt_contains_actor_identity_and_date(db_session):
     """Smoke test LLM thật 2026-07-13: agent hỏi 'cần user ID của bạn' vì system
     prompt không nói người dùng là ai — danh tính phải từ JWT/actor, model không

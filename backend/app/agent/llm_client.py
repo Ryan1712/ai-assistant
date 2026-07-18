@@ -64,7 +64,7 @@ class AnthropicLLMClient(LLMClient):
     message_start MỚI NHẤT nên chạy đúng với cả API chính thức lẫn gateway.
     """
 
-    def __init__(self, client, model: str, max_tokens: int = 4096):
+    def __init__(self, client, model: str, max_tokens: int = 8192):
         self._client = client
         self._model = model
         self._max_tokens = max_tokens

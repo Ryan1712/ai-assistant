@@ -68,6 +68,11 @@ async def call_tool(db: AsyncSession, actor: User, tool_name: str, tool_input: d
         label = _ERROR_LABELS.get(exc.status_code, "error")
         message = _ERROR_MESSAGES.get(exc.status_code, str(exc.detail))
         return {"error": label, "message": message}
+    except Exception as exc:  # noqa: BLE001
+        # Lỗi lập trình/hạ tầng trong 1 tool không được giết cả request — trả về
+        # tool_result lỗi để model tự báo lại/thử cách khác.
+        return {"error": "tool_failed",
+                "message": f"Tool gặp lỗi hệ thống ({type(exc).__name__}): {exc}"}
 
 
 class NoArgsIn(BaseModel):
