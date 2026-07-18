@@ -52,3 +52,28 @@ async def test_comment_includes_author_name(client):
 
     lst = await client.get(f"/api/v1/tasks/{tid}/comments", headers=_h(e2))
     assert lst.json()[0]["author_name"] == "e1@a.vn"
+
+
+@pytest.mark.asyncio
+async def test_mention_in_comment_notifies_mentioned_user(client):
+    ceo_h, e1, e2, tid = await _task_with_two_employees(client)
+    r = await client.post(f"/api/v1/tasks/{tid}/comments", headers=_h(e1),
+                          json={"content": "@e2@a.vn xem giup task nay"})
+    assert r.status_code == 201, r.text
+
+    notifs = await client.get("/api/v1/notifications", headers=_h(e2))
+    types = [n["type"] for n in notifs.json()]
+    assert "mentioned" in types
+
+    # nguoi khong duoc nhac khong nhan thong bao mention nao
+    ceo_notifs = await client.get("/api/v1/notifications", headers=ceo_h)
+    assert "mentioned" not in [n["type"] for n in ceo_notifs.json()]
+
+
+@pytest.mark.asyncio
+async def test_no_mention_no_notification(client):
+    ceo_h, e1, e2, tid = await _task_with_two_employees(client)
+    await client.post(f"/api/v1/tasks/{tid}/comments", headers=_h(e1),
+                      json={"content": "khong nhac ai ca"})
+    notifs = await client.get("/api/v1/notifications", headers=_h(e2))
+    assert "mentioned" not in [n["type"] for n in notifs.json()]

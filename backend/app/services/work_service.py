@@ -165,6 +165,23 @@ async def _notify_task_update(db: AsyncSession, actor: User, task: Task) -> None
                      payload={"task_id": str(task.id), "author_id": str(actor.id)})
 
 
+async def _notify_mentions(db: AsyncSession, actor: User, task: Task, content: str) -> None:
+    """@<full_name> trong bình luận/cập nhật -> notify người được nhắc (funtional-plan
+    6.6 "được nhắc tên"). Không giới hạn theo ma trận tương tác — bình luận/update
+    trong task là dữ liệu chung, giống ghi chú ở phụ lục funtional-plan."""
+    if not content or "@" not in content:
+        return
+    content_lower = content.lower()
+    rows = await db.execute(select(User).where(
+        User.workspace_id == actor.workspace_id, User.id != actor.id))
+    for u in rows.scalars():
+        if f"@{u.full_name.lower()}" in content_lower:
+            await notify(db, workspace_id=actor.workspace_id, recipient_id=u.id,
+                        type="mentioned",
+                        payload={"from_user": str(actor.id), "from_name": actor.full_name,
+                                 "task_id": str(task.id), "task_title": task.title})
+
+
 async def add_task_update(db: AsyncSession, actor: User, task_id: uuid.UUID, *,
                           content: str = "", percent=None, status=None) -> TaskUpdate:
     task = await get_visible_task_or_404(db, actor, task_id)
@@ -178,6 +195,7 @@ async def add_task_update(db: AsyncSession, actor: User, task_id: uuid.UUID, *,
     if status is not None:
         task.status = status
     await _notify_task_update(db, actor, task)
+    await _notify_mentions(db, actor, task, content)
     await db.commit()
     return upd
 
@@ -195,6 +213,7 @@ async def add_comment(db: AsyncSession, actor: User, task_id: uuid.UUID,
     comment = TaskComment(workspace_id=actor.workspace_id, task_id=task.id,
                           author_id=actor.id, content=content)
     db.add(comment)
+    await _notify_mentions(db, actor, task, content)
     await db.commit()
     return {"id": comment.id, "task_id": comment.task_id, "author_id": comment.author_id,
             "author_name": actor.full_name, "content": comment.content,

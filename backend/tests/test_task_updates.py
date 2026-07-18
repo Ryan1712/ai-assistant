@@ -74,3 +74,14 @@ async def test_list_updates_newest_first(client):
     await client.post(f"/api/v1/tasks/{tid}/updates", headers=_h(e1), json={"content": "2"})
     lst = (await client.get(f"/api/v1/tasks/{tid}/updates", headers=_h(e1))).json()
     assert [u["content"] for u in lst] == ["2", "1"]
+
+
+@pytest.mark.asyncio
+async def test_mention_in_task_update_notifies(client):
+    ceo_h, m1, m2, e1, e2, tid = await _setup(client)
+    r = await client.post(f"/api/v1/tasks/{tid}/updates", headers=_h(e1),
+                          json={"content": "@m2@a.vn kiem tra giup", "percent": 40})
+    assert r.status_code == 201
+
+    notifs = await client.get("/api/v1/notifications", headers=_h(m2))
+    assert "mentioned" in [n["type"] for n in notifs.json()]
