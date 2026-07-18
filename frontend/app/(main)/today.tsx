@@ -27,6 +27,15 @@ function localToday(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+  const ss = String(totalSeconds % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+const VISIBLE_NOTES = 3;
+
 function QuickVoiceCard() {
   const router = useRouter();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -98,7 +107,7 @@ function QuickVoiceCard() {
           {busy
             ? "Đang tải lên…"
             : recorderState.isRecording
-              ? "⏹ Dừng & lưu"
+              ? `⏹ Dừng & lưu (${formatDuration(recorderState.durationMillis)})`
               : "🎙️ Ghi âm nhanh"}
         </Text>
       </TouchableOpacity>
@@ -107,18 +116,27 @@ function QuickVoiceCard() {
       {notes.length === 0 ? (
         <Text style={styles.empty}>Chưa có ghi âm hôm nay</Text>
       ) : (
-        notes.map((n) => (
-          <View key={n.id} style={styles.updateLine}>
-            <Text style={{ fontWeight: "600" }}>
-              {new Date(n.created_at).toLocaleTimeString("vi-VN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              {n.tags.length > 0 ? ` — ${n.tags.join(", ")}` : ""}
-            </Text>
-            <Text>{n.transcript || "(chưa có transcript)"}</Text>
-          </View>
-        ))
+        <>
+          {notes.slice(0, VISIBLE_NOTES).map((n) => (
+            <View key={n.id} style={styles.updateLine}>
+              <Text style={{ fontWeight: "600" }}>
+                {new Date(n.created_at).toLocaleTimeString("vi-VN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                {n.tags.length > 0 ? ` — ${n.tags.join(", ")}` : ""}
+              </Text>
+              <Text>{n.transcript || "(chưa có transcript)"}</Text>
+            </View>
+          ))}
+          {notes.length > VISIBLE_NOTES && (
+            <TouchableOpacity onPress={() => router.push("/voice-notes")}>
+              <Text style={{ color: colors.primary, fontWeight: "700", marginTop: spacing.xs }}>
+                +{notes.length - VISIBLE_NOTES} ghi âm khác — xem Thư viện →
+              </Text>
+            </TouchableOpacity>
+          )}
+        </>
       )}
     </View>
   );
