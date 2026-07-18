@@ -19,6 +19,7 @@ import {
   offboardUser,
   unlockUser,
 } from "../../../src/api/team";
+import { BackHeader } from "../../../src/ui/BackHeader";
 import { ErrorText } from "../../../src/ui/form";
 import { colors, radius, spacing, type } from "../../../src/ui/theme";
 
@@ -189,10 +190,12 @@ export default function TeamDetail() {
   };
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title={target?.full_name ?? "Chi tiết thành viên"} fallback="/team" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       {users === null && !error && (
         <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
       )}
@@ -331,7 +334,8 @@ export default function TeamDetail() {
           </View>
         </>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

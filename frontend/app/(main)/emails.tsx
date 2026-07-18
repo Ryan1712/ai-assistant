@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Email, listEmails } from "../../src/api/emails";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -67,10 +68,12 @@ export default function EmailsScreen() {
   }, [box, load]);
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Email" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       <Text style={styles.caption}>Gửi mail bằng cách nhắn AI trong mục Trợ lý AI.</Text>
       <BoxToggle box={box} onChange={setBox} />
       {emails === null && !error && (
@@ -89,7 +92,8 @@ export default function EmailsScreen() {
           ))}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

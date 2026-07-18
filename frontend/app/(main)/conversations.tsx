@@ -7,6 +7,7 @@ import {
   listConversations,
   renameConversation,
 } from "../../src/api/chat";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText, Field } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -115,7 +116,9 @@ export default function Conversations() {
     ) ?? null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, padding: spacing.md, gap: spacing.md }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Lịch sử trò chuyện" />
+      <View style={{ flex: 1, padding: spacing.md, gap: spacing.md }}>
       <TouchableOpacity style={styles.newBtn} onPress={handleCreate} disabled={creating}>
         {creating ? (
           <ActivityIndicator color={colors.onPrimary} />
@@ -153,6 +156,7 @@ export default function Conversations() {
           ))}
         </View>
       )}
+      </View>
     </View>
   );
 }

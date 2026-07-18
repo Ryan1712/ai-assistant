@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Note, createNote, listNotes } from "../../src/api/notes";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { Field, PrimaryButton, ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -81,10 +82,12 @@ export default function NotesScreen() {
   };
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Ghi chú" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       <View style={styles.card}>
         <View style={styles.filterRow}>
           <TouchableOpacity onPress={() => setFilter("today")}>
@@ -143,7 +146,8 @@ export default function NotesScreen() {
         <ErrorText error={createError} />
         <PrimaryButton title="Lưu ghi chú" onPress={handleCreate} busy={creating} />
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

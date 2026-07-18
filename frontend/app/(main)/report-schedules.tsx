@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { ReportSchedule, deleteReportSchedule, listReportSchedules } from "../../src/api/reportSchedules";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -74,10 +75,12 @@ export default function ReportSchedules() {
   }, []);
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Báo cáo định kỳ" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       {schedules === null && !error && (
         <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
       )}
@@ -100,7 +103,8 @@ export default function ReportSchedules() {
           ))}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { PortalReport, listPortalReports } from "../../src/api/portal";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -54,10 +55,12 @@ export default function PortalScreen() {
   const toggle = (id: string) => setExpandedId((prev) => (prev === id ? null : id));
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Báo cáo cổng CEO" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       <Text style={type.caption}>Báo cáo từ cổng CEO — chỉ đọc.</Text>
       {reports === null && !error && !planBlocked && (
         <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
@@ -76,7 +79,8 @@ export default function PortalScreen() {
           ))}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

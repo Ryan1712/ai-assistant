@@ -22,6 +22,7 @@ import {
   uploadTaskAttachment,
 } from "../../../src/api/attachments";
 import { Comment, addComment, listComments } from "../../../src/api/comments";
+import { BackHeader } from "../../../src/ui/BackHeader";
 import { ErrorText, Field } from "../../../src/ui/form";
 import { colors, radius, spacing, type } from "../../../src/ui/theme";
 
@@ -246,10 +247,12 @@ export default function TaskDetailScreen() {
   }, [id]);
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title={task?.title ?? "Chi tiết task"} fallback="/tasks" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       {!task && !error && (
         <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
       )}
@@ -275,7 +278,8 @@ export default function TaskDetailScreen() {
           <CommentsSection taskId={id} />
         </>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

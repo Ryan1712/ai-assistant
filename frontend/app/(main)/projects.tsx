@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import { useRouter } from "expo-router";
 import { Project, listProjects } from "../../src/api/projects";
 import { TaskDetail, listTasks } from "../../src/api/tasks";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -81,10 +82,12 @@ export default function Projects() {
   }, [tasks]);
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Project" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       {projects === null && !error && (
         <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
       )}
@@ -95,7 +98,8 @@ export default function Projects() {
       {projects?.map((p) => (
         <ProjectCard key={p.id} p={p} tasks={tasksByProject.get(p.id) ?? []} />
       ))}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

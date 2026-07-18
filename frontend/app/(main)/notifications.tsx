@@ -9,6 +9,7 @@ import {
   markNotificationRead,
   setNotificationPreference,
 } from "../../src/api/notifications";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -179,10 +180,12 @@ export default function Notifications() {
   };
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Thông báo" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       <PreferencesSection />
       {unreadCount > 0 && (
         <TouchableOpacity onPress={handleMarkAllRead} style={{ alignSelf: "flex-end" }}>
@@ -217,7 +220,8 @@ export default function Notifications() {
           ))}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

@@ -15,6 +15,7 @@ import {
   listInstructions,
   updateInstruction,
 } from "../../src/api/instructions";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText, Field, PrimaryButton } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -140,10 +141,12 @@ export default function Instructions() {
   };
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Chỉ dẫn cho AI" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       <Text style={{ ...type.caption, color: colors.textSecondary }}>
         Chỉ dẫn cho AI — quy tắc/bối cảnh bạn cấu hình, AI nạp lại ngay khi có thay đổi.
       </Text>
@@ -190,7 +193,8 @@ export default function Instructions() {
         />
         <PrimaryButton title="Thêm chỉ dẫn" onPress={submit} busy={creating} />
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

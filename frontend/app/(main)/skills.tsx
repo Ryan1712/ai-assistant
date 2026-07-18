@@ -17,6 +17,7 @@ import {
 } from "../../src/api/skills";
 import { TaskDetail, listTasks } from "../../src/api/tasks";
 import { TeamUser, listUsers } from "../../src/api/team";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText, Field, PrimaryButton } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -412,10 +413,12 @@ export default function SkillsScreen() {
   };
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Skill" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       {skills === null && !error && (
         <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
       )}
@@ -493,7 +496,8 @@ export default function SkillsScreen() {
           }
         />
       ))}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

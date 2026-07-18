@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacit
 import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
 import { Report, fetchReportBytes, listReports } from "../../src/api/reports";
+import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -61,10 +62,12 @@ export default function Reports() {
   }, []);
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <BackHeader title="Báo cáo" />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+      >
       <Text style={type.caption}>
         Báo cáo tạo qua chat hoặc lịch tự động — bấm để tải file Excel.
       </Text>
@@ -84,7 +87,8 @@ export default function Reports() {
           ))}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
