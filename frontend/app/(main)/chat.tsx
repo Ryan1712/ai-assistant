@@ -19,6 +19,7 @@ import {
   cancelRequest,
   confirmRequest,
   createConversation,
+  isResumePhrase,
   listConversations,
   listMessages,
   listRequests,
@@ -227,7 +228,7 @@ export default function Chat() {
     const content = input.trim();
     setInput("");
     const req = await sendMessage(conversationId, content);
-    if (held && content.toLowerCase() === RESUME_PHRASE) setHeld(false);
+    if (held && isResumePhrase(content)) setHeld(false);
     setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: content }]);
     await refreshQueue(conversationId);
   };

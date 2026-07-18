@@ -11,7 +11,7 @@ from app import security
 from app.agent.publisher import EventPublisher, get_event_publisher
 from app.db import get_db
 from app.models import Conversation
-from app.services import continuity, presence
+from app.services import presence
 
 router = APIRouter()
 
@@ -60,7 +60,9 @@ async def conversation_ws(
     except WebSocketDisconnect:
         pass
     finally:
-        # Socket cuối cùng đóng = mất mạng/đóng app → hold queue (5.7); reconnect
-        # KHÔNG tự resume, chỉ tin nhắn "tiếp tục công việc" mới clear.
-        if presence.disconnect(conversation_id) == 0:
-            await continuity.hold_queue_if_pending(db, conversation_id)
+        presence.disconnect(conversation_id)
+        # KHÔNG hold queue khi socket đóng nữa: trên mobile, rời màn chat/khóa máy
+        # là đóng WS — hold ở đây làm AI "tự treo" giữa chừng việc dài, người dùng
+        # tưởng lỗi. Việc dang dở cứ chạy nốt; kết quả lưu DB, mở lại màn là thấy.
+        # Cờ queue_held + cụm "tiếp tục công việc" giữ nguyên cho conversation đã
+        # held từ trước (dữ liệu cũ).

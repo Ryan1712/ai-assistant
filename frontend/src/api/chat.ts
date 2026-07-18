@@ -10,6 +10,19 @@ export type Conversation = {
 // Cụm từ resume theo funtional-plan 5.7 — BE match không phân biệt hoa/thường/dấu
 export const RESUME_PHRASE = "tiếp tục công việc";
 
+/** Chuẩn hóa giống BE (continuity._normalize): lowercase, đ→d, bỏ dấu, gộp space. */
+export function isResumePhrase(text: string): boolean {
+  const norm = text
+    .toLowerCase()
+    .replace(/đ/g, "d")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ");
+  return norm === "tiep tuc cong viec";
+}
+
 export type ChatRequestStatus =
   | "queued"
   | "running"
