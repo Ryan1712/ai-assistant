@@ -151,7 +151,7 @@ async def test_cancel_running_request_sets_redis_flag(queue_client):
 
     resp = await client.post(f"/api/v1/chat-requests/{req_id}/cancel", headers=ceo_h)
     assert resp.status_code == 204
-    assert fake_redis.set_calls == [(f"cancel:{req_id}", "1", 300)]
+    assert fake_redis.set_calls == [(f"cancel:{req_id}", "1", 600)]
 
 
 @pytest.mark.asyncio
@@ -239,4 +239,4 @@ async def test_stop_all_cancels_queued_and_flags_running(queue_client):
     async with maker() as db:
         queued = await db.get(ChatRequest, queued_id)
         assert queued.status == ChatRequestStatus.cancelled
-    assert fake_redis.set_calls == [(f"cancel:{running_id}", "1", 300)]
+    assert fake_redis.set_calls == [(f"cancel:{running_id}", "1", 600)]

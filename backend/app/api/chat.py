@@ -20,6 +20,10 @@ from app.services import continuity
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
 chat_requests_router = APIRouter(prefix="/api/v1/chat-requests", tags=["chat"])
 
+# TTL key hủy PHẢI >= arq job_timeout (600s, xem worker.py) — nếu nhỏ hơn, lệnh hủy
+# có thể hết hạn trước khi loop kịp đọc trong 1 lượt stream dài.
+_CANCEL_TTL = 600
+
 
 async def get_arq_pool(request: Request):
     return request.app.state.arq_pool
@@ -134,7 +138,7 @@ async def stop_all(conversation_id: uuid.UUID, actor: User = Depends(get_current
         if req.status == ChatRequestStatus.queued:
             req.status = ChatRequestStatus.cancelled
         else:
-            await redis.set(f"cancel:{req.id}", "1", ex=300)
+            await redis.set(f"cancel:{req.id}", "1", ex=_CANCEL_TTL)
     await db.commit()
     return Response(status_code=204)
 
@@ -177,7 +181,7 @@ async def cancel_request(request_id: uuid.UUID, actor: User = Depends(get_curren
         req.status = ChatRequestStatus.cancelled
         await db.commit()
     elif req.status == ChatRequestStatus.running:
-        await redis.set(f"cancel:{req.id}", "1", ex=300)
+        await redis.set(f"cancel:{req.id}", "1", ex=_CANCEL_TTL)
     return Response(status_code=204)
 
 

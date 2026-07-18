@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models import (
     ChatRequestStatus, MessageRole, Role, SkillKind, TaskPriority, TaskStatus, WorkspacePlan,
@@ -324,7 +324,17 @@ class NotificationOut(BaseModel):
 
 
 class MessageSendIn(BaseModel):
-    content: str
+    # Rỗng/toàn khoảng trắng → Anthropic từ chối text block rỗng → request failed;
+    # chặn ngay từ API. Trần 8000 ký tự chống paste khổng lồ làm nổ context.
+    content: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("content")
+    @classmethod
+    def _strip_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("content must not be blank")
+        return v
 
 
 class ChatRequestOut(BaseModel):
@@ -351,7 +361,15 @@ class ConfirmIn(BaseModel):
 
 
 class ChatRequestEditIn(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("content")
+    @classmethod
+    def _strip_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("content must not be blank")
+        return v
 
 
 class ReorderIn(BaseModel):
