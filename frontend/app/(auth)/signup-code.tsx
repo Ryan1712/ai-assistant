@@ -1,56 +1,55 @@
-import React, { useState } from "react";
-import { View } from "react-native";
+import React from "react";
 import { Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
-import { ErrorText, Field, PrimaryButton } from "../../src/ui/form";
-import { colors, spacing } from "../../src/ui/theme";
+import { ConversationalForm, ConversationalStep } from "../../src/ui/ConversationalForm";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const STEPS: ConversationalStep[] = [
+  { key: "invite_code", prompt: "Bạn có mã mời của công ty chưa? Nhập giúp mình nhé (8 ký tự).",
+    placeholder: "Mã mời", autoCapitalize: "characters",
+    validate: (v) => (v.length < 4 ? "Mã mời có vẻ chưa đúng, thử lại nhé." : null) },
+  { key: "full_name", prompt: "Bạn tên là gì?", placeholder: "Họ tên", autoCapitalize: "words",
+    validate: (v) => (v.length < 2 ? "Tên hơi ngắn, bạn nhập lại giúp mình nhé." : null) },
+  { key: "email", prompt: "Email bạn dùng để đăng nhập?", placeholder: "Email",
+    keyboardType: "email-address",
+    validate: (v) => (EMAIL_RE.test(v) ? null : "Email này không đúng định dạng, thử lại nhé.") },
+  { key: "password", prompt: "Đặt mật khẩu cho tài khoản (ít nhất 8 ký tự):",
+    placeholder: "Mật khẩu", secureTextEntry: true, trim: false,
+    validate: (v) => (v.length < 8 ? "Mật khẩu cần ít nhất 8 ký tự, thử lại nhé." : null) },
+];
+
+const ERROR_MAP: Record<string, string> = {
+  invalid_invite_code: "Mã mời không đúng, bạn kiểm tra lại giúp mình nhé.",
+  email_taken: "Email này đã được dùng rồi, bạn thử email khác nhé.",
+  plan_limit_reached: "Công ty đã đạt giới hạn thành viên của gói hiện tại.",
+};
 
 export default function SignupCode() {
   const { signupCode } = useAuth();
-  const [inviteCode, setInviteCode] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await signupCode({
-        invite_code: inviteCode.trim().toUpperCase(),
-        full_name: fullName.trim(),
-        email: email.trim(),
-        password,
-      });
-    } catch (e: any) {
-      const map: Record<string, string> = {
-        invalid_invite_code: "Mã mời không đúng.",
-        email_taken: "Email đã được sử dụng.",
-        plan_limit_reached: "Công ty đã đạt giới hạn thành viên của gói hiện tại.",
-      };
-      setError(map[e?.detail as string] ?? String(e?.message ?? e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
-    <View
-      style={{ flex: 1, justifyContent: "center", padding: spacing.xl, backgroundColor: colors.bg }}
-    >
+    <>
       <Stack.Screen options={{ title: "Đăng ký bằng mã mời" }} />
-      <Field placeholder="Mã mời công ty (8 ký tự)" value={inviteCode}
-             onChangeText={setInviteCode} autoCapitalize="characters" />
-      <Field placeholder="Họ tên" value={fullName} onChangeText={setFullName}
-             autoCapitalize="words" />
-      <Field placeholder="Email" value={email} onChangeText={setEmail}
-             keyboardType="email-address" />
-      <Field placeholder="Mật khẩu (≥8 ký tự)" value={password} onChangeText={setPassword}
-             secureTextEntry />
-      <ErrorText error={error} />
-      <PrimaryButton title="Đăng ký" onPress={submit} busy={busy} />
-    </View>
+      <ConversationalForm
+        intro="Chào bạn! Mình hỏi vài câu để đưa bạn vào đúng công ty nhé."
+        steps={STEPS}
+        submittingLabel="Đang tạo tài khoản cho bạn..."
+        onComplete={(a) =>
+          signupCode({
+            invite_code: a.invite_code.toUpperCase(),
+            full_name: a.full_name,
+            email: a.email,
+            password: a.password,
+          })
+        }
+        mapError={(e) => ERROR_MAP[e?.detail as string] ?? String(e?.message ?? e)}
+        errorStepKey={(e) => {
+          if (e?.detail === "invalid_invite_code") return "invite_code";
+          if (e?.detail === "email_taken") return "email";
+          return undefined;
+        }}
+      />
+    </>
   );
 }

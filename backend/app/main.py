@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
     attachments, audit, auth, chat, dashboard, devices, emails, instructions, invites,
@@ -11,6 +12,12 @@ from app.config import assert_safe_config, get_settings
 def create_app() -> FastAPI:
     assert_safe_config(get_settings())
     app = FastAPI(title="AI Assistant API", version="0.1.0", docs_url="/docs")
+
+    # Auth dùng Bearer token (Authorization header), không dùng cookie — cho phép mọi
+    # origin an toàn vì không có rủi ro CSRF qua credential ngầm định của trình duyệt.
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    )
 
     @app.get("/api/v1/health")
     async def health():
