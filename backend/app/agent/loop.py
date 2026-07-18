@@ -14,25 +14,36 @@ from app.agent.tools import SENSITIVE_TOOLS, TOOLS, call_tool
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User
 from app.services import instruction_service
+from app.tz import VN_TZ
 
-def _build_system_prompt(actor: User) -> str:
+_VN_WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+
+
+def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
     """System prompt theo từng request: danh tính actor lấy từ JWT (không bao giờ
-    hỏi user ID), ngày hiện tại, và thiên hướng hành động thay vì hỏi vặt."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    hỏi user ID), ngày GIỜ theo VN (user ở VN — 'hôm nay/ngày mai/3h chiều' đều
+    là giờ VN), và thiên hướng hành động thay vì hỏi vặt."""
+    now_vn = (now or datetime.now(timezone.utc)).astimezone(VN_TZ)
+    weekday = _VN_WEEKDAYS[now_vn.weekday()]
     return (
-        "Bạn là trợ lý AI quản lý công việc của công ty.\n"
+        "Bạn là trợ lý AI quản lý công việc của công ty. "
+        "Luôn trả lời bằng tiếng Việt (trừ khi người dùng chủ động dùng ngôn ngữ khác).\n"
         f"Người đang nói chuyện với bạn: {actor.full_name} "
         f"(id: {actor.id}, vai trò: {actor.role.value}). "
         "Khi người dùng nói 'tôi'/'của tôi'/'cho tôi' thì chính là người này — dùng id ở trên, "
         "TUYỆT ĐỐI không hỏi lại user ID.\n"
-        f"Hôm nay là {today} (UTC).\n"
+        f"Bây giờ là {weekday}, {now_vn:%Y-%m-%d} {now_vn:%H:%M} giờ Việt Nam (UTC+7). "
+        "Mọi mốc thời gian người dùng nói ('hôm nay', 'ngày mai', '3h chiều') hiểu theo giờ VN.\n"
+        "Ranh giới quyền chính: tạo/sửa/giao task & project, quản lý skill/instruction/"
+        "lịch báo cáo/tài khoản là việc của CEO. Nếu người dùng không phải CEO mà nhờ các việc "
+        "đó, đừng gọi tool — báo họ nhờ CEO thực hiện.\n"
+        "Người dùng có thể được cấp 'skill' (quy trình/tri thức riêng của công ty): khi yêu cầu "
+        "liên quan tới quy trình nội bộ, hãy tra list_skills rồi use_skill để lấy hướng dẫn.\n"
         "Thực hiện yêu cầu bằng cách gọi tool phù hợp. Khi đủ thông tin bắt buộc thì hành động "
         "ngay và chọn mặc định hợp lý cho tham số tùy chọn, đừng hỏi vặt. Thiếu thông tin thì "
         "ưu tiên tự tra bằng tool list (project/task/người) trước khi hỏi người dùng. "
         "Nếu tool trả về error, báo lại rõ ràng cho người dùng, không tự suy diễn hoặc chọn "
-        "đối tượng thay thế. Đừng tự thẩm vấn quyền hạn hay đòi lý do: quyền được hệ thống "
-        "kiểm tra khi gọi tool — nếu người dùng không đủ quyền, tool sẽ trả lỗi và bạn chỉ "
-        "cần báo lại lỗi đó một cách lịch sự. Với hành động nhạy cảm (khóa/mở tài khoản, "
+        "đối tượng thay thế. Với hành động nhạy cảm (khóa/mở tài khoản, "
         "gửi email, xóa instruction): GỌI TOOL NGAY — hệ thống tự dừng lại và hiện nút "
         "xác nhận cho người dùng; đừng tự hỏi xác nhận bằng lời trong chat."
     )

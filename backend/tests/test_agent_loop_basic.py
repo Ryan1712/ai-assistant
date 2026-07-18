@@ -76,7 +76,10 @@ async def test_system_prompt_contains_actor_identity_and_date(db_session):
     assert str(ceo.id) in system
     assert "ceo" in system  # vai trò
     from datetime import datetime, timezone
-    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in system  # ngày hôm nay
+
+    from app.tz import VN_TZ
+    now_vn = datetime.now(timezone.utc).astimezone(VN_TZ)
+    assert now_vn.strftime("%Y-%m-%d") in system  # ngày hôm nay theo giờ VN
 
 
 @pytest.mark.asyncio
