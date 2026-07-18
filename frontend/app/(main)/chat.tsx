@@ -34,7 +34,15 @@ import { colors, radius, spacing, type } from "../../src/ui/theme";
 type Row =
   | { key: string; kind: "user" | "assistant"; text: string }
   | { key: string; kind: "streaming"; text: string }
-  | { key: string; kind: "system"; text: string };
+  | { key: string; kind: "system"; text: string }
+  | { key: string; kind: "failed"; text: string; retryContent: string | null };
+
+function friendlyError(raw: string): string {
+  if (raw.includes("max_iterations_exceeded"))
+    return "AI chạy quá nhiều bước mà chưa xong — thử chia nhỏ yêu cầu.";
+  if (raw.includes("max_tokens")) return "Câu trả lời quá dài bị cắt.";
+  return `Có lỗi khi xử lý (${raw.slice(0, 120)}).`;
+}
 
 function textOfMessage(m: Message): string {
   return m.content
@@ -116,12 +124,15 @@ export default function Chat() {
     toolInput: Record<string, unknown>;
   } | null>(null);
   const [runningTool, setRunningTool] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const streamingText = useRef<Map<string, string>>(new Map());
+  const contentByRequest = useRef<Map<string, string>>(new Map());
   const listRef = useRef<FlatList>(null);
   const closeWs = useRef<(() => void) | null>(null);
 
   const refreshQueue = useCallback(async (cid: string) => {
     const reqs = await listRequests(cid);
+    reqs.forEach((r) => contentByRequest.current.set(r.id, r.content));
     setQueue(reqs.filter((r) => r.status === "queued" || r.status === "running"));
     const waiting = reqs.find((r) => r.status === "awaiting_confirmation");
     if (waiting) {
@@ -176,9 +187,15 @@ export default function Chat() {
         refreshQueue(cid);
       } else if (e.type === "request_failed") {
         setRunningTool(null);
+        const retryContent = contentByRequest.current.get(e.chat_request_id) ?? null;
         setRows((prev) => [
           ...prev,
-          { key: `fail-${e.chat_request_id}`, kind: "system", text: `⚠️ Yêu cầu lỗi: ${e.error} — các yêu cầu sau vẫn chạy tiếp.` },
+          {
+            key: `fail-${e.chat_request_id}`,
+            kind: "failed",
+            text: `⚠️ ${friendlyError(e.error)}`,
+            retryContent,
+          },
         ]);
         refreshQueue(cid);
       } else if (e.type === "confirmation_required") {
@@ -238,18 +255,39 @@ export default function Chat() {
     if (!conversationId || !input.trim()) return;
     const content = input.trim();
     setInput("");
-    const req = await sendMessage(conversationId, content);
-    if (held && isResumePhrase(content)) setHeld(false);
-    setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: content }]);
-    await refreshQueue(conversationId);
+    try {
+      const req = await sendMessage(conversationId, content);
+      contentByRequest.current.set(req.id, content);
+      if (held && isResumePhrase(content)) setHeld(false);
+      setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: content }]);
+      await refreshQueue(conversationId);
+    } catch (e: any) {
+      setInput(content); // không được làm mất chữ người dùng vừa gõ
+      setRows((prev) => [
+        ...prev,
+        {
+          key: `senderr-${Date.now()}`,
+          kind: "system",
+          text: `⚠️ Gửi thất bại (${String(e?.message ?? e).slice(0, 80)}) — nội dung đã được giữ lại trong ô nhập.`,
+        },
+      ]);
+    }
   };
 
   const resumeQueue = async () => {
     if (!conversationId) return;
-    const req = await sendMessage(conversationId, RESUME_PHRASE);
-    setHeld(false);
-    setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: RESUME_PHRASE }]);
-    await refreshQueue(conversationId);
+    try {
+      const req = await sendMessage(conversationId, RESUME_PHRASE);
+      contentByRequest.current.set(req.id, RESUME_PHRASE);
+      setHeld(false);
+      setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: RESUME_PHRASE }]);
+      await refreshQueue(conversationId);
+    } catch {
+      setRows((prev) => [
+        ...prev,
+        { key: `resumeerr-${Date.now()}`, kind: "system", text: "⚠️ Không gửi được — thử lại." },
+      ]);
+    }
   };
 
   const resolveConfirm = async (approved: boolean) => {
@@ -259,19 +297,36 @@ export default function Chat() {
     await refreshQueue(conversationId);
   };
 
+  const doStopAll = async () => {
+    if (!conversationId) return;
+    setActionError(null);
+    try {
+      await stopAll(conversationId);
+      await refreshQueue(conversationId);
+    } catch {
+      setActionError("Không dừng được — thử lại.");
+    }
+  };
+
   const cancelQueued = async (requestId: string) => {
     if (!conversationId) return;
+    setActionError(null);
     try {
       await cancelRequest(requestId);
-    } catch {}
+    } catch {
+      setActionError("Thao tác thất bại — thử lại.");
+    }
     await refreshQueue(conversationId);
   };
 
   const prioritize = async (requestId: string) => {
     if (!conversationId) return;
+    setActionError(null);
     try {
       await reorderRequest(requestId, null); // before_id null = lên đầu hàng đợi
-    } catch {}
+    } catch {
+      setActionError("Thao tác thất bại — thử lại.");
+    }
     await refreshQueue(conversationId);
   };
 
@@ -312,11 +367,12 @@ export default function Chat() {
             Đang xử lý {running ? 1 : 0}/{queue.length}
             {running ? ` — “${running.content.slice(0, 40)}”` : ""}
           </Text>
-          <TouchableOpacity onPress={() => conversationId && stopAll(conversationId)}>
+          <TouchableOpacity onPress={doStopAll}>
             <Text style={{ color: colors.danger, fontWeight: "700" }}>Dừng tất cả</Text>
           </TouchableOpacity>
         </View>
       )}
+      <ErrorText error={actionError} />
       {queuedOnly.length > 0 && (
         <View style={styles.queueList}>
           <Text style={styles.queueTitle}>Hàng đợi ({queuedOnly.length})</Text>
@@ -364,7 +420,7 @@ export default function Chat() {
               styles.bubble,
               item.kind === "user"
                 ? styles.userBubble
-                : item.kind === "system"
+                : item.kind === "system" || item.kind === "failed"
                   ? styles.systemBubble
                   : styles.aiBubble,
             ]}
@@ -373,6 +429,17 @@ export default function Chat() {
               {item.text}
               {item.kind === "streaming" ? " ▍" : ""}
             </Text>
+            {item.kind === "failed" && item.retryContent && (
+              <TouchableOpacity
+                onPress={() => {
+                  setInput(item.retryContent!);
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "700", marginTop: spacing.xs }}>
+                  ↻ Gửi lại nội dung này
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       />
