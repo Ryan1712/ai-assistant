@@ -148,6 +148,9 @@ async def test_non_sensitive_tool_executes_and_loop_continues(db_session):
     project = (await db_session.execute(select(Project))).scalar_one()
     assert project.name == "Website"
     assert len(llm.calls) == 2
+    running = [e for _, e in pub.events if e["type"] == "tool_running"]
+    assert running == [{"type": "tool_running", "chat_request_id": str(req.id),
+                        "tool_name": "create_project"}]
 
 
 @pytest.mark.asyncio

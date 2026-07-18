@@ -179,6 +179,9 @@ async def run_agent_loop(
 
             tool_results = []
             for tu in done.tool_uses:
+                await publisher.publish(req.conversation_id,
+                                        {"type": "tool_running", "chat_request_id": str(req.id),
+                                         "tool_name": tu.name})
                 result = await call_tool(db, actor, tu.name, tu.input)
                 tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
                                      "content": json.dumps(result, default=str)})

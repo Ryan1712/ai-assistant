@@ -11,7 +11,8 @@ export type WsEvent =
       chat_request_id: string;
       tool_name: string;
       tool_input: unknown;
-    };
+    }
+  | { type: "tool_running"; chat_request_id: string; tool_name: string };
 
 /** Mở WS stream cho 1 conversation; trả hàm đóng kết nối. */
 export async function openConversationStream(

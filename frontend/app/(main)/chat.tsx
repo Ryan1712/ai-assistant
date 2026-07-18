@@ -42,6 +42,62 @@ function textOfMessage(m: Message): string {
     .join("\n");
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  create_project: "Tạo project",
+  update_project: "Cập nhật project",
+  list_projects: "Tra cứu project",
+  create_task: "Tạo task",
+  update_task: "Cập nhật task",
+  list_tasks: "Tra cứu task",
+  get_task: "Xem chi tiết task",
+  assign_task: "Gán người vào task",
+  unassign_task: "Bỏ gán task",
+  add_task_update: "Cập nhật tiến độ",
+  list_task_updates: "Tra lịch sử cập nhật",
+  add_comment: "Thêm bình luận",
+  list_comments: "Tra bình luận",
+  create_skill: "Tạo skill",
+  add_skill_version: "Cập nhật skill",
+  grant_skill: "Cấp quyền skill",
+  list_skills: "Tra cứu skill",
+  use_skill: "Dùng skill",
+  list_skill_grants: "Tra quyền skill",
+  revoke_skill_grant: "Thu hồi quyền skill",
+  list_users: "Tra danh bạ",
+  create_invite: "Tạo lời mời",
+  lock_user: "Khóa tài khoản",
+  unlock_user: "Mở khóa tài khoản",
+  offboard_user: "Cho nghỉ việc",
+  change_user_role: "Đổi vai trò",
+  generate_report: "Tạo báo cáo",
+  list_reports: "Tra báo cáo",
+  create_report_schedule: "Tạo lịch báo cáo",
+  list_report_schedules: "Tra lịch báo cáo",
+  delete_report_schedule: "Hủy lịch báo cáo",
+  list_audit_events: "Tra nhật ký",
+  send_email: "Gửi email",
+  create_instruction: "Tạo chỉ dẫn",
+  update_instruction: "Cập nhật chỉ dẫn",
+  list_instructions: "Tra chỉ dẫn",
+  delete_instruction: "Xóa chỉ dẫn",
+  list_portal_reports: "Tra báo cáo cổng CEO",
+  get_portal_report: "Đọc báo cáo cổng CEO",
+  list_voice_notes: "Tra ghi âm",
+  get_voice_note: "Đọc ghi âm",
+  list_task_attachments: "Tra tài liệu đính kèm",
+  get_today_dashboard: "Tổng hợp hôm nay",
+  create_note: "Tạo ghi chú",
+  list_notes: "Tra ghi chú",
+  search: "Tìm kiếm",
+  list_notifications: "Tra thông báo",
+  get_notification_preferences: "Tra cài đặt thông báo",
+  set_notification_preference: "Đổi cài đặt thông báo",
+};
+
+function labelForTool(name: string): string {
+  return TOOL_LABELS[name] ?? name.replace(/_/g, " ");
+}
+
 export default function Chat() {
   const { id: requestedId } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -57,6 +113,7 @@ export default function Chat() {
     requestId: string;
     toolName: string;
   } | null>(null);
+  const [runningTool, setRunningTool] = useState<string | null>(null);
   const streamingText = useRef<Map<string, string>>(new Map());
   const listRef = useRef<FlatList>(null);
   const closeWs = useRef<(() => void) | null>(null);
@@ -83,7 +140,12 @@ export default function Chat() {
 
   const onWsEvent = useCallback(
     (cid: string) => (e: WsEvent) => {
+      if (e.type === "tool_running") {
+        setRunningTool(labelForTool(e.tool_name));
+        return;
+      }
       if (e.type === "token") {
+        setRunningTool(null);
         const cur = (streamingText.current.get(e.chat_request_id) ?? "") + e.text;
         streamingText.current.set(e.chat_request_id, cur);
         setRows((prev) => {
@@ -96,6 +158,7 @@ export default function Chat() {
           return next;
         });
       } else if (e.type === "request_done") {
+        setRunningTool(null);
         streamingText.current.delete(e.chat_request_id);
         setRows((prev) =>
           prev.map((r) =>
@@ -104,12 +167,14 @@ export default function Chat() {
         );
         refreshQueue(cid);
       } else if (e.type === "request_failed") {
+        setRunningTool(null);
         setRows((prev) => [
           ...prev,
           { key: `fail-${e.chat_request_id}`, kind: "system", text: `⚠️ Yêu cầu lỗi: ${e.error} — các yêu cầu sau vẫn chạy tiếp.` },
         ]);
         refreshQueue(cid);
       } else if (e.type === "confirmation_required") {
+        setRunningTool(null);
         setPendingConfirm({ requestId: e.chat_request_id, toolName: e.tool_name });
         refreshQueue(cid);
       } else if (e.type === "status_update") {
@@ -299,6 +364,12 @@ export default function Chat() {
           </View>
         )}
       />
+      {runningTool && !pendingConfirm && (
+        <View style={styles.toolBar}>
+          <ActivityIndicator color={colors.primary} size="small" />
+          <Text style={{ color: colors.textSecondary }}>Đang {runningTool}…</Text>
+        </View>
+      )}
       {pendingConfirm && (
         <View style={styles.confirmBar}>
           <Text style={{ marginBottom: spacing.sm, color: colors.text }}>
@@ -382,6 +453,16 @@ const styles = StyleSheet.create({
   queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs, gap: spacing.sm },
   queueBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   emptyChat: { color: colors.textMuted, textAlign: "center", marginTop: spacing.xxl },
+  toolBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
+  },
   bubble: { borderRadius: radius.lg, padding: spacing.md, maxWidth: "85%" },
   userBubble: { backgroundColor: colors.primary, alignSelf: "flex-end" },
   aiBubble: { backgroundColor: colors.surfaceAlt, alignSelf: "flex-start" },
