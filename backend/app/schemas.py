@@ -342,6 +342,8 @@ class ChatRequestOut(BaseModel):
     conversation_id: uuid.UUID
     status: ChatRequestStatus
     content: str
+    # Cho FE khôi phục confirm card đầy đủ (tên tool + tham số) sau khi reload màn
+    pending_action: dict | None = None
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}

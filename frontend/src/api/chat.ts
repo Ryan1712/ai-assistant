@@ -31,11 +31,18 @@ export type ChatRequestStatus =
   | "failed"
   | "cancelled";
 
+export type PendingAction = {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_use_id: string;
+};
+
 export type ChatRequest = {
   id: string;
   conversation_id: string;
   status: ChatRequestStatus;
   content: string;
+  pending_action: PendingAction | null;
   created_at: string;
 };
 

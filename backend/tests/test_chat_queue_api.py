@@ -107,6 +107,42 @@ async def test_confirm_when_not_awaiting_returns_409(queue_client):
 
 
 @pytest.mark.asyncio
+async def test_list_requests_exposes_pending_action_for_confirm_card(queue_client):
+    """GET /requests phải trả pending_action đầy đủ (tool_name, tool_input, tool_use_id)
+    để FE dựng confirm card sau khi reload màn — không còn duyệt mù."""
+    client, *_, maker = queue_client
+    ceo_h = await _ceo_headers(client)
+    me = (await client.get("/api/v1/users/me", headers=ceo_h)).json()
+
+    async with maker() as db:
+        ceo = await db.get(User, uuid.UUID(me["id"]))
+        target = User(workspace_id=ceo.workspace_id, email="f@a.vn", password_hash="x",
+                     full_name="F", role="employee")
+        db.add(target)
+        await db.flush()
+        conv = Conversation(workspace_id=ceo.workspace_id, user_id=ceo.id)
+        db.add(conv)
+        await db.flush()
+        req = ChatRequest(workspace_id=ceo.workspace_id, conversation_id=conv.id,
+                          user_id=ceo.id, content="khoa f", queue_position=1.0,
+                          status=ChatRequestStatus.awaiting_confirmation,
+                          pending_action={"tool_name": "lock_user",
+                                         "tool_input": {"target_id": str(target.id)},
+                                         "tool_use_id": "t1"})
+        db.add(req)
+        await db.commit()
+        conv_id = conv.id
+
+    resp = await client.get(f"/api/v1/conversations/{conv_id}/requests", headers=ceo_h)
+    assert resp.status_code == 200
+    body = resp.json()
+    waiting = next(r for r in body if r["status"] == "awaiting_confirmation")
+    assert waiting["pending_action"]["tool_name"] == "lock_user"
+    assert waiting["pending_action"]["tool_input"] == {"target_id": str(target.id)}
+    assert waiting["pending_action"]["tool_use_id"] == "t1"
+
+
+@pytest.mark.asyncio
 async def test_cancel_queued_request_marks_cancelled(queue_client):
     client, *_, maker = queue_client
     ceo_h = await _ceo_headers(client)

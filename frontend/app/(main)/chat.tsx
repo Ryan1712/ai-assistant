@@ -113,6 +113,7 @@ export default function Chat() {
   const [pendingConfirm, setPendingConfirm] = useState<{
     requestId: string;
     toolName: string;
+    toolInput: Record<string, unknown>;
   } | null>(null);
   const [runningTool, setRunningTool] = useState<string | null>(null);
   const streamingText = useRef<Map<string, string>>(new Map());
@@ -123,7 +124,13 @@ export default function Chat() {
     const reqs = await listRequests(cid);
     setQueue(reqs.filter((r) => r.status === "queued" || r.status === "running"));
     const waiting = reqs.find((r) => r.status === "awaiting_confirmation");
-    if (waiting) setPendingConfirm({ requestId: waiting.id, toolName: "hành động nhạy cảm" });
+    if (waiting) {
+      setPendingConfirm({
+        requestId: waiting.id,
+        toolName: waiting.pending_action?.tool_name ?? "unknown",
+        toolInput: (waiting.pending_action?.tool_input ?? {}) as Record<string, unknown>,
+      });
+    }
   }, []);
 
   const loadHistory = useCallback(async (cid: string) => {
@@ -176,7 +183,11 @@ export default function Chat() {
         refreshQueue(cid);
       } else if (e.type === "confirmation_required") {
         setRunningTool(null);
-        setPendingConfirm({ requestId: e.chat_request_id, toolName: e.tool_name });
+        setPendingConfirm({
+          requestId: e.chat_request_id,
+          toolName: e.tool_name,
+          toolInput: (e.tool_input ?? {}) as Record<string, unknown>,
+        });
         refreshQueue(cid);
       } else if (e.type === "status_update") {
         refreshQueue(cid);
@@ -373,8 +384,16 @@ export default function Chat() {
       )}
       {pendingConfirm && (
         <View style={styles.confirmBar}>
-          <Text style={{ marginBottom: spacing.sm, color: colors.text }}>
-            AI muốn thực hiện hành động nhạy cảm: {pendingConfirm.toolName}. Xác nhận?
+          <Text style={{ fontWeight: "700", marginBottom: spacing.xs, color: colors.text }}>
+            ⚠️ AI muốn: {labelForTool(pendingConfirm.toolName)}
+          </Text>
+          {Object.entries(pendingConfirm.toolInput).map(([k, v]) => (
+            <Text key={k} style={{ color: colors.text }}>
+              • {k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+            </Text>
+          ))}
+          <Text style={{ marginVertical: spacing.sm, color: colors.text }}>
+            Xác nhận thực hiện?
           </Text>
           <View style={{ flexDirection: "row", gap: spacing.md }}>
             <TouchableOpacity style={styles.okBtn} onPress={() => resolveConfirm(true)}>
