@@ -130,3 +130,37 @@ async def get_file_path(db: AsyncSession, actor: User, voice_note_id: uuid.UUID)
     if not path.is_file():
         raise HTTPException(404, "file_not_found")
     return path
+
+
+async def transcribe_note(db: AsyncSession, voice_note_id: uuid.UUID) -> None:
+    """Chạy STT cho 1 voice note (gọi từ arq job, xem `transcribe_voice_note` trong
+    worker.py). Không raise — lỗi STT ghi transcript_status="failed" để không chặn
+    worker/arq retry vô ích; user re-transcribe thủ công qua request_transcription."""
+    note = await db.get(VoiceNote, voice_note_id)
+    if note is None:
+        return
+    note.transcript_status = "processing"
+    await db.commit()
+    try:
+        data = Path(note.file_path).read_bytes()
+        transcript, language = await get_transcription_client().transcribe(
+            data, Path(note.file_path).name)
+        note.transcript = transcript
+        note.language = language
+        note.transcript_status = "done"
+    except Exception:
+        note.transcript_status = "failed"
+    await db.commit()
+
+
+async def request_transcription(db: AsyncSession, actor: User,
+                                 voice_note_id: uuid.UUID) -> dict:
+    """User bấm "nhận dạng lại" — chỉ khi có STT thật (stt_mock=False), nếu không
+    trả 409 vì chạy lại cũng chỉ ra transcript rỗng như lúc tạo. Đưa note về
+    queued; route gọi hàm này chịu trách nhiệm enqueue job arq theo sau."""
+    note = await _get_own_or_404(db, actor, voice_note_id)
+    if get_settings().stt_mock:
+        raise HTTPException(409, "stt_not_configured")
+    note.transcript_status = "queued"
+    await db.commit()
+    return {"id": str(note.id), "status": "queued"}

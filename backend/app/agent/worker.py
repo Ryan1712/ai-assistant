@@ -12,7 +12,7 @@ from app.agent.loop import run_agent_loop
 from app.agent.publisher import get_event_publisher
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
-from app.services import report_schedule_service, work_service
+from app.services import report_schedule_service, voice_service, work_service
 
 
 async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
@@ -76,6 +76,13 @@ async def check_task_deadlines(ctx: dict) -> None:
         await work_service.notify_upcoming_deadlines(db)
 
 
+async def transcribe_voice_note(ctx: dict, voice_note_id: uuid.UUID) -> None:
+    """arq job: chạy STT cho 1 voice note (enqueue sau upload hoặc từ POST
+    /voice-notes/{id}/transcribe — Task 16)."""
+    async with ctx["session_factory"]() as db:
+        await voice_service.transcribe_note(db, voice_note_id)
+
+
 async def _is_cancelled_redis(ctx: dict, request_id: uuid.UUID) -> bool:
     return bool(await ctx["redis"].exists(f"cancel:{request_id}"))
 
@@ -98,7 +105,7 @@ async def _shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [process_conversation]
+    functions = [process_conversation, transcribe_voice_note]
     cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0)]
     on_startup = _startup
     on_shutdown = _shutdown

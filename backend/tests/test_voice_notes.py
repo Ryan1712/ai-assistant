@@ -1,8 +1,13 @@
+import uuid
 from datetime import datetime, timezone
 
+import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db import get_db
+from app.main import create_app
 from tests.conftest import _ceo_headers, _invite_and_join
 
 
@@ -12,6 +17,40 @@ def _h(j):
 
 def _upload_files(name="ghi-am.m4a", content=b"fake-audio-bytes"):
     return {"file": (name, content, "audio/m4a")}
+
+
+class _FakeArqPool:
+    """Thay cho arq_pool that trong test HTTP — ghi lai job da enqueue de assert,
+    khong can Redis. Xem test_chat_api.py cho pattern goc (chat_client fixture)."""
+
+    def __init__(self):
+        self.enqueued = []
+
+    async def enqueue_job(self, name, *args, **kwargs):
+        self.enqueued.append((name, args, kwargs))
+        return "job"
+
+
+@pytest.fixture
+async def client(engine):
+    """Ghi de fixture `client` cua conftest.py: route voice-notes tu Task 16 can
+    Depends(get_arq_pool) doc request.app.state.arq_pool — fixture goc khong chay
+    lifespan startup nen state.arq_pool khong ton tai (AttributeError). Gan
+    _FakeArqPool truc tiep vao app.state (khong can dependency_overrides) va dinh
+    kem app len client de test kiem duoc job da enqueue."""
+    app = create_app()
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def override_get_db():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.state.arq_pool = _FakeArqPool()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        c.app = app
+        yield c
 
 
 @pytest.mark.asyncio
@@ -124,3 +163,191 @@ async def test_agent_tools_voice(client, db_session, storage_dir):
     vid = listed["voice_notes"][0]["id"]
     got = await call_tool(db_session, ceo, "get_voice_note", {"voice_note_id": vid})
     assert "transcript" in got
+
+
+async def _make_actor(db_session):
+    from app.models import Role, User, Workspace
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    actor = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+                role=Role.ceo, is_root=True)
+    db_session.add(actor)
+    await db_session.flush()
+    await db_session.commit()
+    return actor
+
+
+# --- Task 16: transcribe bat dong bo qua arq + endpoint re-transcribe ---
+
+
+@pytest.mark.asyncio
+async def test_transcribe_note_cap_nhat_transcript(db_session, storage_dir, monkeypatch):
+    from app.models import VoiceNote
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x")
+
+    class _Stub:
+        async def transcribe(self, data, filename):
+            return "xin chao ca nha", "vi"
+    monkeypatch.setattr(voice_service, "get_transcription_client", lambda: _Stub())
+
+    await voice_service.transcribe_note(db_session, uuid.UUID(out["id"]))
+    note = await db_session.get(VoiceNote, uuid.UUID(out["id"]))
+    assert note.transcript == "xin chao ca nha"
+    assert note.language == "vi"
+    assert note.transcript_status == "done"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_note_loi_thanh_failed(db_session, storage_dir, monkeypatch):
+    from app.models import VoiceNote
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x")
+
+    class _Boom:
+        async def transcribe(self, data, filename):
+            raise RuntimeError("stt down")
+    monkeypatch.setattr(voice_service, "get_transcription_client", lambda: _Boom())
+
+    await voice_service.transcribe_note(db_session, uuid.UUID(out["id"]))
+    note = await db_session.get(VoiceNote, uuid.UUID(out["id"]))
+    assert note.transcript_status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_note_bo_qua_neu_note_khong_ton_tai(db_session):
+    """job co the chay sau khi note bi xoa — khong duoc raise (arq se retry vo ich)."""
+    from app.services import voice_service
+
+    await voice_service.transcribe_note(db_session, uuid.uuid4())  # khong raise la dat
+
+
+@pytest.mark.asyncio
+async def test_request_transcription_409_khi_stt_mock(db_session, storage_dir):
+    from fastapi import HTTPException
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x")
+
+    with pytest.raises(HTTPException) as ei:
+        await voice_service.request_transcription(db_session, actor, uuid.UUID(out["id"]))
+    assert ei.value.status_code == 409
+    assert ei.value.detail == "stt_not_configured"
+
+
+@pytest.mark.asyncio
+async def test_request_transcription_dua_ve_queued_khi_co_stt_that(db_session, storage_dir,
+                                                                    monkeypatch):
+    from app.config import get_settings
+    from app.models import VoiceNote
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x")
+    monkeypatch.setattr(get_settings(), "stt_mock", False)
+
+    result = await voice_service.request_transcription(db_session, actor, uuid.UUID(out["id"]))
+    assert result == {"id": out["id"], "status": "queued"}
+    note = await db_session.get(VoiceNote, uuid.UUID(out["id"]))
+    assert note.transcript_status == "queued"
+
+
+@pytest.mark.asyncio
+async def test_upload_khong_enqueue_khi_stt_mock(client, storage_dir):
+    """Mac dinh stt_mock=True -> status "pending", khong co job nao duoc enqueue."""
+    ceo_h = await _ceo_headers(client)
+    r = await client.post("/api/v1/voice-notes", headers=ceo_h, files=_upload_files())
+    assert r.status_code == 201
+    assert r.json()["transcript_status"] == "pending"
+    assert client.app.state.arq_pool.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_upload_enqueue_job_khi_co_stt_that(client, storage_dir, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "stt_mock", False)
+
+    ceo_h = await _ceo_headers(client)
+    r = await client.post("/api/v1/voice-notes", headers=ceo_h, files=_upload_files())
+    assert r.status_code == 201
+    note = r.json()
+    assert note["transcript_status"] == "queued"
+
+    name, args, kwargs = client.app.state.arq_pool.enqueued[-1]
+    assert name == "transcribe_voice_note"
+    assert args == (uuid.UUID(note["id"]),)
+
+
+@pytest.mark.asyncio
+async def test_retranscribe_endpoint_409_khi_stt_mock(client, storage_dir):
+    ceo_h = await _ceo_headers(client)
+    up = await client.post("/api/v1/voice-notes", headers=ceo_h, files=_upload_files())
+    vid = up.json()["id"]
+
+    r = await client.post(f"/api/v1/voice-notes/{vid}/transcribe", headers=ceo_h)
+    assert r.status_code == 409
+    assert r.json()["detail"] == "stt_not_configured"
+    assert client.app.state.arq_pool.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_retranscribe_endpoint_202_enqueue_job_khi_co_stt_that(client, storage_dir,
+                                                                      monkeypatch):
+    from app.config import get_settings
+
+    ceo_h = await _ceo_headers(client)
+    up = await client.post("/api/v1/voice-notes", headers=ceo_h, files=_upload_files())
+    vid = up.json()["id"]
+    monkeypatch.setattr(get_settings(), "stt_mock", False)
+
+    r = await client.post(f"/api/v1/voice-notes/{vid}/transcribe", headers=ceo_h)
+    assert r.status_code == 202
+    assert r.json() == {"id": vid, "status": "queued"}
+
+    name, args, kwargs = client.app.state.arq_pool.enqueued[-1]
+    assert name == "transcribe_voice_note"
+    assert args == (uuid.UUID(vid),)
+
+
+@pytest.mark.asyncio
+async def test_retranscribe_endpoint_404_neu_khong_phai_chu_nhan(client, storage_dir):
+    ceo_h = await _ceo_headers(client)
+    m1 = await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")
+    up = await client.post("/api/v1/voice-notes", headers=_h(m1), files=_upload_files())
+    vid = up.json()["id"]
+
+    r = await client.post(f"/api/v1/voice-notes/{vid}/transcribe", headers=ceo_h)
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_transcribe_voice_note_job_goi_service(engine, monkeypatch):
+    """arq job transcribe_voice_note chi la wrapper mo session roi goi
+    voice_service.transcribe_note — test worker lien quan (khong dung DB that)."""
+    from app.agent import worker as worker_module
+
+    called = {}
+
+    async def fake_transcribe_note(db, voice_note_id):
+        called["db"] = db
+        called["voice_note_id"] = voice_note_id
+    monkeypatch.setattr(worker_module.voice_service, "transcribe_note", fake_transcribe_note)
+
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False)}
+    vid = uuid.uuid4()
+    await worker_module.transcribe_voice_note(ctx, vid)
+
+    assert called["voice_note_id"] == vid
+    assert called["db"] is not None
+
+
+def test_worker_settings_registers_transcribe_voice_note():
+    from app.agent.worker import WorkerSettings, transcribe_voice_note
+
+    assert transcribe_voice_note in WorkerSettings.functions
