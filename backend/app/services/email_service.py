@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import EmailMessage, Role, User
+from app.services.notify import notify
 
 
 class EmailClient(Protocol):
@@ -57,6 +58,10 @@ async def send_email(db: AsyncSession, actor: User, recipient_id: uuid.UUID,
     db.add(email)
     await get_email_client().send(from_email=actor.email, to_email=recipient.email,
                                   subject=subject, body=body)
+    await notify(db, workspace_id=actor.workspace_id, recipient_id=recipient.id,
+                type="email_received",
+                payload={"from_user": str(actor.id), "from_name": actor.full_name,
+                         "subject": subject})
     await db.commit()
     return email
 

@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Note, Task, TaskAssignee, TaskStatus, TaskUpdate, User
+from app import plans
+from app.models import Note, Task, TaskAssignee, TaskStatus, TaskUpdate, User, Workspace
 from app.permissions import visible_task_ids
 
 
@@ -72,11 +73,16 @@ async def today_dashboard(db: AsyncSession, actor: User) -> dict:
     )
     waiting_on_me = len(list(my_open.scalars()))
 
+    # Dashboard đầy đủ (in_progress + cập nhật đội) chỉ gói Advanced (funtional-plan
+    # 6.10); due_today/overdue/counters/notes là tiện ích cá nhân, luôn đầy đủ.
+    ws = await db.get(Workspace, actor.workspace_id)
+    full = plans.plan_allows(ws, "full_dashboard")
+
     return {
         "due_today": [_task_out(t) for t in due_today],
         "overdue": [_task_out(t) for t in overdue],
-        "in_progress": [_task_out(t) for t in in_progress],
-        "recent_updates": recent_updates,
+        "in_progress": [_task_out(t) for t in in_progress] if full else [],
+        "recent_updates": recent_updates if full else [],
         "notes_today": notes_today,
         "counters": {"overdue": len(overdue), "waiting_on_me": waiting_on_me,
                      "updates_24h": len(recent_updates)},

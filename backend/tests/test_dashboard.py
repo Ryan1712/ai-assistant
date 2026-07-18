@@ -37,6 +37,9 @@ async def _setup_world(client):
 @pytest.mark.asyncio
 async def test_ceo_sees_everything(client):
     ceo_h, m1, e1, due_today, overdue, doing = await _setup_world(client)
+    # Full dashboard (in_progress/recent_updates) chỉ bật ở gói Advanced (§6.10) —
+    # test này kiểm tra phạm vi quyền CEO (thấy hết workspace), không phải gate gói.
+    await client.patch("/api/v1/subscription", headers=ceo_h, json={"plan": "advanced"})
     r = await client.get("/api/v1/dashboard/today", headers=ceo_h)
     assert r.status_code == 200, r.text
     d = r.json()
@@ -60,6 +63,25 @@ async def test_employee_scope_limited_to_own_tasks(client):
     assert d["in_progress"] == []
     assert d["counters"]["waiting_on_me"] == 1
     assert [n["content"] for n in d["notes_today"]] == ["note cua e1"]
+
+
+@pytest.mark.asyncio
+async def test_basic_plan_gets_abbreviated_dashboard(client):
+    ceo_h, m1, e1, due_today, overdue, doing = await _setup_world(client)
+    d = (await client.get("/api/v1/dashboard/today", headers=ceo_h)).json()
+    # Basic (mac dinh): van co due_today/overdue/counters/notes day du (tien ich
+    # ca nhan), nhung rut gon in_progress/recent_updates (tong hop toan doi —
+    # tinh nang gan voi "Dashboard day du" chi Advanced moi co, funtional-plan 6.10).
+    assert len(d["due_today"]) == 1
+    assert len(d["overdue"]) == 1
+    assert d["counters"]["overdue"] == 1
+    assert d["in_progress"] == []
+    assert d["recent_updates"] == []
+
+    await client.patch("/api/v1/subscription", headers=ceo_h, json={"plan": "advanced"})
+    full = (await client.get("/api/v1/dashboard/today", headers=ceo_h)).json()
+    assert len(full["in_progress"]) == 1
+    assert len(full["recent_updates"]) == 1
 
 
 @pytest.mark.asyncio

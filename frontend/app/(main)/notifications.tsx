@@ -21,6 +21,8 @@ const NOTIFICATION_TYPES: { type: string; label: string }[] = [
   { type: "management_handoff", label: "Bàn giao khi đổi quản lý" },
   { type: "unlock_request", label: "Yêu cầu mở khóa tài khoản" },
   { type: "scheduled_report", label: "Báo cáo định kỳ sẵn sàng" },
+  { type: "email_received", label: "Có mail mới" },
+  { type: "mentioned", label: "Được nhắc tên trong bình luận/cập nhật" },
 ];
 
 function PreferencesSection() {
@@ -86,13 +88,15 @@ function PreferencesSection() {
   );
 }
 
-function describe(n: Notification): { title: string; taskId?: string } {
+function describe(n: Notification): { title: string; taskId?: string; goTo?: "emails" } {
   const p = n.payload as Record<string, any>;
   switch (n.type) {
     case "task_assigned":
       return { title: `Bạn được giao task "${p.title}"`, taskId: p.task_id };
     case "task_update":
       return { title: "Có cập nhật tiến độ mới trên một task bạn theo dõi", taskId: p.task_id };
+    case "task_due_soon":
+      return { title: `Task "${p.title}" sắp đến hạn`, taskId: p.task_id };
     case "account_locked":
       return { title: "Tài khoản của bạn đã bị khóa" };
     case "role_changed":
@@ -109,6 +113,10 @@ function describe(n: Notification): { title: string; taskId?: string } {
       return { title: `${p.email} yêu cầu mở khóa tài khoản` };
     case "scheduled_report":
       return { title: `Báo cáo định kỳ đã sẵn sàng: ${p.summary ?? ""}` };
+    case "email_received":
+      return { title: `${p.from_name} vừa gửi mail: "${p.subject}"`, goTo: "emails" };
+    case "mentioned":
+      return { title: `${p.from_name} đã nhắc đến bạn trong task "${p.task_title}"`, taskId: p.task_id };
     default:
       return { title: n.type };
   }
@@ -122,7 +130,7 @@ function NotificationRow({
   onRead: (id: string) => void;
 }) {
   const router = useRouter();
-  const { title, taskId } = describe(n);
+  const { title, taskId, goTo } = describe(n);
   const unread = n.read_at === null;
 
   const handlePress = () => {
@@ -131,6 +139,7 @@ function NotificationRow({
       onRead(n.id);
     }
     if (taskId) router.push(`/tasks/${taskId}`);
+    else if (goTo === "emails") router.push("/emails");
   };
 
   return (

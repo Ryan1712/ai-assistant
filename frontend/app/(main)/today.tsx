@@ -16,7 +16,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { DashTask, TodayDashboard, getTodayDashboard } from "../../src/api/dashboard";
+import { DashTask, Subscription, TodayDashboard, getSubscription, getTodayDashboard } from "../../src/api/dashboard";
 import { VoiceNote, listVoiceNotes, uploadVoiceNote } from "../../src/api/voice";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
@@ -146,6 +146,7 @@ function Section({ title, tasks, empty }: { title: string; tasks: DashTask[]; em
 export default function Today() {
   const router = useRouter();
   const [data, setData] = useState<TodayDashboard | null>(null);
+  const [sub, setSub] = useState<Subscription | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -159,6 +160,7 @@ export default function Today() {
 
   useEffect(() => {
     load();
+    getSubscription().then(setSub).catch(() => {});
   }, [load]);
 
   return (
@@ -193,10 +195,17 @@ export default function Today() {
           <Section title="🔥 Quá hạn" tasks={data.overdue} empty="Không có task quá hạn" />
           <Section title="📅 Đến hạn hôm nay" tasks={data.due_today} empty="Hôm nay không có deadline" />
           <Section title="🏃 Đang làm" tasks={data.in_progress} empty="Chưa có task đang chạy" />
+          {sub?.plan === "basic" && (
+            <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>
+              Nâng cấp gói Advanced để xem đầy đủ "Đang làm" và "Cập nhật mới từ đội".
+            </Text>
+          )}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>🔄 Cập nhật mới từ đội (24h)</Text>
             {data.recent_updates.length === 0 ? (
-              <Text style={styles.empty}>Chưa có cập nhật mới</Text>
+              <Text style={styles.empty}>
+                {sub?.plan === "basic" ? "Chỉ hiện ở gói Advanced" : "Chưa có cập nhật mới"}
+              </Text>
             ) : (
               data.recent_updates.map((u, i) => (
                 <TouchableOpacity

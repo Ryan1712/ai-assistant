@@ -6,12 +6,14 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Project, Skill, User, Workspace, WorkspacePlan
+from app.models import Instruction, Project, Skill, User, Workspace, WorkspacePlan
 
-BASIC_LIMITS: dict[str, int] = {"projects": 5, "skills": 20, "members": 20}
-ADVANCED_FEATURES: frozenset[str] = frozenset({"ceo_portal", "scheduled_reports"})
+BASIC_LIMITS: dict[str, int] = {"projects": 5, "skills": 20, "members": 20, "instructions": 10}
+ADVANCED_FEATURES: frozenset[str] = frozenset(
+    {"ceo_portal", "scheduled_reports", "full_dashboard"})
 
-_COUNT_MODELS = {"projects": Project, "skills": Skill, "members": User}
+_COUNT_MODELS = {"projects": Project, "skills": Skill, "members": User,
+                 "instructions": Instruction}
 
 
 def plan_allows(workspace: Workspace, feature: str) -> bool:

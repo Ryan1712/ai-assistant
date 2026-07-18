@@ -74,3 +74,20 @@ async def test_cross_workspace_recipient_404(client, db_session):
                              {"recipient_id": b.json()["user"]["id"], "subject": "s",
                               "body": "b"})
     assert result["error"] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_recipient_gets_notification(client, db_session):
+    ceo_h, m1, e1, e2 = await _world(client)
+    import uuid as uuid_mod
+    from app.models import User
+    e1_user = await db_session.get(User, uuid_mod.UUID(e1["user"]["id"]))
+    result = await call_tool(db_session, e1_user, "send_email",
+                             {"recipient_id": m1["user"]["id"], "subject": "bao cao",
+                              "body": "noi dung"})
+    assert result.get("error") is None
+
+    notifs = await client.get("/api/v1/notifications", headers=_h(m1))
+    assert notifs.status_code == 200
+    types = [n["type"] for n in notifs.json()]
+    assert "email_received" in types

@@ -38,3 +38,21 @@ async def test_non_ceo_forbidden(client):
                           json={"title": "X", "content": "y"})
     assert r.status_code == 403
     assert (await client.get("/api/v1/instructions", headers=_h(m1))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_basic_plan_instruction_limit_enforced(client):
+    ceo_h = await _ceo_headers(client)
+    for i in range(10):
+        r = await client.post("/api/v1/instructions", headers=ceo_h,
+                              json={"title": f"T{i}", "content": "x"})
+        assert r.status_code == 201
+    over = await client.post("/api/v1/instructions", headers=ceo_h,
+                             json={"title": "T10", "content": "x"})
+    assert over.status_code == 403
+    assert over.json()["detail"] == "plan_limit_reached"
+
+    await client.patch("/api/v1/subscription", headers=ceo_h, json={"plan": "advanced"})
+    ok = await client.post("/api/v1/instructions", headers=ceo_h,
+                           json={"title": "T11", "content": "x"})
+    assert ok.status_code == 201

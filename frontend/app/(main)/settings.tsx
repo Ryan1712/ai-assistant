@@ -47,7 +47,7 @@ export default function Settings() {
           {sub.limits && (
             <Text style={{ color: colors.textSecondary, marginTop: spacing.xs }}>
               Giới hạn: {sub.limits.projects} project · {sub.limits.skills} skill ·{" "}
-              {sub.limits.members} thành viên
+              {sub.limits.members} thành viên · {sub.limits.instructions} chỉ dẫn
             </Text>
           )}
           {user?.role === "ceo" && (

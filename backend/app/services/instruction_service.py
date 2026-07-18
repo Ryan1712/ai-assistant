@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import plans
 from app.models import Instruction, InstructionVersion, User
 from app.permissions import require_ceo
 
@@ -23,6 +24,7 @@ async def _get_owned(db: AsyncSession, actor: User, instruction_id: uuid.UUID) -
 
 async def create_instruction(db: AsyncSession, actor: User, title: str, content: str) -> Instruction:
     require_ceo(actor)
+    await plans.enforce_limit(db, actor.workspace_id, "instructions")
     ins = Instruction(workspace_id=actor.workspace_id, title=title, version=1,
                       created_by=actor.id)
     db.add(ins)
