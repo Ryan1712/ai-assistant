@@ -12,7 +12,7 @@ from app.agent.loop import run_agent_loop
 from app.agent.publisher import get_event_publisher
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
-from app.services import report_schedule_service
+from app.services import report_schedule_service, work_service
 
 
 async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
@@ -69,6 +69,13 @@ async def check_report_schedules(ctx: dict) -> None:
         await report_schedule_service.run_due_schedules(db)
 
 
+async def check_task_deadlines(ctx: dict) -> None:
+    """arq cron (mỗi phút): quét task sắp tới hạn trong 24h, notify assignees
+    (funtional-plan 6.6 "sắp tới hạn")."""
+    async with ctx["session_factory"]() as db:
+        await work_service.notify_upcoming_deadlines(db)
+
+
 async def _is_cancelled_redis(ctx: dict, request_id: uuid.UUID) -> bool:
     return bool(await ctx["redis"].exists(f"cancel:{request_id}"))
 
@@ -92,7 +99,7 @@ async def _shutdown(ctx: dict) -> None:
 
 class WorkerSettings:
     functions = [process_conversation]
-    cron_jobs = [cron(check_report_schedules, second=0)]
+    cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0)]
     on_startup = _startup
     on_shutdown = _shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

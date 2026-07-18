@@ -1,11 +1,14 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import plans
-from app.models import Notification, Project, Task, TaskAssignee, TaskComment, TaskUpdate, User
+from app.models import (
+    Notification, Project, Task, TaskAssignee, TaskComment, TaskStatus, TaskUpdate, User,
+)
 from app.services.notify import notify
 from app.permissions import (
     can_update_progress,
@@ -94,6 +97,9 @@ async def update_task(db: AsyncSession, actor: User, task_id: uuid.UUID, patch: 
     if task is None or task.workspace_id != actor.workspace_id:
         raise HTTPException(404, "task_not_found")
     patch = {k: v for k, v in patch.items() if v is not None}
+    if "deadline" in patch and patch["deadline"] != task.deadline:
+        # Dời deadline -> cho phép nhắc lại (funtional-plan 6.6 "sắp tới hạn").
+        task.deadline_reminder_sent_at = None
     for key, value in patch.items():
         setattr(task, key, value)
     await db.commit()
@@ -218,6 +224,30 @@ async def add_comment(db: AsyncSession, actor: User, task_id: uuid.UUID,
     return {"id": comment.id, "task_id": comment.task_id, "author_id": comment.author_id,
             "author_name": actor.full_name, "content": comment.content,
             "created_at": comment.created_at}
+
+
+async def notify_upcoming_deadlines(db: AsyncSession, *, now: datetime | None = None) -> int:
+    """Nhắc task sắp tới hạn trong 24h, mỗi task chỉ nhắc 1 lần (funtional-plan 6.6)."""
+    now = now or datetime.now(timezone.utc)
+    soon = now + timedelta(hours=24)
+    due = (await db.execute(select(Task).where(
+        Task.status != TaskStatus.done,
+        Task.deadline.is_not(None),
+        Task.deadline >= now,
+        Task.deadline <= soon,
+        Task.deadline_reminder_sent_at.is_(None),
+    ))).scalars().all()
+    count = 0
+    for task in due:
+        for uid in await _assignee_ids(db, task.id):
+            await notify(db, workspace_id=task.workspace_id, recipient_id=uid,
+                        type="task_due_soon",
+                        payload={"task_id": str(task.id), "title": task.title,
+                                 "deadline": task.deadline.isoformat()})
+        task.deadline_reminder_sent_at = now
+        count += 1
+    await db.commit()
+    return count
 
 
 async def list_comments(db: AsyncSession, actor: User, task_id: uuid.UUID) -> list[dict]:

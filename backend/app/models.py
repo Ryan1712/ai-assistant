@@ -169,6 +169,10 @@ class Task(Base):
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.todo)
     percent: Mapped[int] = mapped_column(Integer, default=0)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Đánh dấu đã nhắc "sắp tới hạn" 1 lần (funtional-plan 6.6) — tránh spam mỗi phút
+    # cron chạy; reset về None nếu deadline dời sang thời điểm khác (xem update_task).
+    deadline_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     priority: Mapped[TaskPriority] = mapped_column(Enum(TaskPriority), default=TaskPriority.medium)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
