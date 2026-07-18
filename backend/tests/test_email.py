@@ -77,6 +77,38 @@ async def test_cross_workspace_recipient_404(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_email_with_task_context(client, db_session):
+    ceo_h, m1, e1, e2 = await _world(client)
+    pid = (await client.post("/api/v1/projects", headers=ceo_h, json={"name": "P"})).json()["id"]
+    tid = (await client.post("/api/v1/tasks", headers=ceo_h,
+                             json={"project_id": pid, "title": "T"})).json()["id"]
+    await client.post(f"/api/v1/tasks/{tid}/assignees", headers=ceo_h,
+                      json={"user_id": e1["user"]["id"]})
+    import uuid as uuid_mod
+    from app.models import User
+    e1_user = await db_session.get(User, uuid_mod.UUID(e1["user"]["id"]))
+    ok = await call_tool(db_session, e1_user, "send_email",
+                         {"recipient_id": m1["user"]["id"], "subject": "cap nhat",
+                          "body": "xem giup", "task_id": tid})
+    assert ok.get("error") is None
+
+    inbox = await client.get("/api/v1/emails?box=inbox", headers=_h(m1))
+    assert inbox.json()[0]["task_id"] == tid
+
+
+@pytest.mark.asyncio
+async def test_email_without_task_context(client, db_session):
+    ceo_h, m1, e1, e2 = await _world(client)
+    import uuid as uuid_mod
+    from app.models import User
+    e1_user = await db_session.get(User, uuid_mod.UUID(e1["user"]["id"]))
+    await call_tool(db_session, e1_user, "send_email",
+                   {"recipient_id": m1["user"]["id"], "subject": "s", "body": "b"})
+    inbox = await client.get("/api/v1/emails?box=inbox", headers=_h(m1))
+    assert inbox.json()[0]["task_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_recipient_gets_notification(client, db_session):
     ceo_h, m1, e1, e2 = await _world(client)
     import uuid as uuid_mod

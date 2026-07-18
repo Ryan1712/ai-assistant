@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRouter } from "expo-router";
 import { Email, listEmails } from "../../src/api/emails";
 import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
@@ -28,6 +29,7 @@ function BoxToggle({ box, onChange }: { box: Box; onChange: (b: Box) => void }) 
 }
 
 function EmailRow({ email, box }: { email: Email; box: Box }) {
+  const router = useRouter();
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>
@@ -38,6 +40,11 @@ function EmailRow({ email, box }: { email: Email; box: Box }) {
         {email.body}
       </Text>
       <Text style={styles.meta}>{new Date(email.created_at).toLocaleString("vi-VN")}</Text>
+      {email.task_id && (
+        <TouchableOpacity onPress={() => router.push(`/tasks/${email.task_id}`)}>
+          <Text style={{ color: colors.primary, fontWeight: "700" }}>Xem task liên quan →</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

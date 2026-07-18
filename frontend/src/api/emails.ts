@@ -6,6 +6,8 @@ export type Email = {
   body: string;
   counterpart_name: string;
   counterpart_email: string;
+  task_id: string | null;
+  project_id: string | null;
   created_at: string;
 };
 

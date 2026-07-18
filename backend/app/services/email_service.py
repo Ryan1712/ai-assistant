@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import EmailMessage, Role, User
+from app.permissions import get_visible_task_or_404, visible_project_ids
 from app.services.notify import notify
 
 
@@ -48,13 +49,19 @@ def _check_matrix(sender: User, recipient: User) -> None:
 
 
 async def send_email(db: AsyncSession, actor: User, recipient_id: uuid.UUID,
-                     subject: str, body: str) -> EmailMessage:
+                     subject: str, body: str, task_id: uuid.UUID | None = None,
+                     project_id: uuid.UUID | None = None) -> EmailMessage:
     recipient = await db.get(User, recipient_id)
     if recipient is None or recipient.workspace_id != actor.workspace_id:
         raise HTTPException(404, "recipient_not_found")
     _check_matrix(actor, recipient)
+    if task_id is not None:
+        await get_visible_task_or_404(db, actor, task_id)
+    if project_id is not None and project_id not in await visible_project_ids(db, actor):
+        raise HTTPException(404, "project_not_found")
     email = EmailMessage(workspace_id=actor.workspace_id, sender_id=actor.id,
-                         recipient_id=recipient.id, subject=subject, body=body)
+                         recipient_id=recipient.id, subject=subject, body=body,
+                         task_id=task_id, project_id=project_id)
     db.add(email)
     await get_email_client().send(from_email=actor.email, to_email=recipient.email,
                                   subject=subject, body=body)
@@ -77,5 +84,7 @@ async def list_emails(db: AsyncSession, actor: User, box: str = "inbox") -> list
     )
     return [{"id": str(m.id), "subject": m.subject, "body": m.body,
              "counterpart_name": name, "counterpart_email": email,
+             "task_id": str(m.task_id) if m.task_id else None,
+             "project_id": str(m.project_id) if m.project_id else None,
              "created_at": m.created_at}
             for m, name, email in rows.all()]

@@ -475,17 +475,21 @@ class SendEmailToolIn(BaseModel):
     recipient_id: uuid.UUID
     subject: str
     body: str
+    task_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
 
 
 async def _send_email(db, actor, body: SendEmailToolIn) -> dict:
-    email = await email_service.send_email(db, actor, body.recipient_id,
-                                           body.subject, body.body)
+    email = await email_service.send_email(db, actor, body.recipient_id, body.subject,
+                                           body.body, task_id=body.task_id,
+                                           project_id=body.project_id)
     return {"id": str(email.id), "subject": email.subject, "sent": True}
 
 
 _register("send_email", "Gửi email cho 1 người trong công ty theo ma trận tương tác "
-          "(nhân viên không gửi được cho nhân viên khác). Hành động nhạy cảm - hệ thống "
-          "TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước.",
+          "(nhân viên không gửi được cho nhân viên khác). Gắn task_id/project_id nếu "
+          "nội dung mail liên quan tới 1 task/project cụ thể. Hành động nhạy cảm - hệ "
+          "thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước.",
           SendEmailToolIn, _send_email, sensitive=True)
 
 
