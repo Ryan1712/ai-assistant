@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.llm_client import LLMClient, StreamDone, TextDelta
@@ -60,10 +60,24 @@ def _tool_specs_for_api() -> list[dict]:
            for name, spec in TOOLS.items()]
 
 
-async def _load_history(db: AsyncSession, conversation_id: uuid.UUID) -> list[dict]:
+async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
+                        current_request_id: uuid.UUID) -> list[dict]:
+    """Lịch sử hội thoại CHO 1 request đang chạy: loại message của các request còn
+    đang xếp hàng (và cancelled chưa từng chạy) — nếu không, model đang trả lời tin 1
+    đã 'nhìn thấy' tin 2, 3... chưa xử lý và trả lời gộp/nhầm; reorder cũng vô nghĩa."""
+    skip_ids = select(ChatRequest.id).where(
+        ChatRequest.conversation_id == conversation_id,
+        ChatRequest.id != current_request_id,
+        or_(ChatRequest.status == ChatRequestStatus.queued,
+            and_(ChatRequest.status == ChatRequestStatus.cancelled,
+                 ChatRequest.started_at.is_(None))),
+    ).scalar_subquery()
     rows = await db.execute(
-        select(Message).where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.asc(), Message.id.asc())
+        select(Message).where(
+            Message.conversation_id == conversation_id,
+            or_(Message.chat_request_id.is_(None),
+                Message.chat_request_id.not_in(skip_ids)),
+        ).order_by(Message.created_at.asc(), Message.id.asc())
     )
     # Bỏ message content rỗng (dữ liệu cũ trước guard bên dưới) — Anthropic API
     # từ chối request có message rỗng.
@@ -121,7 +135,7 @@ async def run_agent_loop(
                 await _mark_failed(db, req, publisher, "max_iterations_exceeded")
                 return
 
-            history = await _load_history(db, req.conversation_id)
+            history = await _load_history(db, req.conversation_id, req.id)
             # Instruction đọc từ DB mỗi lượt gọi LLM → CEO cập nhật là "AI nạp lại
             # ngay", không cần cache/invalidation hay restart worker.
             system_prompt = _build_system_prompt(actor)
