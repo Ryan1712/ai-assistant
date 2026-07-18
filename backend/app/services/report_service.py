@@ -11,8 +11,13 @@ from app.config import get_settings
 from app.models import Project, Report, Task, TaskAssignee, TaskStatus, TaskUpdate, User
 from app.permissions import require_ceo
 
-_HEADERS = ["Tên task", "Project", "Trạng thái", "% hoàn thành",
-            "Người phụ trách", "Cập nhật mới nhất", "Deadline"]
+_ALL_COLUMNS = ["title", "project", "status", "percent", "assignees",
+               "latest_update", "deadline"]
+_COLUMN_HEADERS = {
+    "title": "Tên task", "project": "Project", "status": "Trạng thái",
+    "percent": "% hoàn thành", "assignees": "Người phụ trách",
+    "latest_update": "Cập nhật mới nhất", "deadline": "Deadline",
+}
 
 
 def _append_text_row(sheet, row) -> None:
@@ -43,8 +48,13 @@ async def generate_report(db: AsyncSession, actor: User, *,
                           assignee_id: uuid.UUID | None = None,
                           date_from: date | None = None,
                           date_to: date | None = None,
-                          status: TaskStatus | None = None) -> dict:
+                          status: TaskStatus | None = None,
+                          columns: list[str] | None = None) -> dict:
     require_ceo(actor)
+    columns = columns or _ALL_COLUMNS
+    unknown = [c for c in columns if c not in _ALL_COLUMNS]
+    if unknown:
+        raise HTTPException(422, "invalid_column")
     if project_id is not None:
         project = await db.get(Project, project_id)
         if project is None or project.workspace_id != actor.workspace_id:
@@ -75,7 +85,7 @@ async def generate_report(db: AsyncSession, actor: User, *,
     wb = Workbook()
     sheet = wb.active
     sheet.title = "Tasks"
-    _append_text_row(sheet, _HEADERS)
+    _append_text_row(sheet, [_COLUMN_HEADERS[c] for c in columns])
     summary = {"total": len(tasks), **{s.value: 0 for s in TaskStatus}}
     for task in tasks:
         summary[task.status.value] += 1
@@ -83,21 +93,23 @@ async def generate_report(db: AsyncSession, actor: User, *,
         assignee_names = (await db.execute(
             select(User.full_name).join(TaskAssignee, TaskAssignee.user_id == User.id)
             .where(TaskAssignee.task_id == task.id))).scalars()
-        _append_text_row(sheet, [
-            task.title,
-            project_row.name if project_row else "",
-            task.status.value,
-            task.percent,
-            ", ".join(assignee_names),
-            await _latest_update_cell(db, task.id),
-            task.deadline.strftime("%d/%m/%Y") if task.deadline else "",
-        ])
+        row_values = {
+            "title": task.title,
+            "project": project_row.name if project_row else "",
+            "status": task.status.value,
+            "percent": task.percent,
+            "assignees": ", ".join(assignee_names),
+            "latest_update": await _latest_update_cell(db, task.id),
+            "deadline": task.deadline.strftime("%d/%m/%Y") if task.deadline else "",
+        }
+        _append_text_row(sheet, [row_values[c] for c in columns])
 
     filters = {"project_id": str(project_id) if project_id else None,
                "assignee_id": str(assignee_id) if assignee_id else None,
                "date_from": date_from.isoformat() if date_from else None,
                "date_to": date_to.isoformat() if date_to else None,
-               "status": status.value if status else None}
+               "status": status.value if status else None,
+               "columns": columns}
     report = Report(workspace_id=actor.workspace_id, requested_by=actor.id,
                     filters=filters, summary=summary, file_path="")
     db.add(report)

@@ -376,6 +376,9 @@ class GenerateReportToolIn(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
     status: TaskStatus | None = None
+    columns: list[str] | None = Field(
+        None, description="Cột tùy chọn, thứ tự tùy ý, thiếu = mặc định tất cả. "
+        "Giá trị hợp lệ: title, project, status, percent, assignees, latest_update, deadline.")
 
 
 async def _generate_report(db, actor, body: GenerateReportToolIn) -> dict:
@@ -384,8 +387,8 @@ async def _generate_report(db, actor, body: GenerateReportToolIn) -> dict:
 
 _register("generate_report",
           "Tạo báo cáo Excel tổng hợp task, filter tùy chọn theo project/người/khoảng "
-          "thời gian/trạng thái (chỉ CEO). Trả về report_id + tóm tắt số liệu; "
-          "file tải qua ứng dụng.", GenerateReportToolIn, _generate_report)
+          "thời gian/trạng thái, cột tùy biến (chỉ CEO). Trả về report_id + tóm tắt "
+          "số liệu; file tải qua ứng dụng.", GenerateReportToolIn, _generate_report)
 
 
 async def _list_reports(db, actor, body: NoArgsIn) -> dict:

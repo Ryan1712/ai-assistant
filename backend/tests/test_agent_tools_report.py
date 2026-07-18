@@ -50,6 +50,38 @@ async def test_generate_report_tool_with_status_filter(db_session, storage_dir):
 
 
 @pytest.mark.asyncio
+async def test_generate_report_tool_custom_columns(db_session, storage_dir):
+    from openpyxl import load_workbook
+    from app.config import get_settings
+
+    ws, ceo = await _ceo(db_session)
+    project = Project(workspace_id=ws.id, name="P", created_by=ceo.id)
+    db_session.add(project)
+    await db_session.flush()
+    db_session.add(Task(workspace_id=ws.id, project_id=project.id, title="T",
+                        status=TaskStatus.done, created_by=ceo.id))
+    await db_session.commit()
+
+    result = await call_tool(db_session, ceo, "generate_report",
+                             {"columns": ["title", "deadline"]})
+    assert "error" not in result, result
+    path = f"{get_settings().storage_dir}/{ws.id}/{result['report_id']}.xlsx"
+    wb = load_workbook(path)
+    header = [c.value for c in wb.active[1]]
+    assert header == ["Tên task", "Deadline"]
+
+
+@pytest.mark.asyncio
+async def test_generate_report_tool_invalid_column(db_session, storage_dir):
+    ws, ceo = await _ceo(db_session)
+    result = await call_tool(db_session, ceo, "generate_report",
+                             {"columns": ["title", "khong_ton_tai"]})
+    # call_tool bọc mọi HTTPException 422 thành nhãn chung "invalid_input" (xem
+    # _ERROR_LABELS trong app/agent/tools.py) — khớp quy ước lỗi tool khác.
+    assert result["error"] == "invalid_input"
+
+
+@pytest.mark.asyncio
 async def test_generate_report_tool_forbidden_for_employee(db_session, storage_dir):
     ws, ceo = await _ceo(db_session)
     emp = User(workspace_id=ws.id, email="e@a.vn", password_hash="x", full_name="E",
