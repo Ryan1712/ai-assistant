@@ -20,13 +20,20 @@ export const listVoiceNotes = (onDate?: string, tag?: string) => {
   return apiFetch<VoiceNote[]>(`/api/v1/voice-notes${qs ? `?${qs}` : ""}`);
 };
 
-/** Audio source (uri + header xác thực) để phát ghi âm qua expo-audio. */
+/** Audio source để phát ghi âm qua expo-audio (cần Bearer token vì endpoint yêu cầu đăng nhập). */
 export async function voiceNoteAudioSource(id: string) {
+  const url = `${API_URL}/api/v1/voice-notes/${id}/file`;
   const tokens = await getTokens();
-  return {
-    uri: `${API_URL}/api/v1/voice-notes/${id}/file`,
-    headers: tokens?.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : undefined,
-  };
+  const headers = tokens?.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : undefined;
+  if (Platform.OS === "web") {
+    // Thẻ <audio> trên web KHÔNG hỗ trợ header tùy chỉnh — {uri, headers} bị
+    // bỏ qua, request tới /file thiếu Authorization nên bị từ chối, phát
+    // lỗi "no supported source". Phải tự fetch kèm header rồi phát qua blob URL.
+    const resp = await fetch(url, { headers });
+    const blob = await resp.blob();
+    return { uri: URL.createObjectURL(blob) };
+  }
+  return { uri: url, headers };
 }
 
 function extensionForMimeType(mimeType: string): string {
