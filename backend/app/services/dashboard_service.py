@@ -19,9 +19,15 @@ def _task_out(t: Task) -> dict:
             "deadline": t.deadline.isoformat() if t.deadline else None}
 
 
-async def today_dashboard(db: AsyncSession, actor: User) -> dict:
-    now = datetime.now(timezone.utc)
-    today = now.date()
+_VN_OFFSET = timedelta(hours=7)
+
+
+async def today_dashboard(db: AsyncSession, actor: User, *, now: datetime | None = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    # Thi truong chinh la VN (UTC+7) — "hom nay" phai theo ngay lich VN, khong
+    # phai UTC, keo task/note luc 00:00-06:59 sang gio VN bi tinh nham sang
+    # ngay hom truoc (cung lop bug da fix o voice_service/audit_service).
+    today = (now + _VN_OFFSET).date()
     task_ids = await visible_task_ids(db, actor)
 
     tasks: list[Task] = []
@@ -33,7 +39,7 @@ async def today_dashboard(db: AsyncSession, actor: User) -> dict:
         if t.deadline is None:
             return None
         dl = t.deadline if t.deadline.tzinfo else t.deadline.replace(tzinfo=timezone.utc)
-        return dl.astimezone(timezone.utc).date()
+        return (dl.astimezone(timezone.utc) + _VN_OFFSET).date()
 
     open_tasks = [t for t in tasks if t.status != TaskStatus.done]
     due_today = [t for t in open_tasks if _dl_date(t) == today]

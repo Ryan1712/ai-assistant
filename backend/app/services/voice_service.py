@@ -8,7 +8,7 @@ File lưu {storage_dir}/voice/{workspace_id}/{uuid}{ext} — tên file sinh bằ
 uuid, không dùng tên client gửi lên → không có path traversal.
 """
 import uuid
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -21,6 +21,11 @@ from app.models import User, VoiceNote
 from app.permissions import get_visible_task_or_404, visible_project_ids
 
 _ALLOWED_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".webm"}
+# Thị trường chính app là VN (UTC+7) — "on_date" từ client là ngày lịch theo giờ
+# VN, không phải UTC; created_at lưu UTC nên phải quy đổi trước khi so ngày,
+# tránh lệch ngày với ghi âm lúc 00:00-06:59 sáng giờ VN (cùng lớp bug với fix
+# audit log ngày 2026-07-16).
+_VN_TZ = timezone(timedelta(hours=7))
 
 
 class TranscriptionClient(Protocol):
@@ -93,7 +98,13 @@ async def list_voice_notes(db: AsyncSession, actor: User, tag: str | None = None
     if tag is not None:
         rows = [n for n in rows if tag in (n.tags or [])]
     if on_date is not None:
-        rows = [n for n in rows if n.created_at.date() == on_date]
+        start = datetime.combine(on_date, time.min, tzinfo=_VN_TZ)
+        end = start + timedelta(days=1)
+        # SQLite (test) tra ve created_at naive du cot khai bao timezone=True —
+        # gia tri luon la UTC (xem models._now), gan lai tzinfo truoc khi so sanh.
+        rows = [n for n in rows
+               if start <= (n.created_at if n.created_at.tzinfo else
+                            n.created_at.replace(tzinfo=timezone.utc)) < end]
     return [_out(n) for n in rows]
 
 

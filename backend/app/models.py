@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from datetime import date
 
@@ -260,7 +260,9 @@ class SkillUsageLog(Base):
 
 
 def _today() -> date:
-    return datetime.now(timezone.utc).date()
+    # Thi truong chinh la VN (UTC+7) — mac dinh note_date khi khong truyen tuong
+    # minh (vd tool chat create_note) phai theo ngay lich VN, khong phai UTC.
+    return (datetime.now(timezone.utc) + timedelta(hours=7)).date()
 
 
 class Note(Base):

@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 import pytest
+from sqlalchemy import select
 
 from tests.conftest import _ceo_headers, _invite_and_join
 
@@ -47,6 +50,25 @@ async def test_voice_note_private_and_file_download(client, storage_dir):
     f = await client.get(f"/api/v1/voice-notes/{vid}/file", headers=_h(m1))
     assert f.status_code == 200
     assert f.content == b"fake-audio-bytes"
+
+
+@pytest.mark.asyncio
+async def test_list_by_date_uses_vn_timezone_not_utc(client, db_session, storage_dir):
+    """23:30 UTC 18/7 = 06:30 sang 19/7 gio VN (UTC+7) — nguoi dung ghi am luc do
+    o VN coi day la ghi am 'hom nay' (19/7), du created_at (UTC) van la 18/7."""
+    ceo_h = await _ceo_headers(client)
+    from app.models import User, VoiceNote
+    ceo = (await db_session.execute(select(User).where(User.email == "ceo@a.vn"))).scalar_one()
+    note = VoiceNote(workspace_id=ceo.workspace_id, author_id=ceo.id, file_path="x",
+                     created_at=datetime(2026, 7, 18, 23, 30, tzinfo=timezone.utc))
+    db_session.add(note)
+    await db_session.commit()
+
+    same_day = await client.get("/api/v1/voice-notes?on_date=2026-07-19", headers=ceo_h)
+    assert len(same_day.json()) == 1
+
+    prev_day_utc = await client.get("/api/v1/voice-notes?on_date=2026-07-18", headers=ceo_h)
+    assert len(prev_day_utc.json()) == 0
 
 
 @pytest.mark.asyncio

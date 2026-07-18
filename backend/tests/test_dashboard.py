@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -82,6 +82,38 @@ async def test_basic_plan_gets_abbreviated_dashboard(client):
     full = (await client.get("/api/v1/dashboard/today", headers=ceo_h)).json()
     assert len(full["in_progress"]) == 1
     assert len(full["recent_updates"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_due_today_and_notes_today_use_vn_timezone_not_utc(db_session):
+    """23:00 UTC 18/7 = 06:00 sang 19/7 gio VN — deadline/note cung ngay VN (19/7)
+    nhung khac ngay UTC (18/7 vs 19/7) van phai duoc tinh la 'hom nay'."""
+    from app.models import Note, Project, Role, Task, User, Workspace
+    from app.services import dashboard_service
+
+    now = datetime(2026, 7, 18, 23, 0, tzinfo=timezone.utc)
+    ws = Workspace(name="W")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c2@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    project = Project(workspace_id=ws.id, name="P", created_by=ceo.id)
+    db_session.add(project)
+    await db_session.flush()
+    # Deadline 08:00 gio VN ngay 19/7 = 01:00 UTC ngay 19/7 (khac ngay UTC voi `now`)
+    task = Task(workspace_id=ws.id, project_id=project.id, title="Due VN hom nay",
+               deadline=datetime(2026, 7, 19, 1, 0, tzinfo=timezone.utc), created_by=ceo.id)
+    db_session.add(task)
+    note = Note(workspace_id=ws.id, author_id=ceo.id, content="note",
+               note_date=date(2026, 7, 19))
+    db_session.add(note)
+    await db_session.commit()
+
+    d = await dashboard_service.today_dashboard(db_session, ceo, now=now)
+    assert [t["title"] for t in d["due_today"]] == ["Due VN hom nay"]
+    assert [n["content"] for n in d["notes_today"]] == ["note"]
 
 
 @pytest.mark.asyncio

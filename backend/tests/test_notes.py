@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -15,7 +15,11 @@ async def test_create_and_list_own_notes(client):
     r = await client.post("/api/v1/notes", headers=ceo_h,
                           json={"content": "Hop voi doi tac", "tags": ["meeting"]})
     assert r.status_code == 201, r.text
-    assert r.json()["note_date"] == date.today().isoformat()
+    # Server mac dinh note_date theo ngay lich VN (models._today, UTC+7) khi
+    # client khong truyen — dung date.today() (gio local may chay test, co the
+    # khac VN) se sai lech, phai tu quy doi giong _today() de test on dinh.
+    vn_today = (datetime.now(timezone.utc) + timedelta(hours=7)).date()
+    assert r.json()["note_date"] == vn_today.isoformat()
 
     listed = await client.get("/api/v1/notes", headers=ceo_h)
     assert len(listed.json()) == 1
