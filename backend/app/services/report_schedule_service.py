@@ -99,29 +99,38 @@ async def _advance_next_run(db: AsyncSession, sched_id, now: datetime) -> None:
     luôn Notification pending đó) rồi thử lại 1 lần CHỈ với 2 field advance —
     để dù thế nào next_run_at cũng được persist, tránh cron kẹt lại lịch này
     mỗi phút vĩnh viễn. Nếu vẫn fail lần 2, log và bỏ qua.
-    """
-    sched = await db.get(ReportSchedule, sched_id)
-    if sched is None:
-        return
-    sched.last_run_at = now
-    sched.next_run_at = compute_next_run(now, sched.weekday, sched.hour, sched.minute)
-    try:
-        await db.commit()
-        return
-    except Exception:
-        logger.exception("report schedule %s failed to commit advance", sched_id)
-        await db.rollback()
 
-    sched = await db.get(ReportSchedule, sched_id)
-    if sched is None:
-        return
-    sched.last_run_at = now
-    sched.next_run_at = compute_next_run(now, sched.weekday, sched.hour, sched.minute)
+    Toàn bộ thân hàm được bọc trong try/except ngoài cùng — kể cả 2 lệnh
+    db.get() cũng có thể raise (vd mất kết nối DB tạm thời) và tuyệt đối
+    không được để lọt ra run_due_schedules, nếu không cả tick sẽ chết y hệt
+    defect gốc của task.
+    """
     try:
-        await db.commit()
+        sched = await db.get(ReportSchedule, sched_id)
+        if sched is None:
+            return
+        sched.last_run_at = now
+        sched.next_run_at = compute_next_run(now, sched.weekday, sched.hour, sched.minute)
+        try:
+            await db.commit()
+            return
+        except Exception:
+            logger.exception("report schedule %s failed to commit advance", sched_id)
+            await db.rollback()
+
+        sched = await db.get(ReportSchedule, sched_id)
+        if sched is None:
+            return
+        sched.last_run_at = now
+        sched.next_run_at = compute_next_run(now, sched.weekday, sched.hour, sched.minute)
+        try:
+            await db.commit()
+        except Exception:
+            logger.exception("report schedule %s failed to advance even after retry", sched_id)
+            await db.rollback()
     except Exception:
-        logger.exception("report schedule %s failed to advance even after retry", sched_id)
-        await db.rollback()
+        logger.exception("report schedule %s failed to advance (unexpected)", sched_id)
+        return
 
 
 async def run_due_schedules(db: AsyncSession, *, now: datetime | None = None) -> list[dict]:
