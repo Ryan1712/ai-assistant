@@ -77,3 +77,72 @@ async def test_khong_kem_ghi_am_van_nhu_cu(client):
                           json={"content": "tin thuong"})
     assert r.status_code == 201
     assert r.json()["voice_note_id"] is None
+
+
+# --- Task 2: worker noi transcript vao message truoc khi agent chay ---
+
+from sqlalchemy import select  # noqa: E402
+
+from app.config import get_settings  # noqa: E402
+from app.models import ChatRequest, Message, MessageRole  # noqa: E402
+from app.services import voice_service  # noqa: E402
+
+
+class _FakeSTT:
+    async def transcribe(self, data: bytes, filename: str):
+        return "noi dung cuoc hop: giao viec cho Nam", "vi"
+
+
+async def _send_with_note(client, db_session, h):
+    vid = (await client.post("/api/v1/voice-notes", headers=h, files=_audio_files())).json()["id"]
+    conv = (await client.post("/api/v1/conversations", headers=h, json={})).json()
+    await client.post(f"/api/v1/conversations/{conv['id']}/messages", headers=h,
+                      json={"content": "tom tat cuoc hop", "voice_note_id": vid})
+    return (await db_session.execute(select(ChatRequest).where(
+        ChatRequest.conversation_id == uuid.UUID(conv["id"])))).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_inject_transcript_khi_stt_that(client, db_session, monkeypatch):
+    # get_settings() la lru_cache singleton — monkeypatch attr tren instance
+    # (cung pattern fixture storage_dir trong conftest), tu hoan nguyen sau test.
+    monkeypatch.setattr(get_settings(), "stt_mock", False)
+    monkeypatch.setattr(voice_service, "get_transcription_client", lambda: _FakeSTT())
+
+    h = await _ceo_headers(client)
+    req = await _send_with_note(client, db_session, h)
+    await voice_service.inject_transcript_for_request(db_session, req)
+
+    msg = (await db_session.execute(select(Message).where(
+        Message.chat_request_id == req.id, Message.role == MessageRole.user))).scalar_one()
+    joined = "\n".join(b["text"] for b in msg.content if b.get("type") == "text")
+    assert "noi dung cuoc hop: giao viec cho Nam" in joined
+
+    # Goi lan 2 phai idempotent — khong noi transcript 2 lan
+    await voice_service.inject_transcript_for_request(db_session, req)
+    await db_session.refresh(msg)
+    all_text = "\n".join(b["text"] for b in msg.content if b.get("type") == "text")
+    assert all_text.count("noi dung cuoc hop") == 1
+
+
+@pytest.mark.asyncio
+async def test_inject_bo_qua_khi_stt_mock(client, db_session):
+    h = await _ceo_headers(client)
+    req = await _send_with_note(client, db_session, h)
+    await voice_service.inject_transcript_for_request(db_session, req)  # khong doi gi
+
+    msg = (await db_session.execute(select(Message).where(
+        Message.chat_request_id == req.id))).scalar_one()
+    assert "[Transcript ghi âm]" not in "".join(
+        b["text"] for b in msg.content if b.get("type") == "text")
+
+
+@pytest.mark.asyncio
+async def test_inject_khong_co_voice_note_la_noop(client, db_session):
+    h = await _ceo_headers(client)
+    conv = (await client.post("/api/v1/conversations", headers=h, json={})).json()
+    await client.post(f"/api/v1/conversations/{conv['id']}/messages", headers=h,
+                      json={"content": "tin thuong"})
+    req = (await db_session.execute(select(ChatRequest).where(
+        ChatRequest.conversation_id == uuid.UUID(conv["id"])))).scalar_one()
+    await voice_service.inject_transcript_for_request(db_session, req)  # khong raise

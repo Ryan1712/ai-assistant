@@ -186,3 +186,37 @@ async def request_transcription(db: AsyncSession, actor: User,
     note.transcript_status = "queued"
     await db.commit()
     return {"id": str(note.id), "status": "queued"}
+
+
+_TRANSCRIPT_MARK = "[Transcript ghi âm]"
+
+
+async def inject_transcript_for_request(db: AsyncSession, req) -> None:
+    """Trước khi agent chạy 1 request có đính kèm ghi âm: transcribe (nếu STT thật
+    được bật và chưa done) rồi nối transcript vào user Message của request — nhờ đó
+    MỌI lượt sau của conversation đều thấy nội dung qua _load_history, không cần
+    cơ chế nhớ riêng. stt_mock=True thì bỏ qua (AI chỉ thấy dòng '[Đính kèm ghi âm...]')."""
+    if req.voice_note_id is None or get_settings().stt_mock:
+        return
+    note = await db.get(VoiceNote, req.voice_note_id)
+    if note is None:
+        return
+    if note.transcript_status != "done":
+        await transcribe_note(db, note.id)
+        await db.refresh(note)
+    if note.transcript_status != "done" or not note.transcript:
+        return
+    from app.models import Message, MessageRole
+
+    msg = (await db.execute(select(Message).where(
+        Message.chat_request_id == req.id, Message.role == MessageRole.user,
+    ))).scalars().first()
+    if msg is None:
+        return
+    if any(b.get("type") == "text" and _TRANSCRIPT_MARK in b.get("text", "")
+           for b in msg.content):
+        return  # idempotent — worker retry không nối trùng
+    # JSON column: phải gán list MỚI thì SQLAlchemy mới thấy thay đổi, đừng .append
+    msg.content = msg.content + [
+        {"type": "text", "text": f"{_TRANSCRIPT_MARK}:\n{note.transcript}"}]
+    await db.commit()

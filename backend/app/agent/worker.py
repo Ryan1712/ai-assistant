@@ -54,6 +54,9 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
             )).scalar_one_or_none()
             if req is None:
                 return
+            if req.voice_note_id is not None:
+                # Đính kèm ghi âm: transcribe trước (STT thật) để agent thấy nội dung
+                await voice_service.inject_transcript_for_request(db, req)
             await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled)
 
 
