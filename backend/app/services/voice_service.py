@@ -7,6 +7,7 @@ provider (yêu cầu: tự nhận diện ngôn ngữ, không dịch).
 File lưu {storage_dir}/voice/{workspace_id}/{uuid}{ext} — tên file sinh bằng
 uuid, không dùng tên client gửi lên → không có path traversal.
 """
+import asyncio
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -201,7 +202,15 @@ async def inject_transcript_for_request(db: AsyncSession, req) -> None:
     note = await db.get(VoiceNote, req.voice_note_id)
     if note is None:
         return
-    if note.transcript_status != "done":
+    if note.transcript_status in ("queued", "processing"):
+        # Job transcribe nền (enqueue lúc upload) đang chạy — CHỜ thay vì gọi STT
+        # lần 2 song song trên cùng file (tốn tiền + race ghi đè kết quả).
+        for _ in range(30):
+            await asyncio.sleep(3)
+            await db.refresh(note)
+            if note.transcript_status in ("done", "failed"):
+                break
+    elif note.transcript_status != "done":
         await transcribe_note(db, note.id)
         await db.refresh(note)
     if note.transcript_status != "done" or not note.transcript:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 from arq.connections import RedisSettings
@@ -13,6 +14,8 @@ from app.agent.publisher import get_event_publisher
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
 from app.services import report_schedule_service, voice_service, work_service
+
+logger = logging.getLogger(__name__)
 
 
 async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
@@ -55,8 +58,14 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
             if req is None:
                 return
             if req.voice_note_id is not None:
-                # Đính kèm ghi âm: transcribe trước (STT thật) để agent thấy nội dung
-                await voice_service.inject_transcript_for_request(db, req)
+                # Đính kèm ghi âm: transcribe trước (STT thật) để agent thấy nội dung.
+                # Lỗi STT không được giết job — request vẫn chạy, model thấy dòng
+                # "[Đính kèm ghi âm...]" và tự báo transcript chưa có.
+                try:
+                    await voice_service.inject_transcript_for_request(db, req)
+                except Exception:
+                    logger.exception("inject transcript failed for request %s", req.id)
+                    await db.rollback()
             await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled)
 
 

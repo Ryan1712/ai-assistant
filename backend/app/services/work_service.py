@@ -109,7 +109,7 @@ async def update_task(db: AsyncSession, actor: User, task_id: uuid.UUID, patch: 
 
 async def _delete_task_rows(db: AsyncSession, task: Task) -> None:
     """Xóa 1 task + mọi row con. KHÔNG commit — caller gom transaction."""
-    from app.models import Attachment, EmailMessage, VoiceNote
+    from app.models import Attachment, EmailMessage, Note, Skill, VoiceNote
 
     atts = (await db.execute(select(Attachment).where(
         Attachment.task_id == task.id))).scalars().all()
@@ -121,11 +121,12 @@ async def _delete_task_rows(db: AsyncSession, task: Task) -> None:
         await db.delete(att)
     for model in (TaskAssignee, TaskUpdate, TaskComment):
         await db.execute(sa_delete(model).where(model.task_id == task.id))
-    # Tham chiếu lỏng (cột nullable) → gỡ link, giữ nguyên dữ liệu gốc
-    await db.execute(sa_update(VoiceNote).where(VoiceNote.task_id == task.id)
-                     .values(task_id=None))
-    await db.execute(sa_update(EmailMessage).where(EmailMessage.task_id == task.id)
-                     .values(task_id=None))
+    # Tham chiếu lỏng (cột nullable, FK KHÔNG có ondelete) → phải gỡ link tường minh,
+    # nếu sót thì Postgres nổ IntegrityError lúc commit (SQLite test không bắt được
+    # vì không bật PRAGMA foreign_keys — bài học final review 2026-07-19).
+    for model in (VoiceNote, EmailMessage, Note, Skill):
+        await db.execute(sa_update(model).where(model.task_id == task.id)
+                         .values(task_id=None))
     await db.delete(task)
 
 
@@ -143,16 +144,20 @@ async def delete_project(db: AsyncSession, actor: User, project_id: uuid.UUID) -
     project = await db.get(Project, project_id)
     if project is None or project.workspace_id != actor.workspace_id:
         raise HTTPException(404, "project_not_found")
-    from app.models import EmailMessage, VoiceNote
+    from app.models import EmailMessage, Note, ReportSchedule, VoiceNote
 
     tasks = (await db.execute(select(Task).where(
         Task.project_id == project_id))).scalars().all()
     for task in tasks:
         await _delete_task_rows(db, task)
-    await db.execute(sa_update(VoiceNote).where(VoiceNote.project_id == project_id)
-                     .values(project_id=None))
-    await db.execute(sa_update(EmailMessage).where(EmailMessage.project_id == project_id)
-                     .values(project_id=None))
+    for model in (VoiceNote, EmailMessage, Note):
+        await db.execute(sa_update(model).where(model.project_id == project_id)
+                         .values(project_id=None))
+    # Lịch báo cáo scoped theo project bị xóa: TẮT luôn chứ không chỉ null project_id —
+    # null suông thì lịch âm thầm biến thành báo cáo toàn workspace, chạy mãi mãi.
+    await db.execute(sa_update(ReportSchedule)
+                     .where(ReportSchedule.project_id == project_id)
+                     .values(project_id=None, active=False))
     await db.delete(project)
     await db.commit()
 

@@ -159,3 +159,69 @@ def test_tools_dang_ky_va_nhay_cam():
     assert "delete_task" in TOOLS and "delete_project" in TOOLS
     assert "delete_task" in SENSITIVE_TOOLS and "delete_project" in SENSITIVE_TOOLS
     assert len(TOOLS) == 51  # 49 + delete_task + delete_project
+
+
+@pytest.mark.asyncio
+async def test_xoa_task_go_link_note_va_skill(client, db_session):
+    """Final review phat hien: Note.task_id va Skill.task_id la FK khong ondelete —
+    tren Postgres xoa task ma con note/skill link se IntegrityError (SQLite test
+    khong bat duoc vi khong bat PRAGMA foreign_keys). Cascade phai null 2 link nay."""
+    from app.models import Note, Skill
+
+    ceo_h = await _ceo_headers(client)
+    pid = await _project(client, ceo_h)
+    tid = await _task(client, ceo_h, pid)
+    tid_u = uuid_mod.UUID(tid)
+
+    from app.models import SkillKind
+
+    ceo_row = (await db_session.execute(select(Task).where(Task.id == tid_u))).scalar_one()
+    ws = ceo_row.workspace_id
+    note = Note(workspace_id=ws, author_id=ceo_row.created_by, content="ghi chu",
+                task_id=tid_u)
+    skill = Skill(workspace_id=ws, name="quy trinh", kind=SkillKind.knowledge,
+                  created_by=ceo_row.created_by, task_id=tid_u)
+    db_session.add_all([note, skill])
+    await db_session.commit()
+
+    r = await client.delete(f"/api/v1/tasks/{tid}", headers=ceo_h)
+    assert r.status_code == 204
+
+    await db_session.refresh(note)
+    await db_session.refresh(skill)
+    assert note.task_id is None      # note giu nguyen, chi go link
+    assert skill.task_id is None     # skill giu nguyen, chi go link
+
+
+@pytest.mark.asyncio
+async def test_xoa_project_go_link_note_va_tat_lich_bao_cao(client, db_session):
+    """Note.project_id null; ReportSchedule cua project bi xoa: null project_id VA
+    active=False — null suong khong thi lich dang scoped-theo-project am tham thanh
+    lich toan workspace, chay mai mai (final review)."""
+    from app.models import Note, ReportSchedule
+
+    ceo_h = await _ceo_headers(client)
+    pid = await _project(client, ceo_h)
+    pid_u = uuid_mod.UUID(pid)
+
+    task_row_id = await _task(client, ceo_h, pid)
+    t = await db_session.get(Task, uuid_mod.UUID(task_row_id))
+    ws, ceo_id = t.workspace_id, t.created_by
+    note = Note(workspace_id=ws, author_id=ceo_id, content="ghi chu project",
+                project_id=pid_u)
+    from datetime import datetime, timezone
+
+    sched = ReportSchedule(workspace_id=ws, created_by=ceo_id, recipient_id=ceo_id,
+                           project_id=pid_u, weekday=None, hour=8, minute=0,
+                           next_run_at=datetime(2030, 1, 1, tzinfo=timezone.utc))
+    db_session.add_all([note, sched])
+    await db_session.commit()
+
+    r = await client.delete(f"/api/v1/projects/{pid}", headers=ceo_h)
+    assert r.status_code == 204
+
+    await db_session.refresh(note)
+    await db_session.refresh(sched)
+    assert note.project_id is None
+    assert sched.project_id is None
+    assert sched.active is False

@@ -112,6 +112,12 @@ async def test_inject_transcript_khi_stt_that(client, db_session, monkeypatch):
 
     h = await _ceo_headers(client)
     req = await _send_with_note(client, db_session, h)
+    # Gia lap job nen chua tung enqueue (note cu tu thoi stt_mock): status "pending"
+    # -> inject phai tu transcribe inline (nhanh "queued"/"processing" co test rieng).
+    from app.models import VoiceNote as _VN
+    note = await db_session.get(_VN, req.voice_note_id)
+    note.transcript_status = "pending"
+    await db_session.commit()
     await voice_service.inject_transcript_for_request(db_session, req)
 
     msg = (await db_session.execute(select(Message).where(
@@ -136,6 +142,44 @@ async def test_inject_bo_qua_khi_stt_mock(client, db_session):
         Message.chat_request_id == req.id))).scalar_one()
     assert "[Transcript ghi âm]" not in "".join(
         b["text"] for b in msg.content if b.get("type") == "text")
+
+
+@pytest.mark.asyncio
+async def test_inject_cho_job_nen_thay_vi_transcribe_song_song(client, db_session, monkeypatch):
+    """Note dang "queued" (job nen enqueue luc upload) — inject phai CHO job xong
+    (khong goi STT lan 2 song song), roi noi transcript khi job da done."""
+    monkeypatch.setattr(get_settings(), "stt_mock", False)
+
+    stt_calls = []
+
+    class _CountingSTT:
+        async def transcribe(self, data, filename):
+            stt_calls.append(1)
+            return "khong duoc goi", "vi"
+
+    monkeypatch.setattr(voice_service, "get_transcription_client", lambda: _CountingSTT())
+
+    h = await _ceo_headers(client)
+    req = await _send_with_note(client, db_session, h)
+    from app.models import VoiceNote as _VN
+    note = await db_session.get(_VN, req.voice_note_id)
+    note.transcript_status = "queued"
+    await db_session.commit()
+
+    async def _fake_sleep(_secs):
+        # Job nen "hoan thanh" trong luc inject dang cho
+        note.transcript_status = "done"
+        note.transcript = "ket qua tu job nen"
+        await db_session.commit()
+
+    monkeypatch.setattr(voice_service.asyncio, "sleep", _fake_sleep)
+    await voice_service.inject_transcript_for_request(db_session, req)
+
+    assert stt_calls == []  # KHONG transcribe song song
+    msg = (await db_session.execute(select(Message).where(
+        Message.chat_request_id == req.id, Message.role == MessageRole.user))).scalar_one()
+    joined = "\n".join(b["text"] for b in msg.content if b.get("type") == "text")
+    assert "ket qua tu job nen" in joined
 
 
 @pytest.mark.asyncio
