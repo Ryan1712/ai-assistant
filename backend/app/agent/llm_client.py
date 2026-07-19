@@ -86,9 +86,21 @@ class AnthropicLLMClient(LLMClient):
             tools_payload = tools_payload[:-1] + [
                 {**tools_payload[-1], "cache_control": {"type": "ephemeral"}}]
 
+        # Incremental caching (Phase 0, spec 4.3): breakpoint thứ 3 ở block cuối
+        # của message cuối — các vòng tool sau đọc lại toàn bộ history từ cache.
+        # Copy shallow từng lớp thay vì mutate: content là JSON column của ORM
+        # Message, mutate tại đây sẽ làm dirty session của agent loop.
+        messages_payload = list(messages)
+        if messages_payload:
+            last = messages_payload[-1]
+            content = last.get("content")
+            if isinstance(content, list) and content:
+                messages_payload[-1] = {**last, "content": content[:-1] + [
+                    {**content[-1], "cache_control": {"type": "ephemeral"}}]}
+
         resp = await self._client.messages.create(
             model=self.model, max_tokens=self._max_tokens,
-            system=system_payload, messages=messages, tools=tools_payload,
+            system=system_payload, messages=messages_payload, tools=tools_payload,
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
             stream=True,
         )
