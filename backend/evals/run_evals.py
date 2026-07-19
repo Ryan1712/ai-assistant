@@ -51,8 +51,8 @@ class EvalClient:
 
         ha = self._join("manager", None, "Hà Trần", run_id)
         duy = self._join("employee", ha, "Duy Phạm", run_id)
-        self._join("employee", None, "Nam Nguyễn", run_id)
-        self._join("employee", None, "Nam Trần", run_id)
+        self._join("employee", ha, "Nam Nguyễn", run_id)
+        self._join("employee", ha, "Nam Trần", run_id)
 
         project = _check(self.http.post("/api/v1/projects", headers=self._h("ceo"),
                                         json={"name": "Marketing Q3",

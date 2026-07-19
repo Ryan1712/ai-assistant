@@ -1,7 +1,7 @@
 # Eval scenarios Phase 0 (spec AI upgrade 4.2).
 # Seed cố định do runner dựng: project "Marketing Q3";
 # nhân sự: Hà Trần (manager), Duy Phạm (employee, manager=Hà),
-#          Nam Nguyễn (employee), Nam Trần (employee);
+#          Nam Nguyễn (employee, manager=Hà), Nam Trần (employee, manager=Hà);
 # task: "Thiết kế landing page" (assignee Duy), "Báo cáo doanh thu tháng 6" (assignee Nam Nguyễn).
 # phase > 0 → runner skip (feature chưa có). Quy ước: mỗi bug hành vi fix xong → thêm 1 scenario.
 
