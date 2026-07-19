@@ -85,8 +85,10 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
         note = await voice_service.get_voice_note(db, actor, body.voice_note_id)
         label = note["title"] or (
             f"{note['duration_seconds']:.0f}s" if note["duration_seconds"] else "audio")
-        note_line = (f"\n[Đính kèm ghi âm: {label} — transcript sẽ được nối vào "
-                     "nếu đã nhận dạng]")
+        note_line = (f"\n[Người dùng đính kèm 1 file ghi âm: \"{label}\" "
+                     f"(voice_note_id: {body.voice_note_id}). Nếu không thấy transcript "
+                     "ngay dưới dòng này nghĩa là hệ thống chưa bật nhận dạng giọng nói — "
+                     "hãy nói thẳng điều đó, đừng bảo người dùng upload lại.]")
     if conv.title is None:
         # Tự đặt tên từ tin nhắn đầu — danh sách hội thoại toàn "chưa đặt tên" thì
         # không tìm lại được gì. Cắt 60 ký tự, gộp khoảng trắng.

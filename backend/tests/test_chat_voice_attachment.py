@@ -53,7 +53,8 @@ async def test_gui_tin_kem_ghi_am(client):
     assert msgs[0]["voice_note_id"] == vid
     text = msgs[0]["content"][0]["text"]
     assert "bóc task từ cuộc họp này" in text
-    assert "[Đính kèm ghi âm" in text  # model phải biết có file
+    assert "đính kèm 1 file ghi âm" in text  # model phải biết có file
+    assert vid in text  # kèm id để model tự tra get_voice_note được
 
 
 @pytest.mark.asyncio
