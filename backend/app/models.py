@@ -463,7 +463,8 @@ class AgentTrace(Base):
     route: Mapped[str] = mapped_column(String(16), default="fast")   # fast | deep (Phase 4)
     model: Mapped[str] = mapped_column(String(64), default="")
     iterations: Mapped[int] = mapped_column(Integer, default=0)
-    # cancelled | max_iterations | end_turn | max_tokens | awaiting_confirmation | error
+    # ghi NGUYÊN VĂN stop_reason (debug trung thực); thường gặp: cancelled | max_iterations |
+    # end_turn | max_tokens | awaiting_confirmation | error
     stop_reason: Mapped[str] = mapped_column(String(32), default="")
     # [{name, latency_ms, input, output}] — input/output là JSON string cắt 500 ký tự
     tools_called: Mapped[list] = mapped_column(JSON, default=list)

@@ -158,7 +158,8 @@ async def run_agent_loop(
         try:
             db.add(AgentTrace(
                 workspace_id=req.workspace_id, chat_request_id=req.id,
-                route="fast", model=getattr(llm, "model", ""),
+                route="fast",  # "fast" cứng ở Phase 0 — router Phase 4 sẽ truyền route thật
+                model=getattr(llm, "model", ""),
                 iterations=iteration, stop_reason=stop_reason,
                 tools_called=trace_tools,
                 total_latency_ms=int((time.monotonic() - loop_started) * 1000)))
