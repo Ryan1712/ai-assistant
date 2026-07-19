@@ -78,6 +78,10 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
                        db: AsyncSession = Depends(get_db),
                        arq_pool=Depends(get_arq_pool)):
     conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
+    if conv.title is None:
+        # Tự đặt tên từ tin nhắn đầu — danh sách hội thoại toàn "chưa đặt tên" thì
+        # không tìm lại được gì. Cắt 60 ký tự, gộp khoảng trắng.
+        conv.title = " ".join(body.content.split())[:60]
     max_pos = (await db.execute(select(func.max(ChatRequest.queue_position)).where(
         ChatRequest.conversation_id == conv.id))).scalar()
     req = ChatRequest(workspace_id=actor.workspace_id, conversation_id=conv.id,

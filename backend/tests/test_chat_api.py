@@ -75,6 +75,34 @@ async def test_send_message_to_others_conversation_404(chat_client):
 
 
 @pytest.mark.asyncio
+async def test_auto_title_tu_tin_nhan_dau(chat_client):
+    client, _ = chat_client
+    ceo_h = await _ceo_headers(client)
+    conv = (await client.post("/api/v1/conversations", headers=ceo_h, json={})).json()
+    assert conv["title"] is None
+
+    await client.post(f"/api/v1/conversations/{conv['id']}/messages", headers=ceo_h,
+                      json={"content": "Tao task lam slide quy 3 cho Nam nhe"})
+
+    convs = (await client.get("/api/v1/conversations", headers=ceo_h)).json()
+    assert convs[0]["title"] == "Tao task lam slide quy 3 cho Nam nhe"
+
+
+@pytest.mark.asyncio
+async def test_auto_title_khong_ghi_de_title_co_san(chat_client):
+    client, _ = chat_client
+    ceo_h = await _ceo_headers(client)
+    conv = (await client.post("/api/v1/conversations", headers=ceo_h,
+                              json={"title": "Da dat ten"})).json()
+
+    await client.post(f"/api/v1/conversations/{conv['id']}/messages", headers=ceo_h,
+                      json={"content": "tin nhan bat ky"})
+
+    convs = (await client.get("/api/v1/conversations", headers=ceo_h)).json()
+    assert convs[0]["title"] == "Da dat ten"
+
+
+@pytest.mark.asyncio
 async def test_rename_own_conversation(chat_client):
     client, _ = chat_client
     ceo_h = await _ceo_headers(client)
