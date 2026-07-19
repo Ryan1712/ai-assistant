@@ -461,3 +461,17 @@ class ChangeRoleIn(BaseModel):
 class VoiceNotePatchIn(BaseModel):
     title: str | None = None
     tags: list[str] | None = None
+
+
+class AgentTraceOut(BaseModel):
+    id: uuid.UUID
+    chat_request_id: uuid.UUID
+    route: str
+    model: str
+    iterations: int
+    stop_reason: str
+    tools_called: list
+    total_latency_ms: int
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}

@@ -3086,6 +3086,58 @@
         }
       }
     },
+    "/api/v1/admin/traces/{chat_request_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Traces",
+        "operationId": "list_traces_api_v1_admin_traces__chat_request_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "chat_request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Chat Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentTraceOut"
+                  },
+                  "title": "Response List Traces Api V1 Admin Traces  Chat Request Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/notifications": {
       "get": {
         "tags": [
@@ -3827,6 +3879,63 @@
   },
   "components": {
     "schemas": {
+      "AgentTraceOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "chat_request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Chat Request Id"
+          },
+          "route": {
+            "type": "string",
+            "title": "Route"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "iterations": {
+            "type": "integer",
+            "title": "Iterations"
+          },
+          "stop_reason": {
+            "type": "string",
+            "title": "Stop Reason"
+          },
+          "tools_called": {
+            "items": {},
+            "type": "array",
+            "title": "Tools Called"
+          },
+          "total_latency_ms": {
+            "type": "integer",
+            "title": "Total Latency Ms"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "chat_request_id",
+          "route",
+          "model",
+          "iterations",
+          "stop_reason",
+          "tools_called",
+          "total_latency_ms",
+          "created_at"
+        ],
+        "title": "AgentTraceOut"
+      },
       "AssigneeIn": {
         "properties": {
           "user_id": {
