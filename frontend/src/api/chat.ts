@@ -42,6 +42,7 @@ export type ChatRequest = {
   conversation_id: string;
   status: ChatRequestStatus;
   content: string;
+  voice_note_id: string | null;
   pending_action: PendingAction | null;
   created_at: string;
 };
@@ -55,6 +56,7 @@ export type Message = {
   id: string;
   role: "user" | "assistant";
   content: ContentBlock[];
+  voice_note_id: string | null;
   created_at: string;
 };
 
@@ -76,10 +78,10 @@ export const listMessages = (conversationId: string) =>
 export const listRequests = (conversationId: string) =>
   apiFetch<ChatRequest[]>(`/api/v1/conversations/${conversationId}/requests`);
 
-export const sendMessage = (conversationId: string, content: string) =>
+export const sendMessage = (conversationId: string, content: string, voiceNoteId?: string) =>
   apiFetch<ChatRequest>(`/api/v1/conversations/${conversationId}/messages`, {
     method: "POST",
-    body: { content },
+    body: voiceNoteId ? { content, voice_note_id: voiceNoteId } : { content },
   });
 
 export const stopAll = (conversationId: string) =>

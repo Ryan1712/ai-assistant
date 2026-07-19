@@ -12,6 +12,9 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Markdown from "react-native-markdown-display";
+import * as DocumentPicker from "expo-document-picker";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { uploadVoiceNote, voiceNoteAudioSource } from "../../src/api/voice";
 import {
   ChatRequest,
   Conversation,
@@ -33,7 +36,7 @@ import { ErrorText } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 type Row =
-  | { key: string; kind: "user" | "assistant"; text: string }
+  | { key: string; kind: "user" | "assistant"; text: string; voiceNoteId?: string | null }
   | { key: string; kind: "streaming"; text: string }
   | { key: string; kind: "system"; text: string }
   | { key: string; kind: "failed"; text: string; retryContent: string | null };
@@ -134,6 +137,10 @@ export default function Chat() {
   } | null>(null);
   const [runningTool, setRunningTool] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [attachedAudio, setAttachedAudio] = useState<{ uri: string; name: string } | null>(null);
+  const [audioPlayingId, setAudioPlayingId] = useState<string | null>(null);
+  const audioPlayer = useAudioPlayer(null);
+  const audioStatus = useAudioPlayerStatus(audioPlayer);
   const streamingText = useRef<Map<string, string>>(new Map());
   const contentByRequest = useRef<Map<string, string>>(new Map());
   const listRef = useRef<FlatList>(null);
@@ -158,7 +165,9 @@ export default function Chat() {
     const out: Row[] = [];
     for (const m of msgs) {
       const text = textOfMessage(m);
-      if (text) out.push({ key: m.id, kind: m.role === "user" ? "user" : "assistant", text });
+      if (text)
+        out.push({ key: m.id, kind: m.role === "user" ? "user" : "assistant", text,
+                   voiceNoteId: m.voice_note_id });
       // Lượt AI thuần thao tác (tạo task, gán người...) không có text — trước đây
       // biến mất khỏi lịch sử, người dùng mất dấu "AI đã làm gì".
       const toolUses = m.content.filter((b) => b.type === "tool_use");
@@ -265,17 +274,26 @@ export default function Chat() {
   }, [requestedId, loadHistory, onWsEvent, refreshQueue]);
 
   const submit = async () => {
-    if (!conversationId || !input.trim()) return;
-    const content = input.trim();
+    if (!conversationId) return;
+    const content = input.trim() || (attachedAudio ? "Xử lý file ghi âm này giúp tôi" : "");
+    if (!content) return;
     setInput("");
     try {
-      const req = await sendMessage(conversationId, content);
+      let voiceNoteId: string | undefined;
+      if (attachedAudio) {
+        // Upload qua endpoint voice-notes sẵn có → file tự nằm trong thư viện ghi âm
+        const note = await uploadVoiceNote(attachedAudio.uri, {});
+        voiceNoteId = note.id;
+      }
+      const req = await sendMessage(conversationId, content, voiceNoteId);
       contentByRequest.current.set(req.id, content);
+      setAttachedAudio(null);
       if (held && isResumePhrase(content)) setHeld(false);
-      setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: content }]);
+      setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: content,
+                                    voiceNoteId: voiceNoteId ?? null }]);
       await refreshQueue(conversationId);
     } catch (e: any) {
-      setInput(content); // không được làm mất chữ người dùng vừa gõ
+      setInput(content); // không được làm mất chữ người dùng vừa gõ (attachment cũng giữ)
       setRows((prev) => [
         ...prev,
         {
@@ -284,6 +302,36 @@ export default function Chat() {
           text: `⚠️ Gửi thất bại (${String(e?.message ?? e).slice(0, 80)}) — nội dung đã được giữ lại trong ô nhập.`,
         },
       ]);
+    }
+  };
+
+  const pickAudio = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: true,
+      });
+      if (!res.canceled && res.assets?.[0]) {
+        setAttachedAudio({ uri: res.assets[0].uri, name: res.assets[0].name });
+      }
+    } catch {
+      setActionError("Không chọn được file — thử lại.");
+    }
+  };
+
+  const toggleAudioBubble = async (voiceNoteId: string) => {
+    try {
+      if (audioPlayingId === voiceNoteId) {
+        if (audioStatus.playing) audioPlayer.pause();
+        else audioPlayer.play();
+        return;
+      }
+      const source = await voiceNoteAudioSource(voiceNoteId);
+      audioPlayer.replace(source);
+      audioPlayer.play();
+      setAudioPlayingId(voiceNoteId);
+    } catch {
+      setActionError("Không phát được ghi âm — thử lại.");
     }
   };
 
@@ -447,6 +495,19 @@ export default function Chat() {
                 {item.text}
               </Text>
             )}
+            {item.kind === "user" && item.voiceNoteId && (
+              <TouchableOpacity
+                onPress={() => toggleAudioBubble(item.voiceNoteId!)}
+                style={{ marginTop: spacing.xs }}
+                accessibilityLabel="Phát ghi âm đính kèm"
+              >
+                <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
+                  {audioPlayingId === item.voiceNoteId && audioStatus.playing
+                    ? "⏸ Ghi âm đính kèm"
+                    : "▶ Ghi âm đính kèm"}
+                </Text>
+              </TouchableOpacity>
+            )}
             {item.kind === "failed" && item.retryContent && (
               <TouchableOpacity
                 onPress={() => {
@@ -496,7 +557,27 @@ export default function Chat() {
           </View>
         </View>
       )}
+      {attachedAudio && (
+        <View style={styles.attachChip}>
+          <Text style={{ flex: 1, color: colors.text }} numberOfLines={1}>
+            🎙️ {attachedAudio.name}
+          </Text>
+          <TouchableOpacity
+            onPress={() => setAttachedAudio(null)}
+            accessibilityLabel="Bỏ đính kèm"
+          >
+            <Text style={{ color: colors.danger, fontWeight: "700" }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={styles.inputBar}>
+        <TouchableOpacity
+          style={styles.attachBtn}
+          onPress={pickAudio}
+          accessibilityLabel="Đính kèm file ghi âm"
+        >
+          <Text style={{ fontSize: 20 }}>📎</Text>
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           placeholder="Nhắn cho trợ lý AI… (gửi không cần chờ)"
@@ -604,6 +685,18 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+  },
+  attachBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
+  attachChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.xs,
   },
   input: {
     flex: 1,
