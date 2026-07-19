@@ -108,7 +108,10 @@ class EvalClient:
         while time.monotonic() < deadline:
             reqs = _check(self.http.get(f"/api/v1/conversations/{conv_id}/requests",
                                         headers=self._h(actor)), "poll requests")
-            me = next(r for r in reqs if r["id"] == req_id)
+            me = next((r for r in reqs if r["id"] == req_id), None)
+            if me is None:
+                time.sleep(POLL_INTERVAL_S)
+                continue
             if me["status"] in TERMINAL:
                 pending = (me.get("pending_action") or {}).get("tool_name")
                 return me["status"], pending
@@ -145,7 +148,12 @@ def main() -> int:
             skipped += 1
             print(f"  SKIP  {sc['id']} (phase {sc['phase']})")
             continue
-        r = client.run_scenario(sc)
+        try:
+            r = client.run_scenario(sc)
+        except Exception as exc:  # 1 scenario sap khong duoc lam mat ket qua cac scenario sau
+            failed += 1
+            print(f"  ERROR {sc['id']}  {type(exc).__name__}: {exc}")
+            continue
         if r["passed"]:
             passed += 1
             print(f"  PASS  {r['id']}  status={r['status']} tools={r['called']}")
