@@ -63,12 +63,20 @@ function QuickVoiceCard() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftTags, setDraftTags] = useState("");
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<Pending | null>(null);
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
 
   useEffect(() => () => {
     if (savedTimer.current) clearTimeout(savedTimer.current);
     // Rời màn khi đang ghi: dừng recorder + trả audio mode, không giữ mic
     try { recorder.stop(); } catch {}
     setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+    // Rời màn khi đang có bản ghi chờ lưu (chưa bấm Lưu/Hủy) — blob preview
+    // không ai revoke thì leak vĩnh viễn (dùng ref vì cleanup [] chỉ chạy 1 lần).
+    if (pendingRef.current && Platform.OS === "web") URL.revokeObjectURL(pendingRef.current.uri);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
