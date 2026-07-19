@@ -447,3 +447,25 @@ class ReportSchedule(Base):
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AgentTrace(Base):
+    """Trace 1 LẦN CHẠY agent loop của 1 chat_request (Phase 0, spec AI upgrade 4.1).
+
+    1 request có thể có nhiều dòng: sau khi user confirm sensitive tool, request
+    quay về queued và loop chạy lần nữa. Debug đọc qua GET /api/v1/admin/traces/…
+    """
+    __tablename__ = "agent_traces"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    chat_request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_requests.id"),
+                                                        index=True)
+    route: Mapped[str] = mapped_column(String(16), default="fast")   # fast | deep (Phase 4)
+    model: Mapped[str] = mapped_column(String(64), default="")
+    iterations: Mapped[int] = mapped_column(Integer, default=0)
+    # cancelled | max_iterations | end_turn | max_tokens | awaiting_confirmation | error
+    stop_reason: Mapped[str] = mapped_column(String(32), default="")
+    # [{name, latency_ms, input, output}] — input/output là JSON string cắt 500 ký tự
+    tools_called: Mapped[list] = mapped_column(JSON, default=list)
+    total_latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
