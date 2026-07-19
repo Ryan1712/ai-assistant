@@ -77,3 +77,13 @@ async def test_delete_removes_from_active_text(db_session):
     assert "se bi xoa" not in await instruction_service.active_instructions_text(
         db_session, ws.id)
     assert await instruction_service.list_instructions(db_session, ceo) == []
+
+
+@pytest.mark.asyncio
+async def test_active_instructions_bi_cap_do_dai(db_session):
+    ws, ceo, _ = await _make_ws(db_session)
+    await instruction_service.create_instruction(
+        db_session, ceo, title="Dai qua", content="x" * 20000)
+    text = await instruction_service.active_instructions_text(db_session, ws.id)
+    assert len(text) <= 8000 + 100  # 8000 + dong ghi chu bi cat
+    assert "bị cắt" in text

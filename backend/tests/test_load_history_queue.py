@@ -1,6 +1,6 @@
 import uuid
 
-from app.agent.loop import _load_history
+from app.agent.loop import MAX_HISTORY_MESSAGES, _load_history
 from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole
 
 
@@ -45,3 +45,21 @@ async def test_tin_da_xong_van_trong_history(db_session):
     history = await _load_history(db_session, conv.id, req2.id)
     texts = [b["text"] for m in history for b in m["content"] if b.get("type") == "text"]
     assert "tin cu da xong" in texts and "tin moi" in texts
+
+
+async def test_history_bi_cat_va_bat_dau_bang_user_text(db_session):
+    conv = await _mk_conv(db_session)
+    req = None
+    for i in range(MAX_HISTORY_MESSAGES + 20):
+        req = await _mk_req(db_session, conv, f"tin {i}", float(i),
+                            status=ChatRequestStatus.done)
+        db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                               chat_request_id=req.id, role=MessageRole.assistant,
+                               content=[{"type": "text", "text": f"tra loi {i}"}]))
+    await db_session.commit()
+
+    history = await _load_history(db_session, conv.id, req.id)
+    assert len(history) <= MAX_HISTORY_MESSAGES
+    first = history[0]
+    assert first["role"] == "user"
+    assert first["content"][0]["type"] == "text"

@@ -73,6 +73,12 @@ async def list_instructions(db: AsyncSession, actor: User) -> list[dict]:
             for ins, content in await _latest_contents(db, actor.workspace_id)]
 
 
+_MAX_CHARS = 8000  # instruction nối thẳng vào system prompt MỌI request của MỌI nhân viên
+
+
 async def active_instructions_text(db: AsyncSession, workspace_id: uuid.UUID) -> str:
-    return "\n\n".join(f"## {ins.title}\n{content}"
-                       for ins, content in await _latest_contents(db, workspace_id))
+    joined = "\n\n".join(f"## {ins.title}\n{content}"
+                         for ins, content in await _latest_contents(db, workspace_id))
+    if len(joined) > _MAX_CHARS:
+        joined = joined[:_MAX_CHARS] + "\n\n(Chỉ dẫn quá dài — phần sau đã bị cắt.)"
+    return joined

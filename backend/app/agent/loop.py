@@ -54,6 +54,11 @@ def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
 # bên dưới — kẹt request ở status=running vĩnh viễn (worker chỉ pickup request queued).
 MAX_ITERATIONS = 25
 
+# Trần số message nạp vào ngữ cảnh — hội thoại dài không giới hạn sẽ (1) phình token
+# gần bậc hai theo vòng tool, (2) tới lúc vượt context window thì MỌI tin nhắn sau đó
+# của conversation đều fail vĩnh viễn.
+MAX_HISTORY_MESSAGES = 80
+
 
 def _tool_specs_for_api() -> list[dict]:
     return [{"name": name, "description": spec.description, "input_schema": spec.input_schema}
@@ -81,7 +86,16 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
     )
     # Bỏ message content rỗng (dữ liệu cũ trước guard bên dưới) — Anthropic API
     # từ chối request có message rỗng.
-    return [{"role": m.role.value, "content": m.content} for m in rows.scalars() if m.content]
+    msgs = [{"role": m.role.value, "content": m.content} for m in rows.scalars() if m.content]
+    if len(msgs) > MAX_HISTORY_MESSAGES:
+        msgs = msgs[-MAX_HISTORY_MESSAGES:]
+        # Không được mở đầu bằng tool_result mồ côi (thiếu tool_use đi trước) —
+        # trượt tới user message thuần text đầu tiên.
+        start = next((i for i, m in enumerate(msgs)
+                      if m["role"] == "user" and m["content"]
+                      and m["content"][0].get("type") == "text"), None)
+        msgs = msgs[start:] if start is not None else msgs[-1:]
+    return msgs
 
 
 async def _never_cancelled(_request_id: uuid.UUID) -> bool:
