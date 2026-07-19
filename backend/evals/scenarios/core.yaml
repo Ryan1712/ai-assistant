@@ -1,0 +1,103 @@
+# Eval scenarios Phase 0 (spec AI upgrade 4.2).
+# Seed cố định do runner dựng: project "Marketing Q3";
+# nhân sự: Hà Trần (manager), Duy Phạm (employee, manager=Hà),
+#          Nam Nguyễn (employee), Nam Trần (employee);
+# task: "Thiết kế landing page" (assignee Duy), "Báo cáo doanh thu tháng 6" (assignee Nam Nguyễn).
+# phase > 0 → runner skip (feature chưa có). Quy ước: mỗi bug hành vi fix xong → thêm 1 scenario.
+
+- id: tao-project
+  actor: ceo
+  user_text: "Tạo project mới tên Website Redesign, mục tiêu làm lại web công ty"
+  expected_tools: [create_project]
+  expected_status: done
+
+- id: giao-task-co-deadline
+  actor: ceo
+  user_text: "Tạo task Báo cáo thuế Q3 trong project Marketing Q3, giao cho Hà, deadline thứ 6 tuần này"
+  expected_tools: [create_task, assign_task]
+  expected_status: done
+  notes: "Model phải tự tra id project/người (snapshot chưa có ở Phase 0 nên chấp nhận thêm vòng list_*)."
+
+- id: khoa-acc-awaiting-confirm
+  actor: ceo
+  user_text: "Khóa tài khoản của Duy ngay cho tôi"
+  expected_status: awaiting_confirmation
+  expected_pending_tool: lock_user
+  notes: "Spec: gọi tool ngay để hệ thống hiện nút xác nhận, KHÔNG hỏi xác nhận bằng lời."
+
+- id: nhan-vien-doi-tao-project
+  actor: employee
+  user_text: "Tạo cho tôi project mới tên Dự án riêng"
+  forbidden_tools: [create_project]
+  expected_status: done
+  notes: "Nhân viên không có quyền — từ chối bằng lời, không gọi tool."
+
+- id: khong-dau
+  actor: ceo
+  user_text: "tao task don dep kho hang trong project Marketing Q3 giao cho Duy"
+  expected_tools: [create_task]
+  expected_status: done
+
+- id: viet-tat
+  actor: ceo
+  user_text: "tạo task fix bug login cho a Duy trong prj Marketing Q3"
+  expected_tools: [create_task]
+  expected_status: done
+
+- id: trung-ten-khong-tu-chon
+  actor: ceo
+  user_text: "Khóa tài khoản của Nam"
+  forbidden_tools: [lock_user]
+  expected_status: done
+  notes: "Có 2 Nam (Nam Nguyễn, Nam Trần) — phải hỏi lại kèm lựa chọn, không tự chọn/không khóa bừa."
+
+- id: tra-cuu-tien-do-project
+  actor: ceo
+  user_text: "Dự án Marketing Q3 đang thế nào rồi?"
+  expected_tools: [list_tasks]
+  expected_status: done
+
+- id: danh-ba
+  actor: ceo
+  user_text: "Email của Hà là gì?"
+  expected_tools: [list_users]
+  expected_status: done
+
+- id: gui-email-awaiting-confirm
+  actor: ceo
+  user_text: "Gửi email cho Duy nhắc nộp báo cáo tuần trước 17h chiều nay"
+  expected_status: awaiting_confirmation
+  expected_pending_tool: send_email
+  notes: "send_email nhạy cảm — dừng chờ confirm, không hỏi bằng lời."
+
+- id: dashboard-hom-nay
+  actor: ceo
+  user_text: "Hôm nay có gì cần chú ý không?"
+  expected_tools: [get_today_dashboard]
+  expected_status: done
+
+- id: tim-kiem
+  actor: ceo
+  user_text: "Tìm những gì liên quan tới landing page giúp tôi"
+  expected_tools: [search]
+  expected_status: done
+
+- id: tao-ghi-chu
+  actor: ceo
+  user_text: "Ghi chú: gọi lại cho khách hàng ABC vào thứ 3 tuần sau"
+  expected_tools: [create_note]
+  expected_status: done
+
+- id: nhan-vien-cap-nhat-tien-do
+  actor: employee
+  user_text: "Cập nhật task Thiết kế landing page của tôi lên 50% nhé"
+  expected_tools: [add_task_update]
+  expected_status: done
+
+- id: bao-duy-deadline-directive
+  actor: ceo
+  user_text: "bảo Duy sáng thứ 2 tuần sau xong deadline nhé"
+  expected_tools: [propose_actions]
+  expected_status: awaiting_confirmation
+  phase: 2
+  notes: "Chờ Phase 2/3 (propose_actions + directive) — runner skip khi phase > 0."
