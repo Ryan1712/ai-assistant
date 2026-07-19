@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import Markdown from "react-native-markdown-display";
 import {
   ChatRequest,
   Conversation,
@@ -107,6 +108,14 @@ function labelForTool(name: string): string {
   return TOOL_LABELS[name] ?? name.replace(/_/g, " ");
 }
 
+const mdStyles = {
+  body: { color: colors.text, fontSize: type.body.fontSize },
+  code_inline: { backgroundColor: colors.surface, color: colors.text },
+  fence: { backgroundColor: colors.surface, borderColor: colors.divider },
+  table: { borderColor: colors.divider },
+  link: { color: colors.primary },
+} as const;
+
 export default function Chat() {
   const { id: requestedId } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -146,15 +155,19 @@ export default function Chat() {
 
   const loadHistory = useCallback(async (cid: string) => {
     const msgs = await listMessages(cid);
-    setRows(
-      msgs
-        .map((m): Row | null => {
-          const text = textOfMessage(m);
-          if (!text) return null;
-          return { key: m.id, kind: m.role === "user" ? "user" : "assistant", text };
-        })
-        .filter((r): r is Row => r !== null),
-    );
+    const out: Row[] = [];
+    for (const m of msgs) {
+      const text = textOfMessage(m);
+      if (text) out.push({ key: m.id, kind: m.role === "user" ? "user" : "assistant", text });
+      // Lượt AI thuần thao tác (tạo task, gán người...) không có text — trước đây
+      // biến mất khỏi lịch sử, người dùng mất dấu "AI đã làm gì".
+      const toolUses = m.content.filter((b) => b.type === "tool_use");
+      for (const b of toolUses) {
+        if (b.type === "tool_use")
+          out.push({ key: `${m.id}-${b.id}`, kind: "system", text: `🔧 ${labelForTool(b.name)}` });
+      }
+    }
+    setRows(out);
   }, []);
 
   const onWsEvent = useCallback(
@@ -425,10 +438,15 @@ export default function Chat() {
                   : styles.aiBubble,
             ]}
           >
-            <Text style={{ color: item.kind === "user" ? colors.onPrimary : colors.text }}>
-              {item.text}
-              {item.kind === "streaming" ? " ▍" : ""}
-            </Text>
+            {item.kind === "assistant" || item.kind === "streaming" ? (
+              <Markdown style={mdStyles}>
+                {item.text + (item.kind === "streaming" ? " ▍" : "")}
+              </Markdown>
+            ) : (
+              <Text style={{ color: item.kind === "user" ? colors.onPrimary : colors.text }}>
+                {item.text}
+              </Text>
+            )}
             {item.kind === "failed" && item.retryContent && (
               <TouchableOpacity
                 onPress={() => {
@@ -447,6 +465,12 @@ export default function Chat() {
         <View style={styles.toolBar}>
           <ActivityIndicator color={colors.primary} size="small" />
           <Text style={{ color: colors.textSecondary }}>Đang {runningTool}…</Text>
+        </View>
+      )}
+      {running && !runningTool && !pendingConfirm && !streamingText.current.get(running.id) && (
+        <View style={styles.toolBar}>
+          <ActivityIndicator color={colors.primary} size="small" />
+          <Text style={{ color: colors.textSecondary }}>AI đang soạn…</Text>
         </View>
       )}
       {pendingConfirm && (
