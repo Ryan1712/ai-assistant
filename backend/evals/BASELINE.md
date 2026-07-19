@@ -14,14 +14,14 @@ Số liệu eval từ 2026-07-20, baseline trước snapshot/toolset động.
 |---|---|---|---|
 | tao-project | PASS | create_project | |
 | giao-task-co-deadline | PASS | list_projects, list_users, create_task, assign_task | |
-| khoa-acc-awaiting-confirm | PASS | awaiting_confirmation, pending lock_user đúng chủ đích | |
+| khoa-acc-awaiting-confirm | PASS | list_users | dừng đúng ở awaiting_confirmation, pending lock_user |
 | nhan-vien-doi-tao-project | PASS | 0 tool — từ chối bằng lời | |
 | khong-dau | PASS | create_task + assign_task | |
 | viet-tat | PASS | create_task | |
-| trung-ten-khong-tu-chon | **FAIL** | — | 2 user trùng tên "Nam": model TỰ CHỌN một Nam và gọi lock_user (dừng ở awaiting_confirmation) thay vì hỏi lại. Đúng lỗi "nhầm người" mà Phase 2 (resolver + luật 3 mức) nhắm diệt — giữ scenario này làm thước đo trước/sau. |
+| trung-ten-khong-tu-chon | **FAIL** | list_users | 2 user trùng tên "Nam": model TỰ CHỌN một Nam và gọi lock_user (dừng ở awaiting_confirmation) thay vì hỏi lại. Đúng lỗi "nhầm người" mà Phase 2 (resolver + luật 3 mức) nhắm diệt — giữ scenario này làm thước đo trước/sau. |
 | tra-cuu-tien-do-project | PASS | list_projects, list_tasks, search | |
 | danh-ba | PASS | list_users | |
-| gui-email-awaiting-confirm | PASS | awaiting_confirmation, pending send_email | |
+| gui-email-awaiting-confirm | PASS | list_users | dừng đúng ở awaiting_confirmation, pending send_email |
 | dashboard-hom-nay | PASS | get_today_dashboard | |
 | tim-kiem | PASS | search, get_task | |
 | tao-ghi-chu | PASS | create_note | |
