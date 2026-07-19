@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.llm_client import LLMClient, StreamDone, TextDelta
 from app.agent.publisher import EventPublisher
 from app.agent.tools import SENSITIVE_TOOLS, TOOLS, call_tool
-from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User
 from app.services import instruction_service
 from app.tz import VN_TZ
@@ -200,7 +199,7 @@ async def run_agent_loop(
                                chat_request_id=req.id, role=MessageRole.assistant,
                                content=assistant_content))
             db.add(UsageLog(workspace_id=req.workspace_id, chat_request_id=req.id,
-                            model=get_settings().model_chat, input_tokens=done.input_tokens,
+                            model=llm.model, input_tokens=done.input_tokens,
                             output_tokens=done.output_tokens,
                             cache_read_tokens=done.cache_read_tokens,
                             cache_write_tokens=done.cache_write_tokens))

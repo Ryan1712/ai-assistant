@@ -32,6 +32,8 @@ StreamEvent = Union[TextDelta, StreamDone]
 
 
 class LLMClient(abc.ABC):
+    model: str = "unknown"
+
     @abc.abstractmethod
     def stream(self, *, system: str, messages: list[dict],
               tools: list[dict]) -> AsyncIterator[StreamEvent]:
@@ -41,9 +43,10 @@ class LLMClient(abc.ABC):
 class FakeLLMClient(LLMClient):
     """Test double: phát lại kịch bản dựng sẵn, 1 lượt/lần gọi .stream()."""
 
-    def __init__(self, turns: list[list[StreamEvent]]):
+    def __init__(self, turns: list[list[StreamEvent]], model: str = "fake"):
         self._turns = list(turns)
         self.calls: list[dict] = []
+        self.model = model
 
     async def stream(self, *, system: str, messages: list[dict],
                      tools: list[dict]) -> AsyncIterator[StreamEvent]:
@@ -66,7 +69,7 @@ class AnthropicLLMClient(LLMClient):
 
     def __init__(self, client, model: str, max_tokens: int = 8192):
         self._client = client
-        self._model = model
+        self.model = model
         self._max_tokens = max_tokens
 
     async def stream(self, *, system: str, messages: list[dict],
@@ -84,7 +87,7 @@ class AnthropicLLMClient(LLMClient):
                 {**tools_payload[-1], "cache_control": {"type": "ephemeral"}}]
 
         resp = await self._client.messages.create(
-            model=self._model, max_tokens=self._max_tokens,
+            model=self.model, max_tokens=self._max_tokens,
             system=system_payload, messages=messages, tools=tools_payload,
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
             stream=True,
@@ -138,7 +141,7 @@ class AnthropicLLMClient(LLMClient):
 
 
 @lru_cache
-def get_llm_client() -> LLMClient:
+def get_llm_client(model: str | None = None) -> LLMClient:
     import anthropic
 
     from app.config import get_settings
@@ -148,4 +151,4 @@ def get_llm_client() -> LLMClient:
         api_key=settings.anthropic_api_key,
         base_url=settings.anthropic_base_url or None,  # None = api.anthropic.com
     )
-    return AnthropicLLMClient(client, model=settings.model_chat)
+    return AnthropicLLMClient(client, model=model or settings.model_fast)

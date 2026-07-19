@@ -7,4 +7,4 @@ def test_chat_settings_defaults():
     assert s.anthropic_api_key == ""
     assert s.anthropic_base_url == ""  # rỗng = API Anthropic chính thức
     assert s.redis_url == "redis://localhost:6380"
-    assert s.model_chat == "claude-haiku-4-5"
+    assert s.model_fast == "claude-haiku-4-5"

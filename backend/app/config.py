@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
@@ -15,7 +16,12 @@ class Settings(BaseSettings):
     anthropic_base_url: str = ""
     # Host port 6380/5435 — cổng mặc định 6379/5433 hay bị project khác trên máy dev chiếm
     redis_url: str = "redis://localhost:6380"
-    model_chat: str = "claude-haiku-4-5"
+    # Model theo tầng tác vụ (spec AI upgrade §3/§4.3): fast = chat mặc định;
+    # smart = đường sâu async/distiller/report summary (các phase sau).
+    # Env MODEL_CHAT (tên cũ, đang dùng ở .env prod) vẫn được đọc vào model_fast.
+    model_fast: str = Field("claude-haiku-4-5",
+                            validation_alias=AliasChoices("model_fast", "model_chat"))
+    model_smart: str = "claude-sonnet-4-6"
     storage_dir: str = "./storage/reports"
     # Cổng báo cáo CEO (funtional-plan 6.8) — chưa có API spec thật nên mặc định mock
     portal_mock: bool = True
@@ -24,7 +30,7 @@ class Settings(BaseSettings):
     stt_mock: bool = True
     portal_base_url: str = "https://ceo.9learning.edu.vn"
 
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": ".env", "populate_by_name": True}
 
 
 _DEFAULT_SECRETS = {"dev-secret-change-me", "dev-secret", ""}
