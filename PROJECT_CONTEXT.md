@@ -192,3 +192,10 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
 - `app/permissions.py`, `app/agent/tools.py`, `app/agent/loop.py` — 3 file quyết định "ai làm được gì" và "AI làm được gì qua chat".
 - `frontend/src/api/client.ts` — mọi lỗi API đều đi qua `ApiError{status, detail}`, xử lý theo pattern đã có trong các screen hiện tại thay vì viết lại.
 - `docs/superpowers/specs/` và `docs/superpowers/plans/` — lịch sử thiết kế từng tính năng (tham khảo bối cảnh, không phải nguồn sự thật cho trạng thái hiện tại).
+
+## 13. Tiến độ
+
+- 2026-07-20: Phase 0 AI upgrade xong — bảng agent_traces + GET /api/v1/admin/traces/{id},
+  eval harness (backend/evals/, baseline 13/14 pass trên glm-4.7-flash, 1 fail trùng-tên là thước đo cho Phase 2),
+  incremental prompt caching (verify tầng payload; gateway beeknoee không passthrough cache),
+  config model_fast/model_smart. Spec: docs/superpowers/specs/2026-07-19-ai-intelligence-upgrade.md
