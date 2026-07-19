@@ -16,6 +16,7 @@
     "expo-router": "~57.0.4",
     "expo-secure-store": "~57.0.0",
     "expo-sharing": "~57.0.5",
+    "expo-speech-recognition": "^56.0.1",
     "expo-status-bar": "~57.0.0",
     "fix-webm-duration": "^1.0.6",
     "react": "19.2.3",

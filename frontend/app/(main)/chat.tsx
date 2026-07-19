@@ -15,6 +15,7 @@ import Markdown from "react-native-markdown-display";
 import * as DocumentPicker from "expo-document-picker";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { uploadVoiceNote, voiceNoteAudioSource } from "../../src/api/voice";
+import { DictationButton } from "../../src/voice/DictationButton";
 import {
   ChatRequest,
   Conversation,
@@ -578,6 +579,7 @@ export default function Chat() {
         >
           <Text style={{ fontSize: 20 }}>📎</Text>
         </TouchableOpacity>
+        <DictationButton onText={(t) => setInput(t)} />
         <TextInput
           style={styles.input}
           placeholder="Nhắn cho trợ lý AI… (gửi không cần chờ)"

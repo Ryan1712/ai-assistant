@@ -27,7 +27,14 @@
       "expo-secure-store",
       "expo-audio",
       "expo-sharing",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Cho phép dùng micro để nói với trợ lý AI",
+          "speechRecognitionPermission": "Chuyển giọng nói của bạn thành văn bản để gửi cho trợ lý AI"
+        }
+      ]
     ]
   }
 }
