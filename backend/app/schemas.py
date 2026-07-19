@@ -327,6 +327,7 @@ class MessageSendIn(BaseModel):
     # Rỗng/toàn khoảng trắng → Anthropic từ chối text block rỗng → request failed;
     # chặn ngay từ API. Trần 8000 ký tự chống paste khổng lồ làm nổ context.
     content: str = Field(min_length=1, max_length=8000)
+    voice_note_id: uuid.UUID | None = None
 
     @field_validator("content")
     @classmethod
@@ -342,6 +343,7 @@ class ChatRequestOut(BaseModel):
     conversation_id: uuid.UUID
     status: ChatRequestStatus
     content: str
+    voice_note_id: uuid.UUID | None = None
     # Cho FE khôi phục confirm card đầy đủ (tên tool + tham số) sau khi reload màn
     pending_action: dict | None = None
     created_at: dt.datetime
@@ -353,6 +355,7 @@ class MessageOut(BaseModel):
     id: uuid.UUID
     role: MessageRole
     content: list
+    voice_note_id: uuid.UUID | None = None
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}

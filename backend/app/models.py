@@ -335,6 +335,10 @@ class ChatRequest(Base):
     status: Mapped[ChatRequestStatus] = mapped_column(Enum(ChatRequestStatus),
                                                        default=ChatRequestStatus.queued)
     queue_position: Mapped[float] = mapped_column(Float)
+    # Đính kèm ghi âm làm input cho AI (spec 2026-07-19): file dài user ném vào
+    # chat; transcript (khi có STT) được worker append vào Message.content.
+    voice_note_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("voice_notes.id", ondelete="SET NULL"), nullable=True)
     pending_action: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -350,6 +354,8 @@ class Message(Base):
     conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"), index=True)
     chat_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_requests.id"),
                                                                nullable=True)
+    voice_note_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("voice_notes.id", ondelete="SET NULL"), nullable=True)
     role: Mapped[MessageRole] = mapped_column(Enum(MessageRole))
     content: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

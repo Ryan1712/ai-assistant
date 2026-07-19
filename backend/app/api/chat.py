@@ -15,7 +15,7 @@ from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
     ConversationRenameIn, MessageOut, MessageSendIn, ReorderIn,
 )
-from app.services import continuity
+from app.services import continuity, voice_service
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
 chat_requests_router = APIRouter(prefix="/api/v1/chat-requests", tags=["chat"])
@@ -78,6 +78,15 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
                        db: AsyncSession = Depends(get_db),
                        arq_pool=Depends(get_arq_pool)):
     conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
+    note_line = ""
+    if body.voice_note_id is not None:
+        # get_voice_note raise 404 nếu không phải chủ ghi âm / khác workspace —
+        # danh tính từ JWT, không tin client.
+        note = await voice_service.get_voice_note(db, actor, body.voice_note_id)
+        label = note["title"] or (
+            f"{note['duration_seconds']:.0f}s" if note["duration_seconds"] else "audio")
+        note_line = (f"\n[Đính kèm ghi âm: {label} — transcript sẽ được nối vào "
+                     "nếu đã nhận dạng]")
     if conv.title is None:
         # Tự đặt tên từ tin nhắn đầu — danh sách hội thoại toàn "chưa đặt tên" thì
         # không tìm lại được gì. Cắt 60 ký tự, gộp khoảng trắng.
@@ -86,12 +95,14 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
         ChatRequest.conversation_id == conv.id))).scalar()
     req = ChatRequest(workspace_id=actor.workspace_id, conversation_id=conv.id,
                       user_id=actor.id, content=body.content,
+                      voice_note_id=body.voice_note_id,
                       queue_position=(max_pos or 0.0) + 1.0)
     db.add(req)
     await db.flush()
     db.add(Message(workspace_id=actor.workspace_id, conversation_id=conv.id,
                    chat_request_id=req.id, role=MessageRole.user,
-                   content=[{"type": "text", "text": body.content}]))
+                   voice_note_id=body.voice_note_id,
+                   content=[{"type": "text", "text": body.content + note_line}]))
     if conv.queue_held and continuity.is_resume_phrase(body.content):
         # 5.7: "tiếp tục công việc" → mở lại queue; request này vào cuối hàng
         # nên AI làm nốt việc cũ trước rồi mới trả lời nó.
