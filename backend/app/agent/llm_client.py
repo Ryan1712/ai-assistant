@@ -73,9 +73,19 @@ class AnthropicLLMClient(LLMClient):
                      tools: list[dict]) -> AsyncIterator[StreamEvent]:
         import json
 
+        # Prompt caching: system prompt + ~44 tool schema giống hệt nhau giữa các
+        # lượt — không cache thì mỗi vòng tool trả tiền input đầy đủ cho toàn bộ.
+        # cache_control đặt ở block cuối của mỗi vùng (system, tools) theo API Anthropic.
+        system_payload = [{"type": "text", "text": system,
+                           "cache_control": {"type": "ephemeral"}}]
+        tools_payload = list(tools)
+        if tools_payload:
+            tools_payload = tools_payload[:-1] + [
+                {**tools_payload[-1], "cache_control": {"type": "ephemeral"}}]
+
         resp = await self._client.messages.create(
             model=self._model, max_tokens=self._max_tokens,
-            system=system, messages=messages, tools=tools,
+            system=system_payload, messages=messages, tools=tools_payload,
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
             stream=True,
         )
