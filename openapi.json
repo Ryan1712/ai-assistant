@@ -2462,6 +2462,52 @@
         }
       }
     },
+    "/api/v1/voice-notes/{voice_note_id}/transcribe": {
+      "post": {
+        "tags": [
+          "voice-notes"
+        ],
+        "summary": "Retranscribe Voice Note",
+        "operationId": "retranscribe_voice_note_api_v1_voice_notes__voice_note_id__transcribe_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "voice_note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Voice Note Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/voice-notes/{voice_note_id}": {
       "get": {
         "tags": [
@@ -2486,6 +2532,99 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "voice-notes"
+        ],
+        "summary": "Delete Voice Note",
+        "operationId": "delete_voice_note_api_v1_voice_notes__voice_note_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "voice_note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Voice Note Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "voice-notes"
+        ],
+        "summary": "Patch Voice Note",
+        "operationId": "patch_voice_note_api_v1_voice_notes__voice_note_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "voice_note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Voice Note Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceNotePatchIn"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3672,6 +3811,22 @@
             "title": "Tags",
             "default": ""
           },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "default": ""
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
           "task_id": {
             "anyOf": [
               {
@@ -3747,6 +3902,8 @@
         "properties": {
           "content": {
             "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
             "title": "Content"
           }
         },
@@ -3774,6 +3931,18 @@
           "content": {
             "type": "string",
             "title": "Content"
+          },
+          "pending_action": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Action"
           },
           "created_at": {
             "type": "string",
@@ -4149,6 +4318,8 @@
         "properties": {
           "content": {
             "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
             "title": "Content"
           }
         },
@@ -5797,6 +5968,37 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VoiceNotePatchIn": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "title": "VoiceNotePatchIn"
       },
       "WorkspacePlan": {
         "type": "string",
