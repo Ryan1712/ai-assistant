@@ -15,3 +15,6 @@ export type TaskDetail = {
 export const getTask = (id: string) => apiFetch<TaskDetail>(`/api/v1/tasks/${id}`);
 
 export const listTasks = () => apiFetch<TaskDetail[]>("/api/v1/tasks");
+
+export const deleteTask = (id: string) =>
+  apiFetch<void>(`/api/v1/tasks/${id}`, { method: "DELETE" });

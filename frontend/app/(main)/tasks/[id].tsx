@@ -8,11 +8,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
-import { TaskDetail, getTask } from "../../../src/api/tasks";
+import { TaskDetail, deleteTask, getTask } from "../../../src/api/tasks";
 import {
   ATTACHMENT_MAX_SIZE,
   ATTACHMENT_MIME_TYPES,
@@ -228,8 +228,30 @@ function CommentsSection({ taskId }: { taskId: string }) {
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true); // chạm 1: hỏi; chạm 2 mới xóa
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteTask(id);
+      router.back();
+    } catch (e: any) {
+      // Non-CEO sẽ nhận 403 từ BE — hiện message thô, không tự check role ở FE
+      setError(String(e?.message ?? e));
+      setConfirmingDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -277,6 +299,22 @@ export default function TaskDetailScreen() {
           <AttachmentsSection taskId={id} />
           <CommentsSection taskId={id} />
         </>
+      )}
+      {task && (
+        <TouchableOpacity
+          onPress={handleDelete}
+          disabled={deleting}
+          style={{ alignItems: "center", padding: spacing.lg }}
+          accessibilityLabel="Xóa task"
+        >
+          {deleting ? (
+            <ActivityIndicator color={colors.danger} />
+          ) : (
+            <Text style={{ color: colors.danger, fontWeight: "700" }}>
+              {confirmingDelete ? "Chạm lần nữa để xóa vĩnh viễn!" : "🗑 Xóa task"}
+            </Text>
+          )}
+        </TouchableOpacity>
       )}
       </ScrollView>
     </View>
