@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { Subscription, getInviteCode, getSubscription, switchPlan } from "../../src/api/dashboard";
@@ -31,7 +31,10 @@ export default function Settings() {
   }, [user]);
 
   return (
-    <View style={{ flex: 1, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.bg }}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}
+    >
       <View style={styles.card}>
         <Text style={styles.title}>{user?.full_name}</Text>
         <Text style={{ color: colors.textSecondary }}>{user?.email}</Text>
@@ -129,7 +132,7 @@ export default function Settings() {
       <TouchableOpacity style={styles.logout} onPress={signOut}>
         <Text style={{ color: colors.danger, fontWeight: "700" }}>Đăng xuất</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
