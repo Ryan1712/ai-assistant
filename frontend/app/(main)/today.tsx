@@ -2,8 +2,6 @@ import {
   AudioModule,
   RecordingPresets,
   setAudioModeAsync,
-  useAudioPlayer,
-  useAudioPlayerStatus,
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
@@ -21,7 +19,6 @@ import {
 import { useRouter } from "expo-router";
 import { DashTask, Subscription, TodayDashboard, getSubscription, getTodayDashboard } from "../../src/api/dashboard";
 import { VoiceNote, listVoiceNotes, uploadVoiceNote } from "../../src/api/voice";
-import { Field } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 import { formatDuration } from "../../src/util/format";
 
@@ -36,21 +33,6 @@ const VISIBLE_NOTES = 3;
 
 type Pending = { uri: string; durationMs: number };
 
-function PendingPreview({ uri }: { uri: string }) {
-  const player = useAudioPlayer({ uri });
-  const status = useAudioPlayerStatus(player);
-  return (
-    <TouchableOpacity
-      style={styles.recordBtn}
-      onPress={() => (status.playing ? player.pause() : player.play())}
-    >
-      <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
-        {status.playing ? "⏸ Tạm dừng" : "▶ Nghe lại trước khi lưu"}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
 function QuickVoiceCard() {
   const router = useRouter();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -59,24 +41,24 @@ function QuickVoiceCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftTags, setDraftTags] = useState("");
+  // Chỉ giữ lại khi upload lỗi, để có nút "Thử lại" — luồng thành công không
+  // qua state này (một chạm → lưu ngay, đúng funtional-plan §6.3).
+  const [retry, setRetry] = useState<Pending | null>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingRef = useRef<Pending | null>(null);
+  const retryRef = useRef<Pending | null>(null);
 
   useEffect(() => {
-    pendingRef.current = pending;
-  }, [pending]);
+    retryRef.current = retry;
+  }, [retry]);
 
   useEffect(() => () => {
     if (savedTimer.current) clearTimeout(savedTimer.current);
     // Rời màn khi đang ghi: dừng recorder + trả audio mode, không giữ mic
     try { recorder.stop(); } catch {}
     setAudioModeAsync({ allowsRecording: false }).catch(() => {});
-    // Rời màn khi đang có bản ghi chờ lưu (chưa bấm Lưu/Hủy) — blob preview
-    // không ai revoke thì leak vĩnh viễn (dùng ref vì cleanup [] chỉ chạy 1 lần).
-    if (pendingRef.current && Platform.OS === "web") URL.revokeObjectURL(pendingRef.current.uri);
+    // Rời màn khi còn 1 bản ghi lỗi chưa thử lại — blob không ai revoke thì
+    // leak vĩnh viễn (dùng ref vì cleanup [] chỉ chạy 1 lần).
+    if (retryRef.current && Platform.OS === "web") URL.revokeObjectURL(retryRef.current.uri);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -90,6 +72,26 @@ function QuickVoiceCard() {
     loadNotes();
   }, [loadNotes]);
 
+  const upload = async (uri: string, durationMs: number) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await uploadVoiceNote(uri, { durationMs });
+      if (Platform.OS === "web") URL.revokeObjectURL(uri);
+      setRetry(null);
+      await loadNotes();
+      setSaved(true); // peak-end: lưu xong phải thấy ngay là đã lưu
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2500);
+    } catch {
+      // GIỮ lại để bấm "Thử lại" — audio không mất khi upload lỗi
+      setRetry({ uri, durationMs });
+      setError("Tải lên thất bại — bấm Thử lại.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggle = async () => {
     setError(null);
     try {
@@ -97,7 +99,7 @@ function QuickVoiceCard() {
         // Phai doc truoc khi stop() - recorder tu reset ve 0 ngay sau khi dung.
         const durationMs = recorderState.durationMillis;
         await recorder.stop();
-        if (recorder.uri) setPending({ uri: recorder.uri, durationMs });
+        if (recorder.uri) await upload(recorder.uri, durationMs);
         else setError("Không lấy được file ghi âm — thử lại.");
       } else {
         const perm = await AudioModule.requestRecordingPermissionsAsync();
@@ -114,39 +116,6 @@ function QuickVoiceCard() {
     }
   };
 
-  const save = async () => {
-    if (!pending) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await uploadVoiceNote(pending.uri, {
-        durationMs: pending.durationMs,
-        title: draftTitle.trim() || undefined,
-        tags: draftTags.split(",").map((t) => t.trim()).filter(Boolean),
-      });
-      if (Platform.OS === "web") URL.revokeObjectURL(pending.uri); // blob preview không revoke = leak
-      setPending(null);
-      setDraftTitle("");
-      setDraftTags("");
-      await loadNotes();
-      setSaved(true); // peak-end: lưu xong phải thấy ngay là đã lưu
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-      savedTimer.current = setTimeout(() => setSaved(false), 2500);
-    } catch {
-      // GIỮ pending để bấm Lưu lại được — audio không mất khi upload lỗi
-      setError("Tải lên thất bại — bấm Lưu để thử lại.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const discard = () => {
-    if (pending && Platform.OS === "web") URL.revokeObjectURL(pending.uri);
-    setPending(null);
-    setDraftTitle("");
-    setDraftTags("");
-  };
-
   return (
     <View style={styles.card}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -155,44 +124,26 @@ function QuickVoiceCard() {
           <Text style={{ color: colors.primary, fontWeight: "700" }}>Thư viện →</Text>
         </TouchableOpacity>
       </View>
-      {pending ? (
-        <>
-          <PendingPreview uri={pending.uri} />
-          <Field placeholder="Tiêu đề (tùy chọn)" value={draftTitle} onChangeText={setDraftTitle} />
-          <Field
-            placeholder="Tags, cách nhau dấu phẩy (tùy chọn)"
-            value={draftTags}
-            onChangeText={setDraftTags}
-          />
-          <View style={{ flexDirection: "row", gap: spacing.md }}>
-            <TouchableOpacity
-              style={[styles.recordBtn, { flex: 1 }]}
-              onPress={save}
-              disabled={busy}
-            >
-              <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
-                {busy ? "Đang tải lên…" : "💾 Lưu"}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.recordBtn, styles.recordBtnActive, { flex: 1 }]}
-              onPress={discard}
-              disabled={busy}
-            >
-              <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>🗑 Hủy</Text>
-            </TouchableOpacity>
-          </View>
-        </>
-      ) : (
-        <TouchableOpacity
-          style={[styles.recordBtn, recorderState.isRecording && styles.recordBtnActive]}
-          onPress={toggle}
-        >
-          <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
-            {recorderState.isRecording
+      <TouchableOpacity
+        style={[styles.recordBtn, recorderState.isRecording && styles.recordBtnActive]}
+        onPress={toggle}
+        disabled={busy}
+      >
+        <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
+          {busy
+            ? "Đang tải lên…"
+            : recorderState.isRecording
               ? `⏹ Dừng & lưu (${formatDuration(recorderState.durationMillis)})`
               : "🎙️ Ghi âm nhanh"}
-          </Text>
+        </Text>
+      </TouchableOpacity>
+      {retry && (
+        <TouchableOpacity
+          style={[styles.recordBtn, styles.recordBtnActive]}
+          onPress={() => upload(retry.uri, retry.durationMs)}
+          disabled={busy}
+        >
+          <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>↻ Thử lại</Text>
         </TouchableOpacity>
       )}
       {error && <Text style={styles.error}>{error}</Text>}
