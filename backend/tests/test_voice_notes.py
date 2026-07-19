@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 import pytest
@@ -351,3 +352,116 @@ def test_worker_settings_registers_transcribe_voice_note():
     from app.agent.worker import WorkerSettings, transcribe_voice_note
 
     assert transcribe_voice_note in WorkerSettings.functions
+
+
+# --- Task 17: xoa + sua title/tags voice note ---
+
+
+@pytest.mark.asyncio
+async def test_delete_voice_note(db_session, storage_dir):
+    from app.models import VoiceNote
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x")
+    file_path = Path((await db_session.get(VoiceNote, uuid.UUID(out["id"]))).file_path)
+    assert file_path.is_file()
+
+    await voice_service.delete_voice_note(db_session, actor, uuid.UUID(out["id"]))
+
+    assert await db_session.get(VoiceNote, uuid.UUID(out["id"])) is None
+    assert not file_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_voice_note_file_da_mat_van_xoa_duoc_row(db_session, storage_dir):
+    """File tren dia co the da bi mat (hong/xoa tay) — Path.unlink(missing_ok=True)
+    khong duoc chan viec xoa row."""
+    from app.models import VoiceNote
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x")
+    note = await db_session.get(VoiceNote, uuid.UUID(out["id"]))
+    Path(note.file_path).unlink()
+
+    await voice_service.delete_voice_note(db_session, actor, uuid.UUID(out["id"]))
+
+    assert await db_session.get(VoiceNote, uuid.UUID(out["id"])) is None
+
+
+@pytest.mark.asyncio
+async def test_patch_title_tags(db_session, storage_dir):
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x",
+                                                 title="Cu", tags=["a"])
+
+    updated = await voice_service.update_voice_note(
+        db_session, actor, uuid.UUID(out["id"]), title="Hop sang", tags=["hop", "sang"])
+
+    assert updated["title"] == "Hop sang"
+    assert updated["tags"] == ["hop", "sang"]
+
+
+@pytest.mark.asyncio
+async def test_patch_chi_field_duoc_truyen_moi_doi(db_session, storage_dir):
+    """title=None (khong truyen) khong duoc ghi de title cu."""
+    from app.services import voice_service
+
+    actor = await _make_actor(db_session)
+    out = await voice_service.create_voice_note(db_session, actor, filename="a.m4a", data=b"x",
+                                                 title="Giu nguyen", tags=["a"])
+
+    updated = await voice_service.update_voice_note(
+        db_session, actor, uuid.UUID(out["id"]), tags=["b"])
+
+    assert updated["title"] == "Giu nguyen"
+    assert updated["tags"] == ["b"]
+
+
+@pytest.mark.asyncio
+async def test_nguoi_khac_khong_xoa_hay_sua_duoc(client, db_session, storage_dir):
+    ceo_h = await _ceo_headers(client)
+    m1 = await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")
+    up = await client.post("/api/v1/voice-notes", headers=_h(m1), files=_upload_files())
+    vid = up.json()["id"]
+
+    del_r = await client.delete(f"/api/v1/voice-notes/{vid}", headers=ceo_h)
+    assert del_r.status_code == 404
+
+    patch_r = await client.patch(f"/api/v1/voice-notes/{vid}", headers=ceo_h,
+                                 json={"title": "hack"})
+    assert patch_r.status_code == 404
+
+    # note van con nguyen ven voi chu nhan
+    still_there = await client.get(f"/api/v1/voice-notes/{vid}", headers=_h(m1))
+    assert still_there.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_delete_endpoint_204(client, storage_dir):
+    ceo_h = await _ceo_headers(client)
+    up = await client.post("/api/v1/voice-notes", headers=ceo_h, files=_upload_files())
+    vid = up.json()["id"]
+
+    r = await client.delete(f"/api/v1/voice-notes/{vid}", headers=ceo_h)
+    assert r.status_code == 204
+
+    assert (await client.get(f"/api/v1/voice-notes/{vid}", headers=ceo_h)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_endpoint_tra_ve_note_da_cap_nhat(client, storage_dir):
+    ceo_h = await _ceo_headers(client)
+    up = await client.post("/api/v1/voice-notes", headers=ceo_h, files=_upload_files(),
+                           data={"tags": "a"})
+    vid = up.json()["id"]
+
+    r = await client.patch(f"/api/v1/voice-notes/{vid}", headers=ceo_h,
+                           json={"title": "Hop sang", "tags": ["hop", "sang"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["title"] == "Hop sang"
+    assert sorted(body["tags"]) == ["hop", "sang"]

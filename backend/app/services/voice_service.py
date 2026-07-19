@@ -153,6 +153,28 @@ async def transcribe_note(db: AsyncSession, voice_note_id: uuid.UUID) -> None:
     await db.commit()
 
 
+async def delete_voice_note(db: AsyncSession, actor: User, voice_note_id: uuid.UUID) -> None:
+    note = await _get_own_or_404(db, actor, voice_note_id)
+    try:
+        Path(note.file_path).unlink(missing_ok=True)  # file hỏng/mất không chặn xóa row
+    except OSError:
+        pass
+    await db.delete(note)
+    await db.commit()
+
+
+async def update_voice_note(db: AsyncSession, actor: User, voice_note_id: uuid.UUID, *,
+                            title: str | None = None,
+                            tags: list[str] | None = None) -> dict:
+    note = await _get_own_or_404(db, actor, voice_note_id)
+    if title is not None:
+        note.title = title.strip() or None
+    if tags is not None:
+        note.tags = tags
+    await db.commit()
+    return _out(note)
+
+
 async def request_transcription(db: AsyncSession, actor: User,
                                  voice_note_id: uuid.UUID) -> dict:
     """User bấm "nhận dạng lại" — chỉ khi có STT thật (stt_mock=False), nếu không

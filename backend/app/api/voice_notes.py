@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import User
+from app.schemas import VoiceNotePatchIn
 from app.services import voice_service
 
 router = APIRouter(prefix="/api/v1/voice-notes", tags=["voice-notes"])
@@ -69,3 +70,18 @@ async def download_voice_note(voice_note_id: uuid.UUID,
                               db: AsyncSession = Depends(get_db)):
     path = await voice_service.get_file_path(db, actor, voice_note_id)
     return FileResponse(path)
+
+
+@router.delete("/{voice_note_id}", status_code=204)
+async def delete_voice_note(voice_note_id: uuid.UUID,
+                            actor: User = Depends(get_current_user),
+                            db: AsyncSession = Depends(get_db)):
+    await voice_service.delete_voice_note(db, actor, voice_note_id)
+
+
+@router.patch("/{voice_note_id}")
+async def patch_voice_note(voice_note_id: uuid.UUID, body: VoiceNotePatchIn,
+                           actor: User = Depends(get_current_user),
+                           db: AsyncSession = Depends(get_db)):
+    return await voice_service.update_voice_note(db, actor, voice_note_id,
+                                                 title=body.title, tags=body.tags)
