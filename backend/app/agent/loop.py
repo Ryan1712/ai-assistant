@@ -94,7 +94,11 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
         start = next((i for i, m in enumerate(msgs)
                       if m["role"] == "user" and m["content"]
                       and m["content"][0].get("type") == "text"), None)
-        msgs = msgs[start:] if start is not None else msgs[-1:]
+        # Không có message nào trong cửa sổ thỏa an toàn (chỉ có thể xảy ra nếu
+        # MAX_ITERATIONS tăng vượt MAX_HISTORY_MESSAGES/2 sau này) — KHÔNG đoán bừa
+        # bằng msgs[-1:] (message đó chưa chắc an toàn), trả rỗng còn hơn gửi lên
+        # Anthropic 1 message mở đầu bằng tool_result mồ côi.
+        msgs = msgs[start:] if start is not None else []
     return msgs
 
 
