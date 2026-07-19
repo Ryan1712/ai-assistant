@@ -43,7 +43,7 @@ class EvalClient:
         """Workspace eval mới toanh + nhân sự + project + task cố định cho scenarios."""
         run_id = uuid.uuid4().hex[:8]
         signup = _check(self.http.post("/api/v1/auth/signup-workspace", json={
-            "workspace_name": f"Eval {run_id}", "email": f"ceo-{run_id}@eval.local",
+            "workspace_name": f"Eval {run_id}", "email": f"ceo-{run_id}@smokeco.vn",
             "password": "secret123", "full_name": "Sếp Eval",
             "device_uuid": f"eval-{run_id}", "device_name": "eval"}), "signup ceo")
         self.tokens["ceo"] = signup["access_token"]
@@ -75,7 +75,7 @@ class EvalClient:
                      f"invite {full_name}")
         slug = full_name.lower().replace(" ", "-").encode("ascii", "ignore").decode() or "nv"
         joined = _check(self.http.post("/api/v1/auth/signup-invite", json={
-            "token": inv["token"], "email": f"{slug}-{uuid.uuid4().hex[:6]}@eval.local",
+            "token": inv["token"], "email": f"{slug}-{uuid.uuid4().hex[:6]}@smokeco.vn",
             "password": "pw123456", "full_name": full_name,
             "device_uuid": f"d-{uuid.uuid4().hex[:6]}", "device_name": "eval"}),
             f"join {full_name}")

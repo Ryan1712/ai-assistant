@@ -12,7 +12,7 @@ FakeLLMClient; eval test "model có chọn đúng tool không").
     python -m evals.run_evals       # terminal 3 (trong backend/, venv bật)
 
 Tùy chọn: `--base-url`, `--phase N` (chạy cả scenario phase sau), `--only <id>`.
-Mỗi lần chạy tạo workspace eval mới (email @eval.local) — không đụng data thật.
+Mỗi lần chạy tạo workspace eval mới (email @smokeco.vn) — không đụng data thật.
 Scenario dừng ở awaiting_confirmation sẽ bị runner TỪ CHỐI sau khi chấm.
 
 ## Quy ước (bắt buộc — spec §4.2)
