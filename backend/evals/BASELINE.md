@@ -46,3 +46,8 @@ Số liệu eval từ 2026-07-20, baseline trước snapshot/toolset động.
 2. **Model id anthropic qua gateway PHẢI kèm date suffix** (anthropic/claude-haiku-4-5-20251001)
 
 3. **Quan sát 1 mẫu** (chưa đủ dữ liệu kết luận): cùng scenario giao-task, Haiku-qua-gateway dừng hỏi lại sau list_users (thiếu create_task) trong khi glm-4.7-flash làm trọn — ghi để tham khảo
+
+## Backlog bắt buộc trước Phase 2
+
+- **Trace tool đã được confirm**: tool nhạy cảm chạy trong `resolve_confirmation` (ngoài `run_agent_loop`) hiện KHÔNG được ghi vào `agent_traces.tools_called` — request lock_user đã duyệt sẽ thiếu đúng tool quan trọng nhất trong trace. Phase 2 mở rộng `resolve_confirmation` cho `propose_actions` là thời điểm bắt buộc phải vá (ghi 1 dòng AgentTrace riêng hoặc nối vào trace của lần chạy kế).
+- Số scenario thực tế của bank: 15 (14 phase-0 + 1 phase-2) — plan Task 7 ghi nhầm "16"; đích dài hạn ~40-50 theo spec §4.2 qua quy ước "mỗi bug fix → thêm scenario".

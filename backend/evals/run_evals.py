@@ -100,17 +100,20 @@ class EvalClient:
         result.update({"id": sc["id"], "status": status, "called": called,
                        "pending": pending_tool})
         if status == "awaiting_confirmation":
-            # từ chối để không thực sự khóa acc/gửi email trong lúc eval; rồi CHỜ
-            # lượt "model nhận user_denied và trả lời" chạy xong — nếu không nó chạy
-            # nền song song với scenario kế tiếp, gateway 1-concurrency trả 429.
-            # Model có thể xin confirm tool khác → từ chối tiếp, tối đa 3 vòng.
-            deny_status = status
-            for _ in range(3):
-                if deny_status != "awaiting_confirmation":
-                    break
-                self.http.post(f"/api/v1/chat-requests/{req['id']}/confirm",
-                               headers=self._h(actor), json={"approved": False})
-                deny_status, _pending = self._poll(conv["id"], req["id"], actor)
+            try:
+                # từ chối để không thực sự khóa acc/gửi email trong lúc eval; rồi CHỜ
+                # lượt "model nhận user_denied và trả lời" chạy xong — nếu không nó chạy
+                # nền song song với scenario kế tiếp, gateway 1-concurrency trả 429.
+                # Model có thể xin confirm tool khác → từ chối tiếp, tối đa 3 vòng.
+                deny_status = status
+                for _ in range(3):
+                    if deny_status != "awaiting_confirmation":
+                        break
+                    self.http.post(f"/api/v1/chat-requests/{req['id']}/confirm",
+                                   headers=self._h(actor), json={"approved": False})
+                    deny_status, _pending = self._poll(conv["id"], req["id"], actor)
+            except Exception:
+                pass  # dọn dẹp best-effort — kết quả chấm đã chốt ở trên
         return result
 
     def _poll(self, conv_id: str, req_id: str, actor: str) -> tuple[str, str | None]:
@@ -129,9 +132,15 @@ class EvalClient:
         return "timeout", None
 
     def _called_tools(self, req_id: str) -> list[str]:
-        traces = _check(self.http.get(f"/api/v1/admin/traces/{req_id}",
-                                      headers=self._h("ceo")), "đọc trace")
-        return [t["name"] for tr in traces for t in tr["tools_called"]]
+        for attempt in range(2):
+            traces = _check(self.http.get(f"/api/v1/admin/traces/{req_id}",
+                                          headers=self._h("ceo")), "đọc trace")
+            names = [t["name"] for tr in traces for t in tr["tools_called"]]
+            if names or traces or attempt == 1:
+                return names
+            # status terminal đã visible nhưng dòng trace có thể chưa commit xong
+            time.sleep(0.5)
+        return []
 
 
 def main() -> int:
@@ -147,7 +156,8 @@ def main() -> int:
 
     scenarios = []
     for f in sorted((Path(__file__).parent / "scenarios").glob("*.yaml")):
-        scenarios.extend(yaml.safe_load(f.read_text(encoding="utf-8")))
+        loaded = yaml.safe_load(f.read_text(encoding="utf-8"))
+        scenarios.extend(loaded or [])
     if args.only:
         scenarios = [s for s in scenarios if s["id"] == args.only]
 

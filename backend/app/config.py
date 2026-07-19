@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     stt_mock: bool = True
     portal_base_url: str = "https://ceo.9learning.edu.vn"
 
-    model_config = {"env_file": ".env", "populate_by_name": True}
+    model_config = {"env_file": ".env", "populate_by_name": True, "protected_namespaces": ()}
 
 
 _DEFAULT_SECRETS = {"dev-secret-change-me", "dev-secret", ""}
