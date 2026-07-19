@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
@@ -11,11 +13,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.llm_client import LLMClient, StreamDone, TextDelta
 from app.agent.publisher import EventPublisher
 from app.agent.tools import SENSITIVE_TOOLS, TOOLS, call_tool
-from app.models import ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User
+from app.models import (
+    AgentTrace, ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User,
+)
 from app.services import instruction_service
 from app.tz import VN_TZ
 
 _VN_WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+
+logger = logging.getLogger(__name__)
+
+_TRACE_TRUNC = 500
+
+
+def _tool_trace_entry(name: str, tool_input: dict, result: dict, latency_ms: int) -> dict:
+    """1 phần tử tools_called của AgentTrace — input/output nén 500 ký tự (spec 4.1)."""
+    return {
+        "name": name, "latency_ms": latency_ms,
+        "input": json.dumps(tool_input, ensure_ascii=False, default=str)[:_TRACE_TRUNC],
+        "output": json.dumps(result, ensure_ascii=False, default=str)[:_TRACE_TRUNC],
+    }
 
 
 def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
@@ -132,6 +149,24 @@ async def run_agent_loop(
 
     actor = await db.get(User, req.user_id)
 
+    iteration = 0
+    trace_tools: list[dict] = []
+    loop_started = time.monotonic()
+
+    async def _write_trace(stop_reason: str) -> None:
+        """Ghi 1 dòng AgentTrace — lỗi ghi trace không bao giờ được phá request."""
+        try:
+            db.add(AgentTrace(
+                workspace_id=req.workspace_id, chat_request_id=req.id,
+                route="fast", model=getattr(llm, "model", ""),
+                iterations=iteration, stop_reason=stop_reason,
+                tools_called=trace_tools,
+                total_latency_ms=int((time.monotonic() - loop_started) * 1000)))
+            await db.commit()
+        except Exception:
+            logger.exception("ghi agent trace fail cho request %s", req.id)
+            await db.rollback()
+
     async def _cancel_and_exit() -> None:
         req.status = ChatRequestStatus.cancelled
         req.finished_at = datetime.now(timezone.utc)
@@ -139,9 +174,9 @@ async def run_agent_loop(
         await publisher.publish(req.conversation_id,
                                 {"type": "status_update", "chat_request_id": str(req.id),
                                  "status": "cancelled"})
+        await _write_trace("cancelled")
 
     try:
-        iteration = 0
         while True:
             if await check_cancelled(req.id):
                 await _cancel_and_exit()
@@ -150,6 +185,7 @@ async def run_agent_loop(
             iteration += 1
             if iteration > MAX_ITERATIONS:
                 await _mark_failed(db, req, publisher, "max_iterations_exceeded")
+                await _write_trace("max_iterations")
                 return
 
             history = await _load_history(db, req.conversation_id, req.id)
@@ -212,6 +248,7 @@ async def run_agent_loop(
                 await publisher.publish(req.conversation_id,
                                         {"type": "request_done", "chat_request_id": str(req.id),
                                          "result_summary": req.result_summary})
+                await _write_trace(done.stop_reason)
                 return
 
             first_sensitive = next((tu for tu in done.tool_uses if tu.name in SENSITIVE_TOOLS),
@@ -227,6 +264,7 @@ async def run_agent_loop(
                                          "chat_request_id": str(req.id),
                                          "tool_name": first_sensitive.name,
                                          "tool_input": first_sensitive.input})
+                await _write_trace("awaiting_confirmation")
                 return
 
             tool_results = []
@@ -234,7 +272,11 @@ async def run_agent_loop(
                 await publisher.publish(req.conversation_id,
                                         {"type": "tool_running", "chat_request_id": str(req.id),
                                          "tool_name": tu.name})
+                tool_started = time.monotonic()
                 result = await call_tool(db, actor, tu.name, tu.input)
+                trace_tools.append(_tool_trace_entry(
+                    tu.name, tu.input, result,
+                    int((time.monotonic() - tool_started) * 1000)))
                 tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
                                      "content": json.dumps(result, default=str)})
             db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
@@ -242,6 +284,7 @@ async def run_agent_loop(
             await db.commit()
     except Exception as exc:
         await _mark_failed(db, req, publisher, str(exc))
+        await _write_trace("error")
 
 
 async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: bool) -> None:
