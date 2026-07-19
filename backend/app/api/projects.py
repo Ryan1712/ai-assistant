@@ -31,3 +31,9 @@ async def patch_project(project_id: uuid.UUID, body: ProjectPatchIn,
                         db: AsyncSession = Depends(get_db)):
     return await work_service.update_project(
         db, actor, project_id, body.model_dump(exclude_unset=True))
+
+
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(project_id: uuid.UUID, actor: User = Depends(get_current_user),
+                         db: AsyncSession = Depends(get_db)):
+    await work_service.delete_project(db, actor, project_id)

@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import plans
@@ -104,6 +105,56 @@ async def update_task(db: AsyncSession, actor: User, task_id: uuid.UUID, patch: 
         setattr(task, key, value)
     await db.commit()
     return await _task_out(db, task)
+
+
+async def _delete_task_rows(db: AsyncSession, task: Task) -> None:
+    """Xóa 1 task + mọi row con. KHÔNG commit — caller gom transaction."""
+    from app.models import Attachment, EmailMessage, VoiceNote
+
+    atts = (await db.execute(select(Attachment).where(
+        Attachment.task_id == task.id))).scalars().all()
+    for att in atts:
+        try:
+            Path(att.file_path).unlink(missing_ok=True)  # file mất/hỏng không chặn xóa
+        except OSError:
+            pass
+        await db.delete(att)
+    for model in (TaskAssignee, TaskUpdate, TaskComment):
+        await db.execute(sa_delete(model).where(model.task_id == task.id))
+    # Tham chiếu lỏng (cột nullable) → gỡ link, giữ nguyên dữ liệu gốc
+    await db.execute(sa_update(VoiceNote).where(VoiceNote.task_id == task.id)
+                     .values(task_id=None))
+    await db.execute(sa_update(EmailMessage).where(EmailMessage.task_id == task.id)
+                     .values(task_id=None))
+    await db.delete(task)
+
+
+async def delete_task(db: AsyncSession, actor: User, task_id: uuid.UUID) -> None:
+    require_ceo(actor)
+    task = await db.get(Task, task_id)
+    if task is None or task.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "task_not_found")
+    await _delete_task_rows(db, task)
+    await db.commit()
+
+
+async def delete_project(db: AsyncSession, actor: User, project_id: uuid.UUID) -> None:
+    require_ceo(actor)
+    project = await db.get(Project, project_id)
+    if project is None or project.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "project_not_found")
+    from app.models import EmailMessage, VoiceNote
+
+    tasks = (await db.execute(select(Task).where(
+        Task.project_id == project_id))).scalars().all()
+    for task in tasks:
+        await _delete_task_rows(db, task)
+    await db.execute(sa_update(VoiceNote).where(VoiceNote.project_id == project_id)
+                     .values(project_id=None))
+    await db.execute(sa_update(EmailMessage).where(EmailMessage.project_id == project_id)
+                     .values(project_id=None))
+    await db.delete(project)
+    await db.commit()
 
 
 async def assign_task(db: AsyncSession, actor: User, task_id: uuid.UUID,

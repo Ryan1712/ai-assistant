@@ -47,6 +47,12 @@ async def patch_task(task_id: uuid.UUID, body: TaskPatchIn,
         db, actor, task_id, body.model_dump(exclude_unset=True))
 
 
+@router.delete("/{task_id}", status_code=204)
+async def delete_task(task_id: uuid.UUID, actor: User = Depends(get_current_user),
+                      db: AsyncSession = Depends(get_db)):
+    await work_service.delete_task(db, actor, task_id)
+
+
 @router.post("/{task_id}/assignees", responses={201: {"description": "Assigned"}})
 async def assign(task_id: uuid.UUID, body: AssigneeIn,
                  actor: User = Depends(get_current_user),

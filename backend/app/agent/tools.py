@@ -101,6 +101,14 @@ class UnassignTaskToolIn(BaseModel):
     user_id: uuid.UUID
 
 
+class DeleteTaskToolIn(BaseModel):
+    task_id: uuid.UUID
+
+
+class DeleteProjectToolIn(BaseModel):
+    project_id: uuid.UUID
+
+
 async def _create_project(db, actor, body: ProjectCreateIn) -> dict:
     project = await work_service.create_project(db, actor, **body.model_dump())
     return {"id": str(project.id), "name": project.name, "status": project.status}
@@ -161,6 +169,22 @@ _register("list_tasks", "Liệt kê task mà actor được thấy.", NoArgsIn, 
 _register("get_task", "Xem chi tiết 1 task theo id.", GetTaskToolIn, _get_task)
 _register("assign_task", "Gán 1 người vào task (chỉ CEO).", AssignTaskToolIn, _assign_task)
 _register("unassign_task", "Bỏ gán 1 người khỏi task (chỉ CEO).", UnassignTaskToolIn, _unassign_task)
+
+
+async def _delete_task(db, actor, body: DeleteTaskToolIn) -> dict:
+    await work_service.delete_task(db, actor, body.task_id)
+    return {"deleted": True}
+
+
+async def _delete_project(db, actor, body: DeleteProjectToolIn) -> dict:
+    await work_service.delete_project(db, actor, body.project_id)
+    return {"deleted": True}
+
+
+_register("delete_task", "Xóa vĩnh viễn 1 task (chỉ CEO; xóa cả bình luận/cập nhật/"
+          "đính kèm của nó).", DeleteTaskToolIn, _delete_task, sensitive=True)
+_register("delete_project", "Xóa vĩnh viễn 1 project VÀ TOÀN BỘ task bên trong "
+          "(chỉ CEO).", DeleteProjectToolIn, _delete_project, sensitive=True)
 
 
 class AddTaskUpdateToolIn(TaskUpdateCreateIn):
