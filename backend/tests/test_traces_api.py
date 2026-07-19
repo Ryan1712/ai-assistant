@@ -40,6 +40,12 @@ async def test_ceo_xem_duoc_trace(client, db_session):
     assert len(body) == 1
     assert body[0]["stop_reason"] == "end_turn"
     assert body[0]["model"] == "fake"
+    assert body[0]["chat_request_id"] == str(req.id)
+    assert body[0]["route"] == "fast"
+    assert body[0]["iterations"] == 1
+    assert body[0]["tools_called"] == []
+    assert body[0]["total_latency_ms"] == 10
+    assert body[0]["created_at"] is not None
 
 
 async def test_request_khong_ton_tai_tra_mang_rong(client):
@@ -76,3 +82,18 @@ async def test_nhan_vien_bi_403(client, db_session):
     emp_headers = {"Authorization": f"Bearer {emp_join.json()['access_token']}"}
     resp = await client.get(f"/api/v1/admin/traces/{req.id}", headers=emp_headers)
     assert resp.status_code == 403
+
+
+async def test_trace_workspace_khac_khong_lo(client, db_session):
+    """Cach ly tenant: CEO workspace A query chat_request_id co trace THAT o
+    workspace B phai nhan mang RONG (khong 404 — khong lo ca su ton tai)."""
+    headers_a = await _ceo_headers(client)
+    resp = await client.post("/api/v1/auth/signup-workspace", json={
+        "workspace_name": "Cong ty B", "email": "ceo@b.vn", "password": "secret123",
+        "full_name": "Sep B", "device_uuid": "dev-b", "device_name": "",
+    })
+    assert resp.status_code == 201, resp.text
+    req_b = await _seed_trace(db_session, email="ceo@b.vn")
+    resp = await client.get(f"/api/v1/admin/traces/{req_b.id}", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json() == []
