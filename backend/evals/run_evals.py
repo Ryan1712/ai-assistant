@@ -27,6 +27,8 @@ POLL_INTERVAL_S = 1.5
 def _check(resp: httpx.Response, what: str) -> dict | list:
     if resp.status_code >= 400:
         raise RuntimeError(f"{what} fail: HTTP {resp.status_code} {resp.text[:300]}")
+    if not resp.content:
+        return {}  # một số endpoint (vd assign task) chủ đích trả body rỗng
     return resp.json()
 
 
