@@ -10,6 +10,7 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -115,6 +116,7 @@ function QuickVoiceCard() {
         title: draftTitle.trim() || undefined,
         tags: draftTags.split(",").map((t) => t.trim()).filter(Boolean),
       });
+      if (Platform.OS === "web") URL.revokeObjectURL(pending.uri); // blob preview không revoke = leak
       setPending(null);
       setDraftTitle("");
       setDraftTags("");
@@ -131,6 +133,7 @@ function QuickVoiceCard() {
   };
 
   const discard = () => {
+    if (pending && Platform.OS === "web") URL.revokeObjectURL(pending.uri);
     setPending(null);
     setDraftTitle("");
     setDraftTags("");

@@ -164,7 +164,10 @@ export default function VoiceNotesScreen() {
     setConfirmingDeleteId(null);
     try {
       await deleteVoiceNote(id);
-      if (playingId === id) setPlayingId(null);
+      if (playingId === id) {
+        player.pause(); // xoa note dang phat khong duoc de audio tiep tuc chay ngam
+        setPlayingId(null);
+      }
       load();
     } catch (e: any) {
       setError(String(e?.message ?? e));
