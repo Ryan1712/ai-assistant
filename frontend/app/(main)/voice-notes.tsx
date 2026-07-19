@@ -6,6 +6,7 @@ import {
   VoiceNote,
   deleteVoiceNote,
   listVoiceNotes,
+  patchVoiceNote,
   retranscribeVoiceNote,
   voiceNoteAudioSource,
 } from "../../src/api/voice";
@@ -40,17 +41,35 @@ function VoiceNoteRow({
   isCurrent,
   playing,
   confirmingDelete,
+  editing,
+  draftTitle,
+  draftTags,
+  editBusy,
   onToggle,
   onDelete,
   onRetranscribe,
+  onStartEdit,
+  onChangeDraftTitle,
+  onChangeDraftTags,
+  onSaveEdit,
+  onCancelEdit,
 }: {
   note: VoiceNote;
   isCurrent: boolean;
   playing: boolean;
   confirmingDelete: boolean;
+  editing: boolean;
+  draftTitle: string;
+  draftTags: string;
+  editBusy: boolean;
   onToggle: () => void;
   onDelete: (id: string) => void;
   onRetranscribe: (id: string) => void;
+  onStartEdit: (note: VoiceNote) => void;
+  onChangeDraftTitle: (v: string) => void;
+  onChangeDraftTags: (v: string) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
 }) {
   const router = useRouter();
   return (
@@ -66,15 +85,34 @@ function VoiceNoteRow({
           </Text>
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontWeight: "600", color: colors.text }}>
-            {note.title || new Date(note.created_at).toLocaleString("vi-VN")}
-          </Text>
-          <Text style={styles.meta}>
-            {new Date(note.created_at).toLocaleString("vi-VN")}
-            {note.duration_seconds != null ? ` · ${formatDuration(note.duration_seconds * 1000)}` : ""}
-          </Text>
-          {note.tags.length > 0 && (
-            <Text style={styles.meta}>{note.tags.map((t) => `#${t}`).join(" · ")}</Text>
+          {editing ? (
+            <>
+              <Field
+                placeholder="Tiêu đề"
+                value={draftTitle}
+                onChangeText={onChangeDraftTitle}
+                style={{ marginBottom: spacing.xs }}
+              />
+              <Field
+                placeholder="Tags, cách nhau dấu phẩy"
+                value={draftTags}
+                onChangeText={onChangeDraftTags}
+                style={{ marginBottom: 0 }}
+              />
+            </>
+          ) : (
+            <>
+              <Text style={{ fontWeight: "600", color: colors.text }}>
+                {note.title || new Date(note.created_at).toLocaleString("vi-VN")}
+              </Text>
+              <Text style={styles.meta}>
+                {new Date(note.created_at).toLocaleString("vi-VN")}
+                {note.duration_seconds != null ? ` · ${formatDuration(note.duration_seconds * 1000)}` : ""}
+              </Text>
+              {note.tags.length > 0 && (
+                <Text style={styles.meta}>{note.tags.map((t) => `#${t}`).join(" · ")}</Text>
+              )}
+            </>
           )}
         </View>
       </View>
@@ -86,18 +124,34 @@ function VoiceNoteRow({
           <Text style={{ color: colors.primary, fontWeight: "700" }}>Xem task liên quan →</Text>
         </TouchableOpacity>
       )}
-      <View style={{ flexDirection: "row", gap: spacing.md }}>
-        {note.transcript_status === "failed" && (
-          <TouchableOpacity onPress={() => onRetranscribe(note.id)}>
-            <Text style={{ color: colors.primary, fontWeight: "700" }}>↻ Nhận dạng lại</Text>
+      {editing ? (
+        <View style={{ flexDirection: "row", gap: spacing.md }}>
+          <TouchableOpacity onPress={onSaveEdit} disabled={editBusy}>
+            <Text style={{ color: colors.primary, fontWeight: "700" }}>
+              {editBusy ? "Đang lưu…" : "💾 Lưu"}
+            </Text>
           </TouchableOpacity>
-        )}
-        <TouchableOpacity onPress={() => onDelete(note.id)}>
-          <Text style={{ color: colors.danger, fontWeight: "700" }}>
-            {confirmingDelete ? "Chạm lần nữa để xóa!" : "🗑 Xóa"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity onPress={onCancelEdit} disabled={editBusy}>
+            <Text style={{ color: colors.textSecondary, fontWeight: "700" }}>Hủy</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", gap: spacing.md }}>
+          <TouchableOpacity onPress={() => onStartEdit(note)}>
+            <Text style={{ color: colors.primary, fontWeight: "700" }}>✏️ Sửa</Text>
+          </TouchableOpacity>
+          {note.transcript_status === "failed" && (
+            <TouchableOpacity onPress={() => onRetranscribe(note.id)}>
+              <Text style={{ color: colors.primary, fontWeight: "700" }}>↻ Nhận dạng lại</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => onDelete(note.id)}>
+            <Text style={{ color: colors.danger, fontWeight: "700" }}>
+              {confirmingDelete ? "Chạm lần nữa để xóa!" : "🗑 Xóa"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -110,6 +164,10 @@ export default function VoiceNotesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftTags, setDraftTags] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
   const trackWidth = useRef(0);
 
   const player = useAudioPlayer(null);
@@ -171,6 +229,34 @@ export default function VoiceNotesScreen() {
       load();
     } catch (e: any) {
       setError(String(e?.message ?? e));
+    }
+  };
+
+  const startEdit = (note: VoiceNote) => {
+    setEditingId(note.id);
+    setDraftTitle(note.title ?? "");
+    setDraftTags(note.tags.join(", "));
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    setEditBusy(true);
+    setError(null);
+    try {
+      await patchVoiceNote(editingId, {
+        title: draftTitle.trim(),
+        tags: draftTags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
+      setEditingId(null);
+      load();
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -236,9 +322,18 @@ export default function VoiceNotesScreen() {
               isCurrent={playingId === n.id}
               playing={playingId === n.id && status.playing}
               confirmingDelete={confirmingDeleteId === n.id}
+              editing={editingId === n.id}
+              draftTitle={draftTitle}
+              draftTags={draftTags}
+              editBusy={editBusy}
               onToggle={() => toggle(n)}
               onDelete={remove}
               onRetranscribe={retranscribe}
+              onStartEdit={startEdit}
+              onChangeDraftTitle={setDraftTitle}
+              onChangeDraftTags={setDraftTags}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}
             />
           ))}
         </View>
