@@ -2,6 +2,8 @@ import {
   AudioModule,
   RecordingPresets,
   setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
@@ -18,7 +20,9 @@ import {
 import { useRouter } from "expo-router";
 import { DashTask, Subscription, TodayDashboard, getSubscription, getTodayDashboard } from "../../src/api/dashboard";
 import { VoiceNote, listVoiceNotes, uploadVoiceNote } from "../../src/api/voice";
+import { Field } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
+import { formatDuration } from "../../src/util/format";
 
 function localToday(): string {
   const d = new Date();
@@ -27,14 +31,24 @@ function localToday(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
-  const ss = String(totalSeconds % 60).padStart(2, "0");
-  return `${mm}:${ss}`;
-}
-
 const VISIBLE_NOTES = 3;
+
+type Pending = { uri: string; durationMs: number };
+
+function PendingPreview({ uri }: { uri: string }) {
+  const player = useAudioPlayer({ uri });
+  const status = useAudioPlayerStatus(player);
+  return (
+    <TouchableOpacity
+      style={styles.recordBtn}
+      onPress={() => (status.playing ? player.pause() : player.play())}
+    >
+      <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
+        {status.playing ? "⏸ Tạm dừng" : "▶ Nghe lại trước khi lưu"}
+      </Text>
+    </TouchableOpacity>
+  );
+}
 
 function QuickVoiceCard() {
   const router = useRouter();
@@ -44,10 +58,17 @@ function QuickVoiceCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftTags, setDraftTags] = useState("");
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => {
     if (savedTimer.current) clearTimeout(savedTimer.current);
+    // Rời màn khi đang ghi: dừng recorder + trả audio mode, không giữ mic
+    try { recorder.stop(); } catch {}
+    setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadNotes = useCallback(async () => {
@@ -64,17 +85,11 @@ function QuickVoiceCard() {
     setError(null);
     try {
       if (recorderState.isRecording) {
-        setBusy(true);
         // Phai doc truoc khi stop() - recorder tu reset ve 0 ngay sau khi dung.
         const durationMs = recorderState.durationMillis;
         await recorder.stop();
-        if (recorder.uri) {
-          await uploadVoiceNote(recorder.uri, durationMs);
-          await loadNotes();
-          setSaved(true); // peak-end: lưu xong phải thấy ngay là đã lưu
-          if (savedTimer.current) clearTimeout(savedTimer.current);
-          savedTimer.current = setTimeout(() => setSaved(false), 2500);
-        }
+        if (recorder.uri) setPending({ uri: recorder.uri, durationMs });
+        else setError("Không lấy được file ghi âm — thử lại.");
       } else {
         const perm = await AudioModule.requestRecordingPermissionsAsync();
         if (!perm.granted) {
@@ -85,11 +100,40 @@ function QuickVoiceCard() {
         await recorder.prepareToRecordAsync();
         recorder.record();
       }
-    } catch (e) {
-      setError("Ghi âm/tải lên thất bại — thử lại nhé.");
+    } catch {
+      setError("Ghi âm thất bại — thử lại nhé.");
+    }
+  };
+
+  const save = async () => {
+    if (!pending) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await uploadVoiceNote(pending.uri, {
+        durationMs: pending.durationMs,
+        title: draftTitle.trim() || undefined,
+        tags: draftTags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
+      setPending(null);
+      setDraftTitle("");
+      setDraftTags("");
+      await loadNotes();
+      setSaved(true); // peak-end: lưu xong phải thấy ngay là đã lưu
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2500);
+    } catch {
+      // GIỮ pending để bấm Lưu lại được — audio không mất khi upload lỗi
+      setError("Tải lên thất bại — bấm Lưu để thử lại.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const discard = () => {
+    setPending(null);
+    setDraftTitle("");
+    setDraftTags("");
   };
 
   return (
@@ -100,19 +144,46 @@ function QuickVoiceCard() {
           <Text style={{ color: colors.primary, fontWeight: "700" }}>Thư viện →</Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity
-        style={[styles.recordBtn, recorderState.isRecording && styles.recordBtnActive]}
-        onPress={toggle}
-        disabled={busy}
-      >
-        <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
-          {busy
-            ? "Đang tải lên…"
-            : recorderState.isRecording
+      {pending ? (
+        <>
+          <PendingPreview uri={pending.uri} />
+          <Field placeholder="Tiêu đề (tùy chọn)" value={draftTitle} onChangeText={setDraftTitle} />
+          <Field
+            placeholder="Tags, cách nhau dấu phẩy (tùy chọn)"
+            value={draftTags}
+            onChangeText={setDraftTags}
+          />
+          <View style={{ flexDirection: "row", gap: spacing.md }}>
+            <TouchableOpacity
+              style={[styles.recordBtn, { flex: 1 }]}
+              onPress={save}
+              disabled={busy}
+            >
+              <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
+                {busy ? "Đang tải lên…" : "💾 Lưu"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.recordBtn, styles.recordBtnActive, { flex: 1 }]}
+              onPress={discard}
+              disabled={busy}
+            >
+              <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>🗑 Hủy</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : (
+        <TouchableOpacity
+          style={[styles.recordBtn, recorderState.isRecording && styles.recordBtnActive]}
+          onPress={toggle}
+        >
+          <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
+            {recorderState.isRecording
               ? `⏹ Dừng & lưu (${formatDuration(recorderState.durationMillis)})`
               : "🎙️ Ghi âm nhanh"}
-        </Text>
-      </TouchableOpacity>
+          </Text>
+        </TouchableOpacity>
+      )}
       {error && <Text style={styles.error}>{error}</Text>}
       {saved && <Text style={styles.saved}>✓ Đã lưu ghi âm</Text>}
       {notes.length === 0 ? (

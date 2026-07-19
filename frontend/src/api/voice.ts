@@ -7,6 +7,9 @@ export type VoiceNote = {
   id: string;
   transcript: string;
   language: string;
+  transcript_status: "pending" | "queued" | "processing" | "done" | "failed";
+  title: string | null;
+  duration_seconds: number | null;
   tags: string[];
   task_id: string | null;
   project_id: string | null;
@@ -21,6 +24,19 @@ export const listVoiceNotes = (onDate?: string, tag?: string) => {
   return apiFetch<VoiceNote[]>(`/api/v1/voice-notes${qs ? `?${qs}` : ""}`);
 };
 
+export const deleteVoiceNote = (id: string) =>
+  apiFetch<void>(`/api/v1/voice-notes/${id}`, { method: "DELETE" });
+
+export const patchVoiceNote = (id: string, body: { title?: string; tags?: string[] }) =>
+  apiFetch<VoiceNote>(`/api/v1/voice-notes/${id}`, { method: "PATCH", body });
+
+export const retranscribeVoiceNote = (id: string) =>
+  apiFetch<{ id: string; status: string }>(`/api/v1/voice-notes/${id}/transcribe`, {
+    method: "POST",
+  });
+
+let _lastBlobUrl: string | null = null;
+
 /** Audio source để phát ghi âm qua expo-audio (cần Bearer token vì endpoint yêu cầu đăng nhập). */
 export async function voiceNoteAudioSource(id: string) {
   const url = `${API_URL}/api/v1/voice-notes/${id}/file`;
@@ -31,8 +47,11 @@ export async function voiceNoteAudioSource(id: string) {
     // bỏ qua, request tới /file thiếu Authorization nên bị từ chối, phát
     // lỗi "no supported source". Phải tự fetch kèm header rồi phát qua blob URL.
     const resp = await fetch(url, { headers });
+    if (!resp.ok) throw new Error(`Không tải được file ghi âm (${resp.status})`);
     const blob = await resp.blob();
-    return { uri: URL.createObjectURL(blob) };
+    if (_lastBlobUrl) URL.revokeObjectURL(_lastBlobUrl); // blob cũ không revoke = leak
+    _lastBlobUrl = URL.createObjectURL(blob);
+    return { uri: _lastBlobUrl };
   }
   return { uri: url, headers };
 }
@@ -45,7 +64,11 @@ function extensionForMimeType(mimeType: string): string {
   return "webm";
 }
 
-export const uploadVoiceNote = async (uri: string, durationMs?: number) => {
+export const uploadVoiceNote = async (
+  uri: string,
+  opts: { durationMs?: number; tags?: string[]; title?: string } = {},
+) => {
+  const { durationMs, tags, title } = opts;
   const form = new FormData();
   if (Platform.OS === "web") {
     // Web: uri là blob: URL — {uri,name,type} kiểu RN bị FormData trình duyệt
@@ -63,5 +86,8 @@ export const uploadVoiceNote = async (uri: string, durationMs?: number) => {
     // RN FormData nhận {uri, name, type} cho file — cast vì DOM types không biết
     form.append("file", { uri, name, type: "audio/m4a" } as unknown as Blob);
   }
+  if (tags && tags.length > 0) form.append("tags", tags.join(","));
+  if (title) form.append("title", title);
+  if (durationMs) form.append("duration_seconds", String(durationMs / 1000));
   return apiFetch<VoiceNote>("/api/v1/voice-notes", { method: "POST", body: form });
 };
