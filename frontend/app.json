@@ -34,7 +34,8 @@
           "microphonePermission": "Cho phép dùng micro để nói với trợ lý AI",
           "speechRecognitionPermission": "Chuyển giọng nói của bạn thành văn bản để gửi cho trợ lý AI"
         }
-      ]
+      ],
+      "expo-status-bar"
     ]
   }
 }
