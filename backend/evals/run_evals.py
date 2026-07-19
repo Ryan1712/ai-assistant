@@ -100,9 +100,17 @@ class EvalClient:
         result.update({"id": sc["id"], "status": status, "called": called,
                        "pending": pending_tool})
         if status == "awaiting_confirmation":
-            # từ chối để không thực sự khóa acc/gửi email trong lúc eval
-            self.http.post(f"/api/v1/chat-requests/{req['id']}/confirm",
-                           headers=self._h(actor), json={"approved": False})
+            # từ chối để không thực sự khóa acc/gửi email trong lúc eval; rồi CHỜ
+            # lượt "model nhận user_denied và trả lời" chạy xong — nếu không nó chạy
+            # nền song song với scenario kế tiếp, gateway 1-concurrency trả 429.
+            # Model có thể xin confirm tool khác → từ chối tiếp, tối đa 3 vòng.
+            deny_status = status
+            for _ in range(3):
+                if deny_status != "awaiting_confirmation":
+                    break
+                self.http.post(f"/api/v1/chat-requests/{req['id']}/confirm",
+                               headers=self._h(actor), json={"approved": False})
+                deny_status, _pending = self._poll(conv["id"], req["id"], actor)
         return result
 
     def _poll(self, conv_id: str, req_id: str, actor: str) -> tuple[str, str | None]:
@@ -127,6 +135,9 @@ class EvalClient:
 
 
 def main() -> int:
+    # Console Windows mặc định cp1252 — in tiếng Việt sẽ UnicodeEncodeError.
+    if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+        sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8000")
     ap.add_argument("--phase", type=int, default=0,
