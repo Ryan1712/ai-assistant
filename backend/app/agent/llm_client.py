@@ -35,7 +35,7 @@ class LLMClient(abc.ABC):
     model: str = "unknown"
 
     @abc.abstractmethod
-    def stream(self, *, system: str, messages: list[dict],
+    def stream(self, *, system: str | list[dict], messages: list[dict],
               tools: list[dict]) -> AsyncIterator[StreamEvent]:
         ...
 
@@ -48,7 +48,7 @@ class FakeLLMClient(LLMClient):
         self.calls: list[dict] = []
         self.model = model
 
-    async def stream(self, *, system: str, messages: list[dict],
+    async def stream(self, *, system: str | list[dict], messages: list[dict],
                      tools: list[dict]) -> AsyncIterator[StreamEvent]:
         self.calls.append({"system": system, "messages": messages, "tools": tools})
         events = self._turns.pop(0)
@@ -72,15 +72,22 @@ class AnthropicLLMClient(LLMClient):
         self.model = model
         self._max_tokens = max_tokens
 
-    async def stream(self, *, system: str, messages: list[dict],
+    async def stream(self, *, system: str | list[dict], messages: list[dict],
                      tools: list[dict]) -> AsyncIterator[StreamEvent]:
         import json
 
         # Prompt caching: system prompt + ~44 tool schema giống hệt nhau giữa các
         # lượt — không cache thì mỗi vòng tool trả tiền input đầy đủ cho toàn bộ.
         # cache_control đặt ở block cuối của mỗi vùng (system, tools) theo API Anthropic.
-        system_payload = [{"type": "text", "text": system,
-                           "cache_control": {"type": "ephemeral"}}]
+        if isinstance(system, str):
+            system_payload = [{"type": "text", "text": system,
+                               "cache_control": {"type": "ephemeral"}}]
+        else:
+            # [tĩnh, *động] (Phase 1): breakpoint ở block ĐẦU — block động
+            # (instruction/snapshot đổi thường xuyên) đứng sau, không phá cache
+            # của tools + phần tĩnh. Copy dict, không mutate input.
+            system_payload = [{**system[0], "cache_control": {"type": "ephemeral"}},
+                              *(dict(b) for b in system[1:])]
         tools_payload = list(tools)
         if tools_payload:
             tools_payload = tools_payload[:-1] + [

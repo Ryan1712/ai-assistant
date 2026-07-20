@@ -62,3 +62,29 @@ async def test_khong_co_message_van_chay():
     async for _ in llm.stream(system="sys", messages=[], tools=[]):
         pass
     assert fake.messages.kwargs["messages"] == []
+
+
+async def test_system_2_block_cache_o_block_dau():
+    """Phase 1: [tĩnh, động] — breakpoint ở block tĩnh; block động (snapshot đổi
+    thường xuyên) không phá cache của tools+phần tĩnh."""
+    fake = _FakeClient()
+    llm = AnthropicLLMClient(fake, model="m")
+    sys_blocks = [{"type": "text", "text": "phần tĩnh"},
+                  {"type": "text", "text": "# Trạng thái công ty\n..."}]
+    async for _ in llm.stream(system=sys_blocks, messages=[], tools=[]):
+        pass
+    sent = fake.messages.kwargs["system"]
+    assert sent[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in sent[1]
+    assert sent[1]["text"].startswith("# Trạng thái công ty")
+    # không mutate input
+    assert "cache_control" not in sys_blocks[0]
+
+
+async def test_system_str_giu_hanh_vi_cu():
+    fake = _FakeClient()
+    llm = AnthropicLLMClient(fake, model="m")
+    async for _ in llm.stream(system="sys", messages=[], tools=[]):
+        pass
+    assert fake.messages.kwargs["system"] == [
+        {"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}]
