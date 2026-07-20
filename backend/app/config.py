@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     email_mock: bool = True
     stt_mock: bool = True
     portal_base_url: str = "https://ceo.9learning.edu.vn"
+    # Snapshot workspace (spec AI upgrade §5): TTL fallback khi không có invalidation
+    # (ghi từ REST của FE); ghi qua agent tool được invalidate ngay.
+    snapshot_ttl_seconds: int = 300
 
     model_config = {"env_file": ".env", "populate_by_name": True, "protected_namespaces": ()}
 

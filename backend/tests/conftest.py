@@ -73,3 +73,13 @@ def storage_dir(tmp_path, monkeypatch):
     # get_settings() là lru_cache — monkeypatch attr trên instance, tự hoàn nguyên sau test
     monkeypatch.setattr(get_settings(), "storage_dir", str(tmp_path))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def fake_snapshot_store(monkeypatch):
+    # Mọi test dùng FakeSnapshotStore — unit test không cần redis thật, và
+    # agent-loop test không ghi rác vào redis dev.
+    from app.services import snapshot_service
+    store = snapshot_service.FakeSnapshotStore()
+    monkeypatch.setattr(snapshot_service, "get_snapshot_store", lambda: store)
+    return store
