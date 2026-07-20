@@ -319,3 +319,41 @@ def render_for_actor(data: dict, actor_user_id: str, *, visible_projects: set[st
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS] + "\n(… snapshot dài quá đã bị cắt)"
     return text
+
+
+from app.permissions import visible_project_ids, visible_task_ids, visible_user_ids
+
+
+async def get_snapshot_text(db, actor, *, now: datetime | None = None) -> str:
+    """Text '# Trạng thái công ty' theo phạm vi quyền actor.
+
+    KHÔNG BAO GIỜ raise — snapshot là tăng cường; redis/SQL lỗi thì trả "" và
+    log, chat vẫn chạy như trước Phase 1."""
+    try:
+        from app.config import get_settings
+
+        store = get_snapshot_store()
+        key = _key(actor.workspace_id)
+        raw = await store.get(key)
+        if raw is None:
+            data = await build_workspace_data(db, actor.workspace_id, now=now)
+            await store.set(key, json.dumps(data, ensure_ascii=False),
+                            get_settings().snapshot_ttl_seconds)
+        else:
+            data = json.loads(raw)
+        vp = {str(i) for i in await visible_project_ids(db, actor)}
+        vt = {str(i) for i in await visible_task_ids(db, actor)}
+        vu = {str(i) for i in await visible_user_ids(db, actor)}
+        return render_for_actor(data, str(actor.id), visible_projects=vp,
+                                visible_tasks=vt, visible_users=vu, now=now)
+    except Exception:
+        logger.exception("snapshot fail cho workspace %s", actor.workspace_id)
+        return ""
+
+
+async def invalidate(workspace_id) -> None:
+    """Xóa cache snapshot của workspace (gọi sau write-tool của agent). Nuốt lỗi."""
+    try:
+        await get_snapshot_store().delete(_key(workspace_id))
+    except Exception:
+        logger.exception("snapshot invalidate fail cho workspace %s", workspace_id)
