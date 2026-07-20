@@ -732,3 +732,13 @@ _register("set_notification_preference", "Bật/tắt 1 loại thông báo cho c
 SENSITIVE_TOOLS: frozenset[str] = frozenset(
     name for name, spec in TOOLS.items() if spec.sensitive
 )
+
+# Tool làm THAY ĐỔI dữ liệu nuôi snapshot (project/task/người) — agent loop
+# invalidate cache snapshot ngay sau khi chạy để lượt sau AI thấy việc mình vừa
+# làm. Ghi từ REST của FE dựa vào TTL (spec §5.2, deviation đã chốt trong plan).
+SNAPSHOT_WRITE_TOOLS: frozenset[str] = frozenset({
+    "create_project", "update_project", "delete_project",
+    "create_task", "update_task", "delete_task",
+    "assign_task", "unassign_task", "add_task_update",
+    "offboard_user", "change_user_role",
+})

@@ -12,11 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.llm_client import LLMClient, StreamDone, TextDelta
 from app.agent.publisher import EventPublisher
-from app.agent.tools import SENSITIVE_TOOLS, TOOLS, call_tool
+from app.agent.tools import SENSITIVE_TOOLS, SNAPSHOT_WRITE_TOOLS, TOOLS, call_tool
 from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User,
 )
-from app.services import instruction_service
+from app.services import instruction_service, snapshot_service
 from app.tz import VN_TZ
 
 _VN_WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
@@ -61,7 +61,11 @@ def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
         "Nếu tool trả về error, báo lại rõ ràng cho người dùng, không tự suy diễn hoặc chọn "
         "đối tượng thay thế. Với hành động nhạy cảm (khóa/mở tài khoản, "
         "gửi email, xóa instruction): GỌI TOOL NGAY — hệ thống tự dừng lại và hiện nút "
-        "xác nhận cho người dùng; đừng tự hỏi xác nhận bằng lời trong chat."
+        "xác nhận cho người dùng; đừng tự hỏi xác nhận bằng lời trong chat.\n"
+        "Nếu system prompt có kèm 1 mục số liệu công ty tổng hợp sẵn (đầu dòng bắt "
+        "đầu bằng dấu #, nằm ở cuối): đó là số liệu SQL mới nhất theo đúng phạm vi "
+        "quyền của người dùng — ưu tiên trả lời trực tiếp từ đó (0 lần gọi tool); "
+        "chỉ gọi tool khi cần chi tiết không có sẵn ở đó."
     )
 
 # Chặn vòng lặp agent chạy vô hạn nếu model cứ gọi tool không nhạy cảm mà không bao
@@ -190,16 +194,25 @@ async def run_agent_loop(
                 return
 
             history = await _load_history(db, req.conversation_id, req.id)
-            # Instruction đọc từ DB mỗi lượt gọi LLM → CEO cập nhật là "AI nạp lại
-            # ngay", không cần cache/invalidation hay restart worker.
-            system_prompt = _build_system_prompt(actor)
+            system_static = _build_system_prompt(actor)
+            dynamic_parts: list[str] = []
+            # Instruction + snapshot đọc DB/cache mỗi lượt → cập nhật là nạp lại ngay
             instructions_text = await instruction_service.active_instructions_text(
                 db, req.workspace_id)
             if instructions_text:
-                system_prompt += "\n\n# Chỉ dẫn từ CEO công ty\n" + instructions_text
+                dynamic_parts.append("# Chỉ dẫn từ CEO công ty\n" + instructions_text)
+            snapshot_text = await snapshot_service.get_snapshot_text(db, actor)
+            if snapshot_text:
+                dynamic_parts.append(snapshot_text)
+            system_payload: str | list[dict] = system_static
+            if dynamic_parts:
+                # 2 block: [tĩnh (cache_control ở llm_client), động] — snapshot đổi
+                # không phá cache tools + phần tĩnh.
+                system_payload = [{"type": "text", "text": system_static},
+                                  {"type": "text", "text": "\n\n".join(dynamic_parts)}]
             text_parts: list[str] = []
             done: StreamDone | None = None
-            async for event in llm.stream(system=system_prompt, messages=history,
+            async for event in llm.stream(system=system_payload, messages=history,
                                           tools=_tool_specs_for_api()):
                 if await check_cancelled(req.id):
                     await _cancel_and_exit()
@@ -283,6 +296,10 @@ async def run_agent_loop(
             db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
                            chat_request_id=req.id, role=MessageRole.user, content=tool_results))
             await db.commit()
+
+            if any(tu.name in SNAPSHOT_WRITE_TOOLS for tu in done.tool_uses):
+                # AI vừa đổi dữ liệu → lượt sau phải thấy ngay (không chờ TTL)
+                await snapshot_service.invalidate(req.workspace_id)
     except Exception as exc:
         await _mark_failed(db, req, publisher, str(exc))
         await _write_trace("error")
@@ -297,6 +314,8 @@ async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: boo
     action = req.pending_action
     if approved:
         result = await call_tool(db, actor, action["tool_name"], action["tool_input"])
+        if action["tool_name"] in SNAPSHOT_WRITE_TOOLS:
+            await snapshot_service.invalidate(req.workspace_id)
     else:
         result = {"error": "user_denied", "message": "Người dùng từ chối xác nhận hành động này."}
     db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
