@@ -54,7 +54,6 @@
 - id: tra-cuu-tien-do-project
   actor: ceo
   user_text: "Dự án Marketing Q3 đang thế nào rồi?"
-  expected_no_tools: true
   expected_status: done
   notes: "Phase 1: snapshot có thể trả lời 0-tool — không ép tool nữa, chỉ cần done + đúng."
 
@@ -74,7 +73,6 @@
 - id: dashboard-hom-nay
   actor: ceo
   user_text: "Hôm nay có gì cần chú ý không?"
-  expected_no_tools: true
   expected_status: done
   notes: "Phase 1: snapshot có thể trả lời 0-tool — không ép tool nữa, chỉ cần done + đúng."
 
