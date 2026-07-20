@@ -83,7 +83,8 @@ function QuickVoiceCard() {
       setSaved(true); // peak-end: lưu xong phải thấy ngay là đã lưu
       if (savedTimer.current) clearTimeout(savedTimer.current);
       savedTimer.current = setTimeout(() => setSaved(false), 2500);
-    } catch {
+    } catch (e) {
+      console.error("upload voice note failed", e);
       // GIỮ lại để bấm "Thử lại" — audio không mất khi upload lỗi
       setRetry({ uri, durationMs });
       setError("Tải lên thất bại — bấm Thử lại.");

@@ -1,4 +1,6 @@
-import { API_URL, apiFetch } from "./client";
+import { File, UploadType } from "expo-file-system";
+import { Platform } from "react-native";
+import { ApiError, API_URL, apiFetch } from "./client";
 import { getTokens } from "../auth/tokenStore";
 
 export type Attachment = {
@@ -31,17 +33,43 @@ export const ATTACHMENT_MAX_SIZE = 20 * 1024 * 1024;
 export const listTaskAttachments = (taskId: string) =>
   apiFetch<Attachment[]>(`/api/v1/tasks/${taskId}/attachments`);
 
-export const uploadTaskAttachment = (
+export const uploadTaskAttachment = async (
   taskId: string,
   file: { uri: string; name: string; mimeType: string },
 ) => {
-  const form = new FormData();
-  // RN FormData nhận {uri, name, type} cho file — cast vì DOM types không biết
-  form.append("file", { uri: file.uri, name: file.name, type: file.mimeType } as unknown as Blob);
-  return apiFetch<Attachment>(`/api/v1/tasks/${taskId}/attachments`, {
-    method: "POST",
-    body: form,
-  });
+  if (Platform.OS === "web") {
+    const form = new FormData();
+    // Web: uri là blob: URL — {uri,name,type} kiểu RN bị FormData trình duyệt
+    // serialize thành chuỗi "[object Object]", phải fetch ra Blob thật.
+    const blob = await (await fetch(file.uri)).blob();
+    form.append("file", blob, file.name);
+    return apiFetch<Attachment>(`/api/v1/tasks/${taskId}/attachments`, {
+      method: "POST",
+      body: form,
+    });
+  }
+
+  // Native: fetch() global của Expo (winter/fetch) không hỗ trợ kiểu FormData
+  // part {uri,name,type} truyền thống của RN nữa — ném "Unsupported
+  // FormDataPart implementation". Dùng thẳng File.upload() của expo-file-system.
+  const tokens = await getTokens();
+  const result = await new File(file.uri).upload(
+    `${API_URL}/api/v1/tasks/${taskId}/attachments`,
+    {
+      uploadType: UploadType.MULTIPART,
+      fieldName: "file",
+      mimeType: file.mimeType,
+      headers: tokens?.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : undefined,
+    },
+  );
+  if (result.status < 200 || result.status >= 300) {
+    let detail: unknown = result.body;
+    try {
+      detail = JSON.parse(result.body).detail ?? detail;
+    } catch {}
+    throw new ApiError(result.status, detail);
+  }
+  return JSON.parse(result.body) as Attachment;
 };
 
 // apiFetch luôn parse JSON — endpoint này trả binary nên gọi fetch trực tiếp,

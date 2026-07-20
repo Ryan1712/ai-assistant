@@ -1,6 +1,7 @@
 import fixWebmDuration from "fix-webm-duration";
+import { File, UploadType } from "expo-file-system";
 import { Platform } from "react-native";
-import { apiFetch, API_URL } from "./client";
+import { ApiError, apiFetch, API_URL } from "./client";
 import { getTokens } from "../auth/tokenStore";
 
 export type VoiceNote = {
@@ -69,8 +70,9 @@ export const uploadVoiceNote = async (
   opts: { durationMs?: number; tags?: string[]; title?: string } = {},
 ) => {
   const { durationMs, tags, title } = opts;
-  const form = new FormData();
+
   if (Platform.OS === "web") {
+    const form = new FormData();
     // Web: uri là blob: URL — {uri,name,type} kiểu RN bị FormData trình duyệt
     // serialize thành chuỗi "[object Object]", phải fetch ra Blob thật.
     const rawBlob = await (await fetch(uri)).blob();
@@ -80,14 +82,34 @@ export const uploadVoiceNote = async (
     const blob = durationMs ? await fixWebmDuration(rawBlob, durationMs) : rawBlob;
     const ext = extensionForMimeType(blob.type || "audio/webm");
     form.append("file", blob, `note.${ext}`);
-  } else {
-    const base = uri.split("/").pop() ?? "";
-    const name = /\.[a-z0-9]+$/i.test(base) ? base : "note.m4a";
-    // RN FormData nhận {uri, name, type} cho file — cast vì DOM types không biết
-    form.append("file", { uri, name, type: "audio/m4a" } as unknown as Blob);
+    if (tags && tags.length > 0) form.append("tags", tags.join(","));
+    if (title) form.append("title", title);
+    if (durationMs) form.append("duration_seconds", String(durationMs / 1000));
+    return apiFetch<VoiceNote>("/api/v1/voice-notes", { method: "POST", body: form });
   }
-  if (tags && tags.length > 0) form.append("tags", tags.join(","));
-  if (title) form.append("title", title);
-  if (durationMs) form.append("duration_seconds", String(durationMs / 1000));
-  return apiFetch<VoiceNote>("/api/v1/voice-notes", { method: "POST", body: form });
+
+  // Native: fetch() global của Expo (winter/fetch) không hỗ trợ kiểu FormData
+  // part {uri,name,type} truyền thống của RN nữa — ném "Unsupported
+  // FormDataPart implementation". Dùng thẳng File.upload() của expo-file-system
+  // (multipart thật, không qua FormData/fetch).
+  const tokens = await getTokens();
+  const parameters: Record<string, string> = {};
+  if (tags && tags.length > 0) parameters.tags = tags.join(",");
+  if (title) parameters.title = title;
+  if (durationMs) parameters.duration_seconds = String(durationMs / 1000);
+  const result = await new File(uri).upload(`${API_URL}/api/v1/voice-notes`, {
+    uploadType: UploadType.MULTIPART,
+    fieldName: "file",
+    mimeType: "audio/m4a",
+    headers: tokens?.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : undefined,
+    parameters,
+  });
+  if (result.status < 200 || result.status >= 300) {
+    let detail: unknown = result.body;
+    try {
+      detail = JSON.parse(result.body).detail ?? detail;
+    } catch {}
+    throw new ApiError(result.status, detail);
+  }
+  return JSON.parse(result.body) as VoiceNote;
 };
