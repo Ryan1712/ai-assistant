@@ -54,8 +54,9 @@
 - id: tra-cuu-tien-do-project
   actor: ceo
   user_text: "Dự án Marketing Q3 đang thế nào rồi?"
-  expected_tools: [list_tasks]
+  expected_no_tools: true
   expected_status: done
+  notes: "Phase 1: snapshot có thể trả lời 0-tool — không ép tool nữa, chỉ cần done + đúng."
 
 - id: danh-ba
   actor: ceo
@@ -73,8 +74,9 @@
 - id: dashboard-hom-nay
   actor: ceo
   user_text: "Hôm nay có gì cần chú ý không?"
-  expected_tools: [get_today_dashboard]
+  expected_no_tools: true
   expected_status: done
+  notes: "Phase 1: snapshot có thể trả lời 0-tool — không ép tool nữa, chỉ cần done + đúng."
 
 - id: tim-kiem
   actor: ceo
@@ -101,3 +103,25 @@
   expected_status: awaiting_confirmation
   phase: 2
   notes: "Chờ Phase 2/3 (propose_actions + directive) — runner skip khi phase > 0."
+
+- id: snapshot-tinh-hinh-du-an
+  actor: ceo
+  user_text: "Dự án Marketing Q3 đang thế nào?"
+  expected_no_tools: true
+  expected_status: done
+  phase: 1
+  notes: "Acceptance Phase 1: trả lời từ snapshot, 0 tool call (verify bằng trace)."
+
+- id: snapshot-ai-dang-lam-gi
+  actor: ceo
+  user_text: "Duy đang làm gì?"
+  expected_no_tools: true
+  expected_status: done
+  phase: 1
+
+- id: snapshot-hom-nay-co-gi
+  actor: ceo
+  user_text: "Hôm nay có việc gì đến hạn hay quá hạn không?"
+  expected_no_tools: true
+  expected_status: done
+  phase: 1

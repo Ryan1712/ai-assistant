@@ -149,8 +149,8 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8000")
-    ap.add_argument("--phase", type=int, default=0,
-                    help="chạy scenario có phase <= giá trị này (default 0)")
+    ap.add_argument("--phase", type=int, default=1,
+                    help="chạy scenario có phase <= giá trị này (default 1 = phase hiện tại của code)")
     ap.add_argument("--only", default=None, help="chỉ chạy scenario có id này")
     args = ap.parse_args()
 

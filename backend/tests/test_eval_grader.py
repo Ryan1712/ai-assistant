@@ -39,3 +39,11 @@ def test_expected_status_va_pending_tool():
 
 def test_scenario_rong_luon_pass():
     assert grade({}, ["anything"], "done")["passed"] is True
+
+
+def test_expected_no_tools():
+    s = {"expected_no_tools": True, "expected_status": "done"}
+    assert grade(s, [], "done")["passed"] is True
+    bad = grade(s, ["list_tasks"], "done")
+    assert bad["passed"] is False
+    assert "list_tasks" in bad["failures"][0]

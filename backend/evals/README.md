@@ -28,6 +28,7 @@ Scenario dừng ở awaiting_confirmation sẽ bị runner TỪ CHỐI sau khi c
       actor: ceo | employee        # employee = Duy Phạm trong seed
       user_text: "câu tiếng Việt thật"
       expected_tools: [a, b]       # subsequence đúng thứ tự, cho phép chen tool khác
+      expected_no_tools: true      # fail nếu gọi bất kỳ tool nào (acceptance snapshot Phase 1)
       forbidden_tools: [c]         # không được gọi (kể cả pending confirm)
       expected_status: done | awaiting_confirmation
       expected_pending_tool: lock_user   # tool đang chờ confirm (nếu có)
