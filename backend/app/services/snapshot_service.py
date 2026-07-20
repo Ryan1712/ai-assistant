@@ -209,3 +209,102 @@ async def build_workspace_data(db: AsyncSession, workspace_id, *,
                          "content": r.content, "percent": r.percent,
                          "at": _iso(r.created_at)} for r in upd_rows],
     }
+
+
+_ROLE_VN = {"ceo": "CEO", "manager": "Quản lý", "employee": "Nhân viên"}
+_MAX_PROJECTS = 20
+_MAX_USERS = 30
+_MAX_TODAY = 12
+_MAX_UPDATES = 10
+_MAX_CHARS = 8000
+
+
+def _fmt_dm(iso: str | None) -> str:
+    """'2026-07-23T03:00:00+00:00' -> '23/07' theo giờ VN; None -> ''."""
+    if not iso:
+        return ""
+    dt = datetime.fromisoformat(iso)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(VN_TZ).strftime("%d/%m")
+
+
+def _fmt_hm(iso: str | None) -> str:
+    if not iso:
+        return ""
+    dt = datetime.fromisoformat(iso)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(VN_TZ).strftime("%d/%m %H:%M")
+
+
+def render_for_actor(data: dict, actor_user_id: str, *, visible_projects: set[str],
+                     visible_tasks: set[str], visible_users: set[str],
+                     now: datetime | None = None) -> str:
+    """Cắt data theo phạm vi quyền rồi render text. Chỉ nhận id dạng str.
+
+    An toàn mặc định: phần tử nào không nằm trong visible_* thì BỎ, kể cả khi
+    điều đó làm section trống — thà thiếu còn hơn lộ vượt quyền."""
+    now = now or datetime.now(timezone.utc)
+    lines: list[str] = [
+        f"# Trạng thái công ty (số liệu SQL lúc {_fmt_hm(data.get('built_at'))} giờ VN "
+        "— tin cậy, ưu tiên trả lời từ đây thay vì gọi tool tra lại)"
+    ]
+
+    projects = [p for p in data.get("projects", []) if p["id"] in visible_projects]
+    users = [u for u in data.get("users", []) if u["id"] in visible_users]
+    due_today = [t for t in data.get("due_today", []) if t["task_id"] in visible_tasks]
+    overdue = [t for t in data.get("overdue", []) if t["task_id"] in visible_tasks]
+    updates = [u for u in data.get("updates_24h", []) if u["task_id"] in visible_tasks]
+
+    if not projects and not users and not due_today and not overdue and not updates:
+        lines.append("(chưa có dữ liệu trong phạm vi của bạn)")
+        return "\n".join(lines)
+
+    if projects:
+        lines.append("## Dự án")
+        for p in projects[:_MAX_PROJECTS]:
+            dl = f", deadline {_fmt_dm(p['deadline'])}" if p["deadline"] else ""
+            lines.append(
+                f"- {p['name']} — {p['status']}, tiến độ TB {p['percent_avg']}%, "
+                f"{p['task_total']} task ({p['task_open']} mở, {p['task_blocked']} blocked, "
+                f"{p['task_overdue']} trễ hạn, {p['task_done']} xong){dl}")
+
+    if users:
+        lines.append("## Nhân sự & khối lượng")
+        for u in users[:_MAX_USERS]:
+            mgr = f", quản lý: {u['manager_name']}" if u["manager_name"] else ""
+            doing = [d for d in u.get("doing", []) if d["task_id"] in visible_tasks]
+            doing_txt = "; đang làm: " + " | ".join(
+                f"\"{d['title']}\" ({d['project_name']}, {d['percent']}%"
+                + (f", hạn {_fmt_dm(d['deadline'])}" if d["deadline"] else "") + ")"
+                for d in doing) if doing else ""
+            upd = (f"; cập nhật gần nhất {_fmt_hm(u['last_update_at'])}"
+                   if u["last_update_at"] else "")
+            od = f", {u['overdue_count']} trễ hạn" if u["overdue_count"] else ""
+            lines.append(f"- {u['full_name']} ({_ROLE_VN.get(u['role'], u['role'])}{mgr}) "
+                         f"— {u['open_count']} task mở{od}{doing_txt}{upd}")
+
+    lines.append(f"## Hôm nay ({(now.astimezone(VN_TZ)).strftime('%d/%m')})")
+    if due_today:
+        for t in due_today[:_MAX_TODAY]:
+            who = ", ".join(t["assignees"]) or "chưa gán"
+            lines.append(f"- Đến hạn hôm nay: \"{t['title']}\" ({t['project_name']} — {who})")
+    if overdue:
+        for t in overdue[:_MAX_TODAY]:
+            who = ", ".join(t["assignees"]) or "chưa gán"
+            lines.append(f"- QUÁ HẠN từ {_fmt_dm(t['deadline'])}: \"{t['title']}\" "
+                         f"({t['project_name']} — {who})")
+    if updates:
+        for u in updates[:_MAX_UPDATES]:
+            pct = f", {u['percent']}%" if u["percent"] is not None else ""
+            content = (u["content"] or "")[:80]
+            lines.append(f"- Cập nhật 24h: {u['author']}: \"{content}\" "
+                         f"({u['task_title']}{pct}) lúc {_fmt_hm(u['at'])}")
+    if not due_today and not overdue and not updates:
+        lines.append("- (không có deadline/cập nhật đáng chú ý)")
+
+    text = "\n".join(lines)
+    if len(text) > _MAX_CHARS:
+        text = text[:_MAX_CHARS] + "\n(… snapshot dài quá đã bị cắt)"
+    return text
