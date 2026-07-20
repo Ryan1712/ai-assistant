@@ -29,6 +29,14 @@ def _make_request(ws, conv, ceo, content="xin chao"):
                        content=content, queue_position=1.0)
 
 
+def _flatten_system(system: str | list[dict]) -> str:
+    """Task 6 (Phase 1): system có thể là str (không có phần động) hoặc list 2 block
+    [tĩnh, động] (có instruction/snapshot) — gộp lại để test substring như cũ."""
+    if isinstance(system, str):
+        return system
+    return "\n\n".join(b["text"] for b in system)
+
+
 @pytest.mark.asyncio
 async def test_text_only_response_completes_request(db_session):
     ws, ceo, conv = await _world(db_session)
@@ -96,7 +104,7 @@ async def test_system_prompt_contains_actor_identity_and_date(db_session):
     ]])
     await run_agent_loop(db_session, req, llm, FakeEventPublisher())
 
-    system = llm.calls[0]["system"]
+    system = _flatten_system(llm.calls[0]["system"])
     assert ceo.full_name in system
     assert str(ceo.id) in system
     assert "ceo" in system  # vai trò

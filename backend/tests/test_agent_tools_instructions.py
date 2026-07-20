@@ -8,6 +8,14 @@ from app.models import ChatRequest, Conversation, Message, MessageRole, Role, Us
 from app.services import instruction_service
 
 
+def _flatten_system(system: str | list[dict]) -> str:
+    """Task 6 (Phase 1): system có thể là str (không có phần động) hoặc list 2 block
+    [tĩnh, động] (có instruction/snapshot) — gộp lại để test substring như cũ."""
+    if isinstance(system, str):
+        return system
+    return "\n\n".join(b["text"] for b in system)
+
+
 async def _world(db):
     ws = Workspace(name="A")
     db.add(ws)
@@ -69,6 +77,6 @@ async def test_agent_loop_injects_latest_instruction_into_system_prompt(db_sessi
     ]])
     await run_agent_loop(db_session, req, llm, FakeEventPublisher())
 
-    system = llm.calls[0]["system"]
+    system = _flatten_system(llm.calls[0]["system"])
     assert "luon tra loi kem emoji" in system
     assert "phien ban cu" not in system
