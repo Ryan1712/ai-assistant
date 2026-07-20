@@ -57,3 +57,23 @@ async def test_store_no_khong_pha_chat(db_session, monkeypatch):
     monkeypatch.setattr(snapshot_service, "get_snapshot_store", lambda: _Boom())
     assert await get_snapshot_text(db_session, ceo, now=NOW) == ""   # không raise
     await invalidate(ws.id)                                          # không raise
+
+
+async def test_store_set_loi_van_khong_pha_chat(db_session, monkeypatch):
+    """store.get() thành công (miss = None) nhưng store.set() raise — vẫn phải
+    trả '' (build xong rồi, chỉ lỗi lưu cache), KHÔNG raise."""
+    ws, ceo, *_ = await _world(db_session)
+
+    class _SetBoom:
+        async def get(self, key):
+            return None  # cache miss — build_workspace_data sẽ chạy
+
+        async def set(self, key, value, ttl):
+            raise RuntimeError("redis set chết")
+
+        async def delete(self, key):
+            raise RuntimeError("redis chết")
+
+    monkeypatch.setattr(snapshot_service, "get_snapshot_store", lambda: _SetBoom())
+    text = await get_snapshot_text(db_session, ceo, now=NOW)
+    assert text == ""  # set fail → toàn hàm trả "" (vì set nằm trong try)

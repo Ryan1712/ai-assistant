@@ -329,14 +329,15 @@ async def get_snapshot_text(db, actor, *, now: datetime | None = None) -> str:
 
     KHÔNG BAO GIỜ raise — snapshot là tăng cường; redis/SQL lỗi thì trả "" và
     log, chat vẫn chạy như trước Phase 1."""
+    workspace_id = getattr(actor, "workspace_id", None)
     try:
         from app.config import get_settings
 
         store = get_snapshot_store()
-        key = _key(actor.workspace_id)
+        key = _key(workspace_id)
         raw = await store.get(key)
         if raw is None:
-            data = await build_workspace_data(db, actor.workspace_id, now=now)
+            data = await build_workspace_data(db, workspace_id, now=now)
             await store.set(key, json.dumps(data, ensure_ascii=False),
                             get_settings().snapshot_ttl_seconds)
         else:
@@ -347,7 +348,7 @@ async def get_snapshot_text(db, actor, *, now: datetime | None = None) -> str:
         return render_for_actor(data, str(actor.id), visible_projects=vp,
                                 visible_tasks=vt, visible_users=vu, now=now)
     except Exception:
-        logger.exception("snapshot fail cho workspace %s", actor.workspace_id)
+        logger.exception("snapshot fail cho workspace %s", workspace_id)
         return ""
 
 
