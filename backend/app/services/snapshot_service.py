@@ -251,6 +251,17 @@ def render_for_actor(data: dict, actor_user_id: str, *, visible_projects: set[st
         "— tin cậy, ưu tiên trả lời từ đây thay vì gọi tool tra lại)"
     ]
 
+    # Adjudication (review Task 3, xem .superpowers/sdd/progress.md): assignees/
+    # author/manager_name KHÔNG lọc theo visible_users — chỉ lọc theo visible_tasks
+    # (task/update phải thuộc phạm vi actor được thấy). Đây LÀ CHỦ ĐÍCH, không phải
+    # lỗ hổng: tool "list_users" mà agent dùng công khai TOÀN BỘ tên/email/role của
+    # workspace cho MỌI actor (app/agent/tools.py::_list_users, lọc theo
+    # workspace_id chứ không phải visible_user_ids); get_task/list_task_updates trả
+    # assignee_ids/author_id cho MỌI task trong visible_task_ids không lọc thêm.
+    # Agent trong cùng phiên chat đã tự ghép được tên đồng nghiệp vào 1 task hiển thị
+    # qua 2 lượt gọi tool có sẵn — snapshot in tên đó không cấp thêm khả năng gì.
+    # visible_users chỉ là ranh giới cho WORKLOAD ROLLUP (mục Nhân sự & khối lượng),
+    # không phải ranh giới tên người — cùng pattern với use_skill trong CLAUDE.md.
     projects = [p for p in data.get("projects", []) if p["id"] in visible_projects]
     users = [u for u in data.get("users", []) if u["id"] in visible_users]
     due_today = [t for t in data.get("due_today", []) if t["task_id"] in visible_tasks]
