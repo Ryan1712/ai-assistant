@@ -20,7 +20,10 @@ import yaml
 from evals.grader import grade
 
 TERMINAL = {"done", "awaiting_confirmation", "failed", "cancelled"}
-POLL_TIMEOUT_S = 120
+# 120s không đủ: gateway dev (glm-4.7-flash qua beeknoee) có độ trễ dao động rất
+# mạnh (quan sát thực tế 2s-134s cho cùng 1 request) — request vẫn "done" thành
+# công nhưng runner đã bỏ cuộc và báo "timeout" giả (xem BASELINE.md Phase 1).
+POLL_TIMEOUT_S = 200
 POLL_INTERVAL_S = 1.5
 
 

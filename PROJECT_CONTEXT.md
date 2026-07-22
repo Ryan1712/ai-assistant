@@ -199,3 +199,11 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   eval harness (backend/evals/, baseline 13/14 pass trên glm-4.7-flash, 1 fail trùng-tên là thước đo cho Phase 2),
   incremental prompt caching (verify tầng payload; gateway beeknoee không passthrough cache),
   config model_fast/model_smart. Spec: docs/superpowers/specs/2026-07-19-ai-intelligence-upgrade.md
+- 2026-07-22: Phase 1 AI upgrade xong — workspace snapshot (snapshot_service: SQL aggregates +
+  cache Redis TTL + cắt theo quyền, tiêm system prompt 2 block tĩnh/động, invalidate sau
+  write-tool); eval 11/17 (bank giờ 18 scenario, +3 snapshot). Đã điều tra kỹ: chênh lệch so
+  Phase 0 là flakiness model dev (glm-4.7-flash) đã xác minh qua chạy lại cô lập, KHÔNG phải
+  regression hạ tầng — snapshot render đúng/đầy đủ khi verify trực tiếp. Latency p50 đo cô lập
+  16s, KHÔNG đạt acceptance <4s trên gateway dev hiện tại (nghẽn ở gateway/model dev, không
+  phải chi phí tính snapshot — cần đo lại với model/gateway production). Chi tiết:
+  backend/evals/BASELINE.md. Tiếp theo Phase 2 (propose_actions + resolver tên trùng + toolset động).
