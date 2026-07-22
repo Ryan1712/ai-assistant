@@ -122,3 +122,57 @@ thật), không phải trên dev stack này.
 Lazy build-on-miss + TTL (`snapshot_ttl_seconds`) + invalidate tại agent choke point (sau
 write-tool trong `run_agent_loop`) — KHÔNG dùng worker nền/debounce arq riêng, theo đúng
 Global Constraints của plan.
+
+---
+
+# BASELINE: Phase 2 — propose_actions + luật 3 mức + resolver (2026-07-22)
+
+Task 11 (verify e2e). **Full pytest: 529 passed, 0 fail** (108 test file, bao gồm ~50 test
+mới/sửa của Phase 2: `test_agent_tools_propose_actions.py`, `test_agent_loop_propose_actions.py`,
+`test_agent_loop_resolve_proposal.py`, `test_fuzzy_match.py`, `test_resolver_service.py`,
+`test_agent_tools_resolver.py`, `test_system_prompt_phase2.py`, `test_tool_result_hygiene.py`,
+`test_tool_groups.py`, `test_eval_grader.py` mở rộng). `npx tsc --noEmit` (frontend): **0 lỗi**.
+
+## Live eval `--phase 2` — KHÔNG lấy được số liệu sạch, gateway dev degrade nặng hôm nay
+
+Chạy batch 19 scenario (`python -m evals.run_evals --phase 2`) trên stack local
+(docker compose postgres/redis, uvicorn, arq): **4 pass / 15 fail / 0 skip**. Điều tra bằng
+query trực tiếp `chat_requests`/`agent_traces` (Postgres) thay vì tin số liệu batch:
+
+- **12/12 request fail hôm nay đều cùng 1 nguyên nhân**: `Error code: 429 - rate_limit_error:
+  "Too many concurrent requests: 1/1 active"` — gateway beeknoee dev giới hạn cứng 1 request
+  đồng thời (đã ghi nhận từ Phase 0/1); runner gọi các scenario tuần tự nhưng vòng
+  deny-loop (`awaiting_confirmation` → confirm(false) → poll lại, tối đa 3 lần, xem
+  `run_evals.py::run_scenario`) cộng thêm round-trip khiến request sau bắn ra trước khi
+  gateway thật sự nhả slot của request trước — dồn ứ thành domino 429.
+- Sau batch, **cô lập từng scenario 1 request/lần (cách nhau vài phút để gateway nghỉ)**
+  để phân biệt gateway-degrade với regression code thật (đúng phương pháp Phase 1):
+  - `bao-duy-deadline-directive` (mới, Phase 2 acceptance #1): client timeout ở 200s
+    (`POLL_TIMEOUT_S`), nhưng query DB sau đó thấy request đã **done** ở giây thứ **265**
+    (`agent_traces.total_latency_ms=264952`, `stop_reason=end_turn`, `tools_called=[]`) —
+    model trả về **hoàn toàn rỗng** (không text, không tool_use).
+  - `nam-tran-nhieu-task-hoi-lai` (mới, Phase 2 acceptance #2): tương tự — `status=done`
+    nhưng `result_summary` rỗng, **0 tool gọi**. Grader chấm PASS (chỉ check
+    `forbidden_tools`/`expected_status`) nhưng đây là **false-positive** — không chứng
+    minh được AI thật sự gọi `resolve_task` rồi hỏi lại, vì model không trả lời gì cả.
+  - `tao-project` (baseline scenario CŨ, từng PASS ổn định ở Phase 0/1): chạy cô lập riêng,
+    **vẫn timeout ở 200s và request còn `status=running` khi kiểm tra lại** — tức là ngay
+    cả kịch bản đơn giản nhất, không liên quan gì Phase 2, cũng không xong nổi hôm nay.
+
+**Kết luận:** gateway dev (beeknoee, `glm-4.7-flash`) đang degrade nặng ở phiên làm việc này
+(độ trễ vượt xa dải 2-134s đã ghi nhận trước đây, có lúc trả completion rỗng) — ảnh hưởng
+**đồng đều lên cả scenario cũ lẫn mới**, không phải regression riêng của Phase 2. Logic
+Phase 2 (validate proposal, gate pause, resolver ambiguous/found/not_found, luật 3 mức) đã
+được xác nhận đúng qua unit test (529 pass) — đây mới là nguồn tin cậy chính của phase này,
+đúng quy ước TDD của repo. Live eval acceptance cho 2 scenario mới **CẦN chạy lại khi gateway
+khỏe hơn** (backlog, không phải blocker cho việc đóng Phase 2) — ghi vào mục 13
+`PROJECT_CONTEXT.md`.
+
+## Việc cần làm khi retry live eval
+
+- Chạy lại `python -m evals.run_evals --phase 2` (batch, không cô lập) vào giờ gateway ít tải
+  hơn — nếu 429 domino vẫn lặp lại dù gateway khỏe, cân nhắc thêm `time.sleep(3-5s)` giữa các
+  scenario trong `run_scenario`/`main()` loop để chắc chắn nhả slot trước khi bắn request kế.
+- Đọc trực tiếp `result_summary`/`agent_traces.tools_called` cho 2 scenario mới thay vì chỉ
+  tin cột PASS/FAIL của grader — grader hiện không phân biệt được "AI trả lời đúng" với
+  "AI không trả lời gì" khi cả 2 đều thỏa `expected_status`/`forbidden_tools`.

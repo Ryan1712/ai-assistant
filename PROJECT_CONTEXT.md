@@ -1,8 +1,8 @@
 # PROJECT_CONTEXT.md
 
-> **Last verified:** 2026-07-17
-> **Branch:** feature/task-comments-fe
-> **Verified against commit:** 42b4ed866d8191ebcfa9f51e878fb5e7fe558449
+> **Last verified:** 2026-07-22
+> **Branch:** main
+> **Verified against commit:** 369f4206b1467749ccfd02fbf2ff84a96dc95a5c
 
 Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
 
@@ -124,7 +124,8 @@ FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích s
 - **Xác nhận hành động nhạy cảm**: 6 tool đánh dấu `sensitive=True` — `lock_user`, `unlock_user`, `offboard_user`, `change_user_role`, `send_email`, `delete_instruction`. Khi model gọi 1 trong 6 tool này, loop dừng ở `awaiting_confirmation`, publish `confirmation_required`, FE hiện nút Đồng ý/Từ chối; `POST /chat-requests/{id}/confirm` mới thực thi tool thật.
 - **Dừng/hủy**: `POST stop-all` set các request `queued` → `cancelled`, request `running` được đánh dấu qua Redis key `cancel:{id}` (loop tự kiểm tra `is_cancelled` giữa các bước).
 - **Mất mạng / "tiếp tục công việc"**: socket cuối cùng đóng → `continuity.hold_queue_if_pending` set `Conversation.queue_held=True`, worker thấy cờ này thì **không tự chạy tiếp**; chỉ khi user gửi đúng cụm `RESUME_PHRASE` ("tiếp tục công việc") thì `send_message` clear cờ và enqueue lại.
-- **Tool registry**: `app/agent/tools.py`, **45 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission.
+- **Tool registry**: `app/agent/tools.py`, **54 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 54 tool này thành 7 nhóm cho Router động — hiện CHỈ dữ liệu, CHƯA wiring lọc (chờ Router Phase 4).
+- **Luật hành xử 3 mức (Phase 2, system prompt tĩnh)**: (1) tường minh + đảo ngược được → gọi tool ngay; (2) phải SUY LUẬN đối tượng (đoán người/task/deadline) → gọi `propose_actions` để user duyệt bản nháp trước khi thực thi (dùng lại hạ tầng `awaiting_confirmation`, `pending_action.kind` phân biệt `"tool"` | `"proposal"`); (3) nhạy cảm → vẫn gọi 1 trong 6 tool sensitive trực tiếp như cũ. `resolve_person`/`resolve_task` tra cứu mờ (fuzzy, thuần Python — không dùng `pg_trgm` vì test suite chạy SQLite) trong phạm vi `visible_user_ids`/`visible_task_ids`; trả `ambiguous` kèm candidates khi >1 kết quả — AI PHẢI hỏi lại đúng 1 câu, không tự chọn.
 - **Report định kỳ**: `arq.cron` chạy `check_report_schedules` mỗi phút (không qua LLM), độc lập với vòng lặp chat.
 
 ## 7. Phân quyền & cách ly đa công ty
@@ -163,7 +164,7 @@ Chạy trong `backend/` (venv `.venv`):
 ```
 docker compose up -d postgres redis         # 5435/6380
 alembic upgrade head
-pytest tests/ -v                            # ~345 test hiện tại, toàn bộ pass trên nhánh này
+pytest tests/ -v                            # ~529 test hiện tại, toàn bộ pass trên nhánh này
 uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
 arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
 python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
@@ -206,4 +207,16 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   regression hạ tầng — snapshot render đúng/đầy đủ khi verify trực tiếp. Latency p50 đo cô lập
   16s, KHÔNG đạt acceptance <4s trên gateway dev hiện tại (nghẽn ở gateway/model dev, không
   phải chi phí tính snapshot — cần đo lại với model/gateway production). Chi tiết:
-  backend/evals/BASELINE.md. Tiếp theo Phase 2 (propose_actions + resolver tên trùng + toolset động).
+  backend/evals/BASELINE.md.
+- 2026-07-22: Phase 2 AI upgrade xong — `propose_actions` (primitive trung tâm cho hành động
+  cần suy luận đối tượng, tái dùng hạ tầng `awaiting_confirmation` qua `pending_action.kind`
+  = `"tool"` | `"proposal"`), luật hành xử 3 mức trong system prompt (làm ngay / propose /
+  confirm bắt buộc), `resolve_person`/`resolve_task` (fuzzy match thuần Python — Jaccard
+  trigram, KHÔNG dùng `pg_trgm` vì test suite chạy SQLite), sweep tool-result hygiene (hint
+  lỗi 403/404/422 + note khi rỗng, chống hallucination), `TOOL_GROUPS` (7 nhóm, CHỈ dữ liệu —
+  chưa wiring lọc, chờ Router Phase 4), FE thẻ đề xuất trong chat. 54 tool tổng cộng. Full
+  pytest 529 pass, `tsc --noEmit` 0 lỗi. **Live eval `--phase 2` không lấy được số liệu sạch**
+  — gateway dev (beeknoee) degrade nặng hôm verify (cả scenario cũ lẫn mới đều timeout/trả
+  completion rỗng khi cô lập từng cái) — đã xác nhận đây KHÔNG phải regression Phase 2 qua
+  query trực tiếp DB (chi tiết + việc cần làm khi retry: backend/evals/BASELINE.md). Tiếp theo
+  Phase 3+ theo docs/superpowers/specs/2026-07-19-ai-intelligence-upgrade.md.
