@@ -339,9 +339,29 @@ async def run_agent_loop(
         await _write_trace("error")
 
 
+async def _resolve_proposal(db: AsyncSession, actor: User, action: dict, approved: bool,
+                            workspace_id: uuid.UUID) -> dict:
+    """Duyệt bản nháp propose_actions: chạy tuần tự từng action qua call_tool() (đã
+    không bao giờ raise) — action lỗi thì ghi lỗi vào kết quả và làm tiếp action sau,
+    giống hàng đợi (bỏ qua, báo rõ), không dừng cả bản nháp vì 1 action hỏng."""
+    if not approved:
+        return {"error": "user_denied", "message": "Người dùng từ chối bản nháp này."}
+    results: list[dict] = []
+    any_write = False
+    for a in action["actions"]:
+        r = await call_tool(db, actor, a["tool_name"], a["tool_input"])
+        results.append({"tool_name": a["tool_name"], "display_text": a.get("display_text"),
+                        "result": r})
+        if a["tool_name"] in SNAPSHOT_WRITE_TOOLS and "error" not in r:
+            any_write = True
+    if any_write:
+        await snapshot_service.invalidate(workspace_id)
+    return {"proposal_results": results}
+
+
 async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: bool) -> None:
-    """Xử lý xác nhận (hoặc từ chối) hành động nhạy cảm đang chờ; đưa request về
-    queued để lần chạy run_agent_loop tiếp theo tự thấy tool_result trong history."""
+    """Xử lý xác nhận (hoặc từ chối) hành động nhạy cảm/bản nháp đang chờ; đưa request
+    về queued để lần chạy run_agent_loop tiếp theo tự thấy tool_result trong history."""
     if req.pending_action is None:
         raise ValueError("no_pending_action")
     actor = await db.get(User, req.user_id)
@@ -349,7 +369,9 @@ async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: boo
     # .get("kind", "tool"): dong pending_action tao TRUOC Phase 2 khong co "kind" —
     # mac dinh ve nhanh cu de tuong thich nguoc, khong can migrate du lieu.
     kind = action.get("kind", "tool")
-    if approved:
+    if kind == "proposal":
+        result = await _resolve_proposal(db, actor, action, approved, req.workspace_id)
+    elif approved:
         result = await call_tool(db, actor, action["tool_name"], action["tool_input"])
         if action["tool_name"] in SNAPSHOT_WRITE_TOOLS:
             await snapshot_service.invalidate(req.workspace_id)
