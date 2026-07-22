@@ -5,7 +5,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -16,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { DashTask, Subscription, TodayDashboard, getSubscription, getTodayDashboard } from "../../src/api/dashboard";
 import { VoiceNote, listVoiceNotes, uploadVoiceNote } from "../../src/api/voice";
@@ -226,6 +227,20 @@ export default function Today() {
     getSubscription().then(setSub).catch(() => {});
   }, [load]);
 
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          style={{ paddingHorizontal: spacing.md }}
+          accessibilityLabel="Thông báo"
+        >
+          <Ionicons name="notifications-outline" size={24} color={colors.text} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
@@ -237,9 +252,6 @@ export default function Today() {
       )}
       {data && (
         <>
-          <TouchableOpacity onPress={() => navigation.navigate("Notifications")} style={{ alignSelf: "flex-end" }}>
-            <Text style={{ color: colors.primary, fontWeight: "700" }}>🔔 Thông báo</Text>
-          </TouchableOpacity>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>📊 Báo cáo hôm nay</Text>
             <View style={styles.statRow}>
@@ -253,7 +265,12 @@ export default function Today() {
               </View>
             </View>
             <View style={styles.latestNote}>
-              <Text style={styles.latestNoteLabel}>Ghi chú mới nhất</Text>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.latestNoteLabel}>Ghi chú mới nhất</Text>
+                <TouchableOpacity onPress={() => navigation.navigate("Notes")}>
+                  <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>Xem tất cả</Text>
+                </TouchableOpacity>
+              </View>
               <Text style={styles.latestNoteText} numberOfLines={2}>
                 {data.latest_note ? data.latest_note.content : "Chưa có ghi chú nào"}
               </Text>
@@ -273,50 +290,14 @@ export default function Today() {
               <Text style={styles.counterLabel}>Cập nhật 24h</Text>
             </View>
           </View>
-          <QuickVoiceCard />
           <Section title="🔥 Quá hạn" tasks={data.overdue} empty="Không có task quá hạn" />
           <Section title="📅 Đến hạn hôm nay" tasks={data.due_today} empty="Hôm nay không có deadline" />
           <Section title="🏃 Đang làm" tasks={data.in_progress} empty="Chưa có task đang chạy" />
           {sub?.plan === "basic" && (
             <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>
-              Nâng cấp gói Advanced để xem đầy đủ "Đang làm" và "Cập nhật mới từ đội".
+              Nâng cấp gói Advanced để xem đầy đủ "Đang làm".
             </Text>
           )}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>🔄 Cập nhật mới từ đội (24h)</Text>
-            {data.recent_updates.length === 0 ? (
-              <Text style={styles.empty}>
-                {sub?.plan === "basic" ? "Chỉ hiện ở gói Advanced" : "Chưa có cập nhật mới"}
-              </Text>
-            ) : (
-              data.recent_updates.map((u, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.updateLine}
-                  onPress={() => navigation.navigate("TaskDetail", { id: u.task_id })}
-                >
-                  <Text style={{ fontWeight: "600" }}>
-                    {u.author} — {u.task_title}
-                    {u.percent != null ? ` (${u.percent}%)` : ""}
-                  </Text>
-                  <Text>{u.content}</Text>
-                </TouchableOpacity>
-              ))
-            )}
-          </View>
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardTitle}>📝 Ghi chú hôm nay</Text>
-              <TouchableOpacity onPress={() => navigation.navigate("Notes")}>
-                <Text style={{ color: colors.primary, fontWeight: "700" }}>Xem tất cả</Text>
-              </TouchableOpacity>
-            </View>
-            {data.notes_today.length === 0 ? (
-              <Text style={styles.empty}>Chưa có ghi chú — nhắn AI “tạo note …”</Text>
-            ) : (
-              data.notes_today.map((n) => <Text key={n.id}>• {n.content}</Text>)
-            )}
-          </View>
         </>
       )}
     </ScrollView>

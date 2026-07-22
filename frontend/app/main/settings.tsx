@@ -106,17 +106,9 @@ export default function Settings() {
         <Text style={styles.title}>🧩 Skill</Text>
         <Text style={{ color: colors.textSecondary }}>Hồ sơ năng lực & gói tri thức nghiệp vụ</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.card} onPress={() => navigation.navigate("VoiceNotes")}>
-        <Text style={styles.title}>🎙️ Ghi âm</Text>
-        <Text style={{ color: colors.textSecondary }}>Thư viện ghi âm cá nhân, nghe lại & lọc theo tag</Text>
-      </TouchableOpacity>
       <TouchableOpacity style={styles.card} onPress={() => navigation.navigate("Notes")}>
         <Text style={styles.title}>📝 Ghi chú</Text>
         <Text style={{ color: colors.textSecondary }}>Ghi chú cá nhân theo ngày/tag</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.card} onPress={() => navigation.navigate("Emails")}>
-        <Text style={styles.title}>✉️ Email</Text>
-        <Text style={{ color: colors.textSecondary }}>Xem hộp thư đến/đã gửi</Text>
       </TouchableOpacity>
       {inviteCode && (
         <View style={styles.card}>
