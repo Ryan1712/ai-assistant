@@ -11,9 +11,10 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Chuyển giọng nói của bạn thành văn bản để gửi cho trợ lý AI",
-        "NSMicrophoneUsageDescription": "Cho phép dùng micro để nói với trợ lý AI"
+        "NSMicrophoneUsageDescription": "Cho phép dùng micro để nói với trợ lý AI",
+        "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.9learning.ai-assistant"
+      "bundleIdentifier": "com.9learning.ai-assitant"
     },
     "android": {
       "package": "com.learning9.aiassistant",
