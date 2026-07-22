@@ -27,7 +27,10 @@ async def test_search_tool_returns_all_groups_empty_when_no_match(db_session):
     ws, ceo = await _ceo(db_session)
 
     result = await call_tool(db_session, ceo, "search", {"q": "khong ton tai"})
-    assert result == {"tasks": [], "notes": [], "voice_notes": [], "users": [], "skills": []}
+    assert {k: result[k] for k in ("tasks", "notes", "voice_notes", "users", "skills")} == {
+        "tasks": [], "notes": [], "voice_notes": [], "users": [], "skills": [],
+    }
+    assert result.get("note")
 
 
 @pytest.mark.asyncio

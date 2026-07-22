@@ -36,7 +36,9 @@ async def test_create_project_tool_forbidden_for_employee(db_session):
     ws, ceo = await _ceo(db_session)
     emp = await _employee(db_session, ws)
     result = await call_tool(db_session, emp, "create_project", {"name": "X"})
-    assert result == {"error": "forbidden", "message": "Bạn không có quyền làm điều này."}
+    assert result["error"] == "forbidden"
+    assert result["message"] == "Bạn không có quyền làm điều này."
+    assert result.get("hint")
 
 
 @pytest.mark.asyncio

@@ -89,7 +89,9 @@ async def test_generate_report_tool_forbidden_for_employee(db_session, storage_d
     db_session.add(emp)
     await db_session.flush()
     result = await call_tool(db_session, emp, "generate_report", {})
-    assert result == {"error": "forbidden", "message": "Bạn không có quyền làm điều này."}
+    assert result["error"] == "forbidden"
+    assert result["message"] == "Bạn không có quyền làm điều này."
+    assert result.get("hint")
 
 
 @pytest.mark.asyncio

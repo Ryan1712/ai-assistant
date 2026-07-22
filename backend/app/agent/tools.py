@@ -53,26 +53,36 @@ _ERROR_MESSAGES = {
     404: "Không tìm thấy đối tượng được yêu cầu.",
     422: "Dữ liệu đầu vào không hợp lệ.",
 }
+_ERROR_HINTS = {
+    403: "Việc này ngoài quyền — báo người dùng nhờ CEO/quản lý, đừng thử tool khác để lách.",
+    404: "Không tìm thấy đối tượng — id có thể sai/đã bị xóa; gọi list_* tương ứng để tra lại id đúng.",
+    422: "Tham số chưa hợp lệ — sửa theo input_schema của tool rồi gọi lại.",
+}
 
 
 async def call_tool(db: AsyncSession, actor: User, tool_name: str, tool_input: dict) -> dict:
     """Gọi 1 tool theo tên; lỗi service (HTTPException) bọc thành tool_result lỗi, không raise ra ngoài."""
+    if tool_name not in TOOLS:
+        return {"error": "not_found", "hint": f"Tool '{tool_name}' không tồn tại — gọi lại với tên tool đúng."}
     spec = TOOLS[tool_name]
     try:
         parsed = spec.input_model(**tool_input)
     except Exception as exc:
-        return {"error": "invalid_input", "message": f"Dữ liệu đầu vào không hợp lệ: {exc}"}
+        return {"error": "invalid_input", "message": f"Dữ liệu đầu vào không hợp lệ: {exc}",
+                "hint": _ERROR_HINTS[422]}
     try:
         return await spec.handler(db, actor, parsed)
     except HTTPException as exc:
         label = _ERROR_LABELS.get(exc.status_code, "error")
         message = _ERROR_MESSAGES.get(exc.status_code, str(exc.detail))
-        return {"error": label, "message": message}
+        hint = _ERROR_HINTS.get(exc.status_code, "Xem message.")
+        return {"error": label, "message": message, "hint": hint}
     except Exception as exc:  # noqa: BLE001
         # Lỗi lập trình/hạ tầng trong 1 tool không được giết cả request — trả về
         # tool_result lỗi để model tự báo lại/thử cách khác.
         return {"error": "tool_failed",
-                "message": f"Tool gặp lỗi hệ thống ({type(exc).__name__}): {exc}"}
+                "message": f"Tool gặp lỗi hệ thống ({type(exc).__name__}): {exc}",
+                "hint": "Lỗi hệ thống — báo người dùng và không thử lại lặp lại tool này."}
 
 
 class NoArgsIn(BaseModel):
@@ -122,7 +132,10 @@ async def _update_project(db, actor, body: UpdateProjectToolIn) -> dict:
 
 async def _list_projects(db, actor, body: NoArgsIn) -> dict:
     projects = await work_service.list_projects(db, actor)
-    return {"projects": [{"id": str(p.id), "name": p.name, "status": p.status} for p in projects]}
+    result = {"projects": [{"id": str(p.id), "name": p.name, "status": p.status} for p in projects]}
+    if not projects:
+        result["note"] = "Workspace chưa có project nào trong phạm vi bạn thấy."
+    return result
 
 
 async def _create_task(db, actor, body: TaskCreateIn) -> dict:
@@ -139,8 +152,11 @@ async def _update_task(db, actor, body: UpdateTaskToolIn) -> dict:
 
 async def _list_tasks(db, actor, body: NoArgsIn) -> dict:
     tasks = await work_service.list_tasks(db, actor)
-    return {"tasks": [{"id": str(t["id"]), "title": t["title"], "status": t["status"].value,
-                       "percent": t["percent"]} for t in tasks]}
+    result = {"tasks": [{"id": str(t["id"]), "title": t["title"], "status": t["status"].value,
+                         "percent": t["percent"]} for t in tasks]}
+    if not tasks:
+        result["note"] = "Workspace chưa có task nào trong phạm vi bạn thấy."
+    return result
 
 
 async def _get_task(db, actor, body: GetTaskToolIn) -> dict:
@@ -239,9 +255,12 @@ async def _add_task_update(db, actor, body: AddTaskUpdateToolIn) -> dict:
 
 async def _list_task_updates(db, actor, body: ListTaskUpdatesToolIn) -> dict:
     updates = await work_service.list_task_updates(db, actor, body.task_id)
-    return {"updates": [{"id": str(u.id), "author_id": str(u.author_id), "content": u.content,
-                         "percent": u.percent, "created_at": u.created_at.isoformat()}
-                        for u in updates]}
+    result = {"updates": [{"id": str(u.id), "author_id": str(u.author_id), "content": u.content,
+                           "percent": u.percent, "created_at": u.created_at.isoformat()}
+                          for u in updates]}
+    if not updates:
+        result["note"] = "Task này chưa có cập nhật tiến độ nào."
+    return result
 
 
 async def _add_comment(db, actor, body: AddCommentToolIn) -> dict:
@@ -251,8 +270,11 @@ async def _add_comment(db, actor, body: AddCommentToolIn) -> dict:
 
 async def _list_comments(db, actor, body: ListCommentsToolIn) -> dict:
     comments = await work_service.list_comments(db, actor, body.task_id)
-    return {"comments": [{"id": str(c["id"]), "author_id": str(c["author_id"]), "content": c["content"],
-                          "created_at": c["created_at"].isoformat()} for c in comments]}
+    result = {"comments": [{"id": str(c["id"]), "author_id": str(c["author_id"]), "content": c["content"],
+                            "created_at": c["created_at"].isoformat()} for c in comments]}
+    if not comments:
+        result["note"] = "Task này chưa có bình luận nào."
+    return result
 
 
 async def _create_skill(db, actor, body: SkillCreateIn) -> dict:
@@ -273,7 +295,10 @@ async def _grant_skill(db, actor, body: GrantSkillToolIn) -> dict:
 
 async def _list_skills(db, actor, body: NoArgsIn) -> dict:
     skills = await skill_service.list_skills(db, actor)
-    return {"skills": [_skill_tool_out(s) for s in skills]}
+    result = {"skills": [_skill_tool_out(s) for s in skills]}
+    if not skills:
+        result["note"] = "Chưa có skill nào actor được thấy/được cấp."
+    return result
 
 
 async def _use_skill(db, actor, body: UseSkillToolIn) -> dict:
@@ -281,7 +306,11 @@ async def _use_skill(db, actor, body: UseSkillToolIn) -> dict:
 
 
 async def _list_skill_grants(db, actor, body: ListSkillGrantsToolIn) -> dict:
-    return {"grants": await skill_service.list_grants(db, actor, body.skill_id)}
+    grants = await skill_service.list_grants(db, actor, body.skill_id)
+    result = {"grants": grants}
+    if not grants:
+        result["note"] = "Skill này chưa cấp cho ai."
+    return result
 
 
 async def _revoke_skill_grant(db, actor, body: RevokeSkillGrantToolIn) -> dict:
@@ -422,11 +451,14 @@ _register("generate_report",
 
 async def _list_reports(db, actor, body: NoArgsIn) -> dict:
     reports = await report_service.list_reports(db, actor)
-    return {"reports": [
+    result = {"reports": [
         {"id": str(r.id), "kind": r.kind, "filters": r.filters, "summary": r.summary,
          "created_at": r.created_at.isoformat()}
         for r in reports
     ]}
+    if not reports:
+        result["note"] = "Chưa có báo cáo Excel nào được tạo trước đây."
+    return result
 
 
 _register("list_reports", "Liệt kê các báo cáo Excel đã tạo trước đây trong công ty "
@@ -464,7 +496,10 @@ async def _create_report_schedule(db, actor, body: CreateReportScheduleToolIn) -
 
 async def _list_report_schedules(db, actor, body: NoArgsIn) -> dict:
     rows = await report_schedule_service.list_schedules(db, actor)
-    return {"schedules": [_schedule_out(s) for s in rows]}
+    result = {"schedules": [_schedule_out(s) for s in rows]}
+    if not rows:
+        result["note"] = "Chưa có lịch báo cáo định kỳ nào."
+    return result
 
 
 async def _delete_report_schedule(db, actor, body: DeleteReportScheduleToolIn) -> dict:
@@ -492,7 +527,10 @@ class ListAuditEventsToolIn(BaseModel):
 async def _list_audit_events(db, actor, body: ListAuditEventsToolIn) -> dict:
     events = await audit_service.list_audit_events(db, actor, date_from=body.date_from,
                                                    date_to=body.date_to)
-    return {"events": events}
+    result = {"events": events}
+    if not events:
+        result["note"] = "Không có nhật ký thay đổi nào khớp khoảng thời gian này."
+    return result
 
 
 _register("list_audit_events", "Xem nhật ký thay đổi công ty: cập nhật task, đăng nhập, "
@@ -549,9 +587,12 @@ async def _update_instruction(db, actor, body: UpdateInstructionToolIn) -> dict:
 
 async def _list_instructions(db, actor, body: NoArgsIn) -> dict:
     items = await instruction_service.list_instructions(db, actor)
-    return {"instructions": [{"id": str(i["id"]), "title": i["title"],
-                              "version": i["version"], "content": i["content"]}
-                             for i in items]}
+    result = {"instructions": [{"id": str(i["id"]), "title": i["title"],
+                                "version": i["version"], "content": i["content"]}
+                               for i in items]}
+    if not items:
+        result["note"] = "Công ty chưa có instruction nào."
+    return result
 
 
 async def _delete_instruction(db, actor, body: DeleteInstructionToolIn) -> dict:
@@ -598,7 +639,10 @@ async def _create_note(db, actor, body: CreateNoteToolIn) -> dict:
 
 async def _list_notes(db, actor, body: ListNotesToolIn) -> dict:
     notes = await note_service.list_notes(db, actor, on_date=body.on_date, tag=body.tag)
-    return {"notes": [_note_out(n) for n in notes]}
+    result = {"notes": [_note_out(n) for n in notes]}
+    if not notes:
+        result["note"] = "Không có ghi chú nào khớp bộ lọc này."
+    return result
 
 
 class GetPortalReportToolIn(BaseModel):
@@ -607,8 +651,11 @@ class GetPortalReportToolIn(BaseModel):
 
 async def _list_portal_reports(db, actor, body: NoArgsIn) -> dict:
     reports = await portal_service.list_reports(db, actor)
-    return {"reports": [{"id": r["id"], "title": r["title"], "period": r["period"],
-                         "summary": r["summary"]} for r in reports]}
+    result = {"reports": [{"id": r["id"], "title": r["title"], "period": r["period"],
+                           "summary": r["summary"]} for r in reports]}
+    if not reports:
+        result["note"] = "Cổng CEO chưa có báo cáo nào."
+    return result
 
 
 async def _get_portal_report(db, actor, body: GetPortalReportToolIn) -> dict:
@@ -638,7 +685,10 @@ class GetVoiceNoteToolIn(BaseModel):
 async def _list_voice_notes(db, actor, body: ListVoiceNotesToolIn) -> dict:
     notes = await voice_service.list_voice_notes(db, actor, tag=body.tag,
                                                  on_date=body.on_date)
-    return {"voice_notes": notes}
+    result = {"voice_notes": notes}
+    if not notes:
+        result["note"] = "Không có ghi âm nào khớp bộ lọc này."
+    return result
 
 
 async def _get_voice_note(db, actor, body: GetVoiceNoteToolIn) -> dict:
@@ -657,7 +707,10 @@ class ListTaskAttachmentsToolIn(BaseModel):
 
 async def _list_task_attachments(db, actor, body: ListTaskAttachmentsToolIn) -> dict:
     attachments = await attachment_service.list_attachments(db, actor, body.task_id)
-    return {"attachments": attachments}
+    result = {"attachments": attachments}
+    if not attachments:
+        result["note"] = "Task này chưa có tài liệu đính kèm nào."
+    return result
 
 
 _register("list_task_attachments", "Liệt kê tài liệu đính kèm của 1 task (tên file, dung "
@@ -679,7 +732,10 @@ class SearchToolIn(BaseModel):
 
 
 async def _search(db, actor, body: SearchToolIn) -> dict:
-    return await search_service.search(db, actor, body.q)
+    result = await search_service.search(db, actor, body.q)
+    if not any(result.values()):
+        result["note"] = f"Không tìm thấy gì khớp '{body.q}' trong phạm vi bạn thấy."
+    return result
 
 
 _register("search", "Tìm kiếm xuyên suốt theo từ khóa: task, note, ghi âm, người, skill "
@@ -694,12 +750,15 @@ class ListNotificationsToolIn(BaseModel):
 async def _list_notifications(db, actor, body: ListNotificationsToolIn) -> dict:
     notifs = await notification_service.list_notifications(db, actor,
                                                             unread_only=body.unread_only)
-    return {"notifications": [
+    result = {"notifications": [
         {"id": str(n.id), "type": n.type, "payload": n.payload,
          "read_at": n.read_at.isoformat() if n.read_at else None,
          "created_at": n.created_at.isoformat()}
         for n in notifs
     ]}
+    if not notifs:
+        result["note"] = "Không có thông báo nào" + (" chưa đọc." if body.unread_only else ".")
+    return result
 
 
 _register("list_notifications", "Xem thông báo của chính actor (task được giao, cập nhật "
