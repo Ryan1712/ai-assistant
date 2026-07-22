@@ -27,6 +27,23 @@ logger = logging.getLogger(__name__)
 
 _TRACE_TRUNC = 500
 
+# Uoc luong noi bo (USD/1M token) — KHONG dung tinh hoa don that, chi de tra loi tho
+# "feature/model nao ton tien". Khop theo substring trong model id (gateway co the
+# tiem prefix "anthropic/" + date suffix). Model khong nam trong bang (vd gateway dev
+# glm-4.7-flash) -> estimated_cost = 0.
+_MODEL_PRICING_USD_PER_1M: dict[str, tuple[float, float]] = {
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+}
+
+
+def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    for key, (in_price, out_price) in _MODEL_PRICING_USD_PER_1M.items():
+        if key in model:
+            return round(input_tokens * in_price / 1_000_000
+                        + output_tokens * out_price / 1_000_000, 6)
+    return 0.0
+
 
 def _tool_trace_entry(name: str, tool_input: dict, result: dict, latency_ms: int) -> dict:
     """1 phần tử tools_called của AgentTrace — input/output nén 500 ký tự (spec 4.1)."""
@@ -86,7 +103,12 @@ def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
         "liệu tóm tắt — vd task trạng thái chưa làm không hiện ở mục 'đang làm'). Nếu "
         "kết quả resolve_person/resolve_task trả 'ambiguous' kèm nhiều candidates: "
         "TUYỆT ĐỐI không tự chọn đại 1 người/task — hỏi lại người dùng ĐÚNG MỘT câu, "
-        "liệt kê rõ các lựa chọn cụ thể (tên/tiêu đề) để họ chọn."
+        "liệt kê rõ các lựa chọn cụ thể (tên/tiêu đề) để họ chọn.\n"
+        "Khi tool_result của propose_actions có 'outcome' khác 'completed' (tức "
+        "'partially_completed' hoặc 'failed' — một số action trong bản nháp đã lỗi): "
+        "TUYỆT ĐỐI không nói chung chung 'đã xong' — PHẢI liệt kê rõ việc nào thành "
+        "công ('succeeded'), việc nào thất bại kèm lý do ('failed'), để người dùng "
+        "biết chính xác cái gì cần làm lại."
     )
 
 # Chặn vòng lặp agent chạy vô hạn nếu model cứ gọi tool không nhạy cảm mà không bao
@@ -94,6 +116,13 @@ def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
 # định 300s) sẽ giết job bằng CancelledError — BaseException, lọt qua except Exception
 # bên dưới — kẹt request ở status=running vĩnh viễn (worker chỉ pickup request queued).
 MAX_ITERATIONS = 25
+# Guardrail hardening (trước Phase 3): MAX_ITERATIONS không đủ vì 1 lượt có thể gọi
+# nhiều tool cùng lúc, hoặc gateway dev độ trễ rất cao (đã quan sát 260s+/lượt) khiến
+# tổng thời gian request phình to dù số vòng lặp ít. MAX_DURATION_SECONDS < arq
+# job_timeout mặc định 300s để dừng SẠCH (ghi trace/status) trước khi bị arq kill.
+MAX_TOOL_CALLS = 60
+MAX_DURATION_SECONDS = 240
+MAX_TOTAL_TOKENS = 200_000
 
 # Trần số message nạp vào ngữ cảnh — hội thoại dài không giới hạn sẽ (1) phình token
 # gần bậc hai theo vòng tool, (2) tới lúc vượt context window thì MỌI tin nhắn sau đó
@@ -175,6 +204,8 @@ async def run_agent_loop(
     actor = await db.get(User, req.user_id)
 
     iteration = 0
+    tool_call_count = 0
+    total_tokens = 0
     trace_tools: list[dict] = []
     loop_started = time.monotonic()
 
@@ -213,6 +244,18 @@ async def run_agent_loop(
                 await _mark_failed(db, req, publisher, "max_iterations_exceeded")
                 await _write_trace("max_iterations")
                 return
+            if tool_call_count > MAX_TOOL_CALLS:
+                await _mark_failed(db, req, publisher, "max_tool_calls_exceeded")
+                await _write_trace("max_tool_calls")
+                return
+            if time.monotonic() - loop_started > MAX_DURATION_SECONDS:
+                await _mark_failed(db, req, publisher, "max_duration_exceeded")
+                await _write_trace("max_duration")
+                return
+            if total_tokens > MAX_TOTAL_TOKENS:
+                await _mark_failed(db, req, publisher, "max_total_tokens_exceeded")
+                await _write_trace("max_total_tokens")
+                return
 
             history = await _load_history(db, req.conversation_id, req.id)
             system_static = _build_system_prompt(actor)
@@ -233,6 +276,7 @@ async def run_agent_loop(
                                   {"type": "text", "text": "\n\n".join(dynamic_parts)}]
             text_parts: list[str] = []
             done: StreamDone | None = None
+            call_started = time.monotonic()
             async for event in llm.stream(system=system_payload, messages=history,
                                           tools=_tool_specs_for_api()):
                 if await check_cancelled(req.id):
@@ -270,10 +314,17 @@ async def run_agent_loop(
                                chat_request_id=req.id, role=MessageRole.assistant,
                                content=assistant_content))
             db.add(UsageLog(workspace_id=req.workspace_id, chat_request_id=req.id,
+                            user_id=actor.id, feature="chat", status=done.stop_reason,
+                            latency_ms=int((time.monotonic() - call_started) * 1000),
+                            tool_call_count=len(done.tool_uses), iteration=iteration,
+                            estimated_cost=_estimate_cost_usd(
+                                llm.model, done.input_tokens, done.output_tokens),
                             model=llm.model, input_tokens=done.input_tokens,
                             output_tokens=done.output_tokens,
                             cache_read_tokens=done.cache_read_tokens,
                             cache_write_tokens=done.cache_write_tokens))
+            total_tokens += done.input_tokens + done.output_tokens
+            tool_call_count += len(done.tool_uses)
 
             if done.stop_reason != "tool_use" or not done.tool_uses:
                 req.status = ChatRequestStatus.done
@@ -359,28 +410,49 @@ async def run_agent_loop(
 
 
 async def _resolve_proposal(db: AsyncSession, actor: User, action: dict, approved: bool,
-                            workspace_id: uuid.UUID) -> dict:
+                            workspace_id: uuid.UUID, trace_tools: list[dict]) -> dict:
     """Duyệt bản nháp propose_actions: chạy tuần tự từng action qua call_tool() (đã
     không bao giờ raise) — action lỗi thì ghi lỗi vào kết quả và làm tiếp action sau,
-    giống hàng đợi (bỏ qua, báo rõ), không dừng cả bản nháp vì 1 action hỏng."""
+    giống hàng đợi (bỏ qua, báo rõ), không dừng cả bản nháp vì 1 action hỏng.
+    Mỗi action chạy được nối vào trace_tools (dùng chung AgentTrace của lượt confirm)."""
     if not approved:
         return {"error": "user_denied", "message": "Người dùng từ chối bản nháp này."}
     results: list[dict] = []
+    succeeded: list[str] = []
+    failed: list[str] = []
     any_write = False
     for a in action["actions"]:
+        tool_started = time.monotonic()
         r = await call_tool(db, actor, a["tool_name"], a["tool_input"])
+        trace_tools.append(_tool_trace_entry(a["tool_name"], a["tool_input"], r,
+                                             int((time.monotonic() - tool_started) * 1000)))
         results.append({"tool_name": a["tool_name"], "display_text": a.get("display_text"),
                         "result": r})
-        if a["tool_name"] in SNAPSHOT_WRITE_TOOLS and "error" not in r:
-            any_write = True
+        label = a.get("display_text") or a["tool_name"]
+        if "error" in r:
+            failed.append(label)
+        else:
+            succeeded.append(label)
+            if a["tool_name"] in SNAPSHOT_WRITE_TOOLS:
+                any_write = True
     if any_write:
         await snapshot_service.invalidate(workspace_id)
-    return {"proposal_results": results}
+    if not failed:
+        outcome = "completed"
+    elif not succeeded:
+        outcome = "failed"
+    else:
+        outcome = "partially_completed"
+    return {"proposal_results": results, "outcome": outcome,
+            "succeeded": succeeded, "failed": failed}
 
 
 async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: bool) -> None:
     """Xử lý xác nhận (hoặc từ chối) hành động nhạy cảm/bản nháp đang chờ; đưa request
-    về queued để lần chạy run_agent_loop tiếp theo tự thấy tool_result trong history."""
+    về queued để lần chạy run_agent_loop tiếp theo tự thấy tool_result trong history.
+    Tool thật sự chạy (approved=True) được ghi 1 dòng AgentTrace route="confirm" —
+    trước đây bị bỏ sót (backlog Phase 0), khiến tool nhạy cảm/proposal đã duyệt
+    vô hình với observability."""
     if req.pending_action is None:
         raise ValueError("no_pending_action")
     actor = await db.get(User, req.user_id)
@@ -388,10 +460,15 @@ async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: boo
     # .get("kind", "tool"): dong pending_action tao TRUOC Phase 2 khong co "kind" —
     # mac dinh ve nhanh cu de tuong thich nguoc, khong can migrate du lieu.
     kind = action.get("kind", "tool")
+    trace_tools: list[dict] = []
     if kind == "proposal":
-        result = await _resolve_proposal(db, actor, action, approved, req.workspace_id)
+        result = await _resolve_proposal(db, actor, action, approved, req.workspace_id,
+                                         trace_tools)
     elif approved:
+        tool_started = time.monotonic()
         result = await call_tool(db, actor, action["tool_name"], action["tool_input"])
+        trace_tools.append(_tool_trace_entry(action["tool_name"], action["tool_input"], result,
+                                             int((time.monotonic() - tool_started) * 1000)))
         if action["tool_name"] in SNAPSHOT_WRITE_TOOLS:
             await snapshot_service.invalidate(req.workspace_id)
     else:
@@ -400,6 +477,11 @@ async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: boo
                    chat_request_id=req.id, role=MessageRole.user,
                    content=[{"type": "tool_result", "tool_use_id": action["tool_use_id"],
                             "content": json.dumps(result, default=str)}]))
+    if trace_tools:
+        db.add(AgentTrace(workspace_id=req.workspace_id, chat_request_id=req.id,
+                          route="confirm", model="", iterations=0, stop_reason="confirmed",
+                          tools_called=trace_tools,
+                          total_latency_ms=sum(t["latency_ms"] for t in trace_tools)))
     req.pending_action = None
     req.status = ChatRequestStatus.queued
     await db.commit()

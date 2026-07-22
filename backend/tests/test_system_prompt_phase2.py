@@ -17,6 +17,12 @@ def test_static_prompt_contains_3_tier_rule_and_resolver_guidance():
     assert "resolve_task" in prompt
 
 
+def test_static_prompt_requires_reporting_partial_proposal_outcome():
+    prompt = _build_system_prompt(_fake_actor())
+    assert "partially_completed" in prompt
+    assert "outcome" in prompt
+
+
 def test_static_prompt_structurally_stable_across_different_now():
     actor = _fake_actor()
     now1 = datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc)

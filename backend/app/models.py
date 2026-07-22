@@ -367,6 +367,19 @@ class UsageLog(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     chat_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_requests.id"),
                                                                nullable=True)
+    # Hardening truoc Phase 3 (khong bang/service moi — chi mo rong field du de tra
+    # loi "feature/user nao ton tien"): user_id = actor thuc hien; feature = nguon
+    # goi (mac dinh "chat", Phase 3+ them "directive"/"deep_analysis"...); status =
+    # nguyen van stop_reason cua LUOT GOI NAY (khong phai trang thai ca ChatRequest —
+    # cai do da co o ChatRequest.status/.error, khong lap lai); estimated_cost la uoc
+    # luong noi bo (KHONG dung tinh hoa don that).
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    feature: Mapped[str] = mapped_column(String(32), default="chat")
+    status: Mapped[str] = mapped_column(String(32), default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    tool_call_count: Mapped[int] = mapped_column(Integer, default=0)
+    iteration: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_cost: Mapped[float] = mapped_column(Float, default=0.0)
     model: Mapped[str] = mapped_column(String(64))
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -460,7 +473,8 @@ class AgentTrace(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     chat_request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_requests.id"),
                                                         index=True)
-    route: Mapped[str] = mapped_column(String(16), default="fast")   # fast | deep (Phase 4)
+    route: Mapped[str] = mapped_column(String(16), default="fast")
+    # fast | deep (Phase 4) | confirm (tool chạy trong resolve_confirmation, không qua model)
     model: Mapped[str] = mapped_column(String(64), default="")
     iterations: Mapped[int] = mapped_column(Integer, default=0)
     # ghi NGUYÊN VĂN stop_reason (debug trung thực); thường gặp: cancelled | max_iterations |

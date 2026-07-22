@@ -6,7 +6,8 @@ from sqlalchemy import select
 
 from app.agent.loop import resolve_confirmation
 from app.models import (
-    ChatRequest, ChatRequestStatus, Conversation, Message, Project, Role, Task, User, Workspace,
+    AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, Project, Role, Task, User,
+    Workspace,
 )
 
 
@@ -73,6 +74,69 @@ async def test_approved_proposal_runs_all_actions_sequentially_skips_failures(db
     assert len(results) == 2
     assert "error" not in results[0]["result"]
     assert results[1]["result"]["error"] == "not_found"
+    assert payload["outcome"] == "partially_completed"
+    assert payload["succeeded"] == ["Cap nhat task T1 len 80%"]
+    assert payload["failed"] == ["Cap nhat task khong ton tai"]
+
+    traces = (await db_session.execute(select(AgentTrace))).scalars().all()
+    assert len(traces) == 1
+    assert traces[0].route == "confirm"
+    assert traces[0].chat_request_id == req.id
+    assert [t["name"] for t in traces[0].tools_called] == ["update_task", "update_task"]
+
+
+@pytest.mark.asyncio
+async def test_proposal_all_actions_succeed_outcome_completed(db_session, monkeypatch):
+    ws, ceo, project, task, conv = await _setup(db_session)
+    task2 = Task(workspace_id=ws.id, project_id=project.id, title="T2", created_by=ceo.id)
+    db_session.add(task2)
+    await db_session.flush()
+    await db_session.commit()
+    req = await _make_req(db_session, ws, conv, ceo, [
+        {"tool_name": "update_task", "tool_input": {"task_id": str(task.id), "percent": 80},
+         "display_text": "Cap nhat task T1 len 80%"},
+        {"tool_name": "update_task", "tool_input": {"task_id": str(task2.id), "percent": 40},
+         "display_text": "Cap nhat task T2 len 40%"},
+    ])
+    from app.services import snapshot_service
+    async def fake_invalidate(workspace_id):
+        pass
+    monkeypatch.setattr(snapshot_service, "invalidate", fake_invalidate)
+
+    await resolve_confirmation(db_session, req, approved=True)
+
+    msgs = (await db_session.execute(select(Message))).scalars().all()
+    tool_result = [m for m in msgs if m.content[0]["type"] == "tool_result"][0]
+    payload = json.loads(tool_result.content[0]["content"])
+    assert payload["outcome"] == "completed"
+    assert payload["failed"] == []
+    assert len(payload["succeeded"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_proposal_all_actions_fail_outcome_failed(db_session, monkeypatch):
+    ws, ceo, project, task, conv = await _setup(db_session)
+    req = await _make_req(db_session, ws, conv, ceo, [
+        {"tool_name": "update_task", "tool_input": {"task_id": str(uuid.uuid4()), "percent": 80},
+         "display_text": "Cap nhat task khong ton tai 1"},
+        {"tool_name": "update_task", "tool_input": {"task_id": str(uuid.uuid4()), "percent": 40},
+         "display_text": "Cap nhat task khong ton tai 2"},
+    ])
+    from app.services import snapshot_service
+    invalidated = []
+    async def fake_invalidate(workspace_id):
+        invalidated.append(workspace_id)
+    monkeypatch.setattr(snapshot_service, "invalidate", fake_invalidate)
+
+    await resolve_confirmation(db_session, req, approved=True)
+
+    msgs = (await db_session.execute(select(Message))).scalars().all()
+    tool_result = [m for m in msgs if m.content[0]["type"] == "tool_result"][0]
+    payload = json.loads(tool_result.content[0]["content"])
+    assert payload["outcome"] == "failed"
+    assert payload["succeeded"] == []
+    assert len(payload["failed"]) == 2
+    assert invalidated == []  # khong action nao thanh cong -> khong invalidate snapshot
 
 
 @pytest.mark.asyncio

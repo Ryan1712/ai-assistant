@@ -46,6 +46,12 @@ type Row =
 function friendlyError(raw: string): string {
   if (raw.includes("max_iterations_exceeded"))
     return "AI chạy quá nhiều bước mà chưa xong — thử chia nhỏ yêu cầu.";
+  if (raw.includes("max_tool_calls_exceeded"))
+    return "AI đã gọi quá nhiều tool cho yêu cầu này — thử chia nhỏ yêu cầu.";
+  if (raw.includes("max_duration_exceeded"))
+    return "Yêu cầu xử lý quá lâu (có thể do hệ thống AI đang chậm) — thử lại sau.";
+  if (raw.includes("max_total_tokens_exceeded"))
+    return "Yêu cầu này cần xử lý quá nhiều dữ liệu — thử chia nhỏ yêu cầu.";
   if (raw.includes("max_tokens")) return "Câu trả lời quá dài bị cắt.";
   return `Có lỗi khi xử lý (${raw.slice(0, 120)}).`;
 }

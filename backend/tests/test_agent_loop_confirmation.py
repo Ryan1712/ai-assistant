@@ -7,7 +7,8 @@ from app.agent.llm_client import FakeLLMClient, StreamDone, TextDelta
 from app.agent.loop import resolve_confirmation, run_agent_loop
 from app.agent.publisher import FakeEventPublisher
 from app.models import (
-    ChatRequest, ChatRequestStatus, Conversation, Message, Role, User, UserStatus, Workspace,
+    AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, Role, User, UserStatus,
+    Workspace,
 )
 
 
@@ -50,6 +51,32 @@ async def test_resolve_confirmation_approved_executes_tool_and_requeues(db_sessi
     msgs = (await db_session.execute(select(Message))).scalars().all()
     tool_result = [m for m in msgs if m.content[0]["type"] == "tool_result"][0]
     assert json.loads(tool_result.content[0]["content"])["locked"] is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_approved_writes_agent_trace(db_session):
+    ws, ceo, target, conv, req = await _world(db_session)
+
+    await resolve_confirmation(db_session, req, approved=True)
+
+    traces = (await db_session.execute(select(AgentTrace))).scalars().all()
+    assert len(traces) == 1
+    trace = traces[0]
+    assert trace.chat_request_id == req.id
+    assert trace.workspace_id == ws.id
+    assert trace.route == "confirm"
+    assert len(trace.tools_called) == 1
+    assert trace.tools_called[0]["name"] == "lock_user"
+
+
+@pytest.mark.asyncio
+async def test_resolve_confirmation_denied_writes_no_agent_trace(db_session):
+    ws, ceo, target, conv, req = await _world(db_session)
+
+    await resolve_confirmation(db_session, req, approved=False)
+
+    traces = (await db_session.execute(select(AgentTrace))).scalars().all()
+    assert traces == []
 
 
 @pytest.mark.asyncio
