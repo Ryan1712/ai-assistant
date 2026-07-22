@@ -6,7 +6,7 @@ from app.agent.tools import SENSITIVE_TOOLS, TOOLS, validate_proposal_actions
 def test_propose_actions_registered_not_sensitive():
     assert "propose_actions" in TOOLS
     assert "propose_actions" not in SENSITIVE_TOOLS
-    assert len(TOOLS) == 52  # +propose_actions (Phase 2 6.1)
+    assert len(TOOLS) == 54  # +resolve_person +resolve_task (Phase 2 6.3)
 
 
 def test_validate_proposal_actions_empty_list_is_invalid():

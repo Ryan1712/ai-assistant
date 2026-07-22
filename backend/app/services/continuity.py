@@ -16,8 +16,9 @@ from app.models import ChatRequest, ChatRequestStatus, Conversation
 RESUME_PHRASE = "tiep tuc cong viec"
 
 
-def _normalize(text: str) -> str:
-    # casefold + đ→d + bỏ dấu (NFD, bỏ combining marks) + gộp khoảng trắng
+def normalize_vn(text: str) -> str:
+    """casefold + đ→d + bỏ dấu (NFD, bỏ combining marks) + gộp khoảng trắng — dùng
+    chung cho match cụm resume-phrase (ở đây) và fuzzy person/task (fuzzy_match.py)."""
     text = text.casefold().replace("đ", "d")
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))
@@ -25,7 +26,7 @@ def _normalize(text: str) -> str:
 
 
 def is_resume_phrase(text: str) -> bool:
-    return _normalize(text) == RESUME_PHRASE
+    return normalize_vn(text) == RESUME_PHRASE
 
 
 async def hold_queue_if_pending(db: AsyncSession, conversation_id: uuid.UUID) -> bool:

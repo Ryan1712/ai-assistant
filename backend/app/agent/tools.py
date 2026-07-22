@@ -18,8 +18,8 @@ from app.schemas import (
 from app.services import (
     attachment_service, audit_service, auth_service, dashboard_service, email_service,
     instruction_service, note_service, notification_service, portal_service,
-    report_schedule_service, report_service, search_service, skill_service, voice_service,
-    work_service,
+    report_schedule_service, report_service, resolver_service, search_service, skill_service,
+    voice_service, work_service,
 )
 
 
@@ -727,6 +727,39 @@ async def _set_notification_preference(db, actor, body: SetNotificationPreferenc
 _register("set_notification_preference", "Bật/tắt 1 loại thông báo cho chính actor "
           "(vd 'tắt thông báo cập nhật task' -> type=task_update, enabled=false).",
           SetNotificationPreferenceToolIn, _set_notification_preference)
+
+
+class ResolvePersonToolIn(BaseModel):
+    query: str = Field(min_length=1)
+
+
+async def _resolve_person(db, actor, body: ResolvePersonToolIn) -> dict:
+    return await resolver_service.resolve_person(db, actor, body.query)
+
+
+_register("resolve_person", "Tìm người theo tên/biệt danh, chịu được không dấu/viết tắt "
+          "(vd 'duy' khớp 'Duy Phạm'). Trả match duy nhất, danh sách ứng viên nếu nhập "
+          "nhằng (>1 người tên gần giống), hoặc not_found. TUYỆT ĐỐI không đoán khi có "
+          ">1 ứng viên — hỏi lại người dùng đúng 1 câu kèm danh sách cụ thể. Ưu tiên khớp "
+          "từ danh bạ trong system prompt trước, tool này là lớp dự phòng cho ca khó "
+          "(trùng tên, tên lạ).", ResolvePersonToolIn, _resolve_person)
+
+
+class ResolveTaskToolIn(BaseModel):
+    query: str = ""
+    assignee_id: uuid.UUID | None = None
+
+
+async def _resolve_task(db, actor, body: ResolveTaskToolIn) -> dict:
+    return await resolver_service.resolve_task(db, actor, body.query, body.assignee_id)
+
+
+_register("resolve_task", "Tìm task theo tiêu đề/mô tả và/hoặc theo người phụ trách "
+          "(assignee_id) — dùng khi câu lệnh nhắc tên người nhưng không nêu rõ task nào "
+          "(vd 'Duy có mấy task' -> assignee_id=id của Duy, query để trống). Chịu được "
+          "không dấu/viết tắt trong query. Trả match duy nhất, danh sách ứng viên nếu "
+          "nhập nhằng, hoặc not_found. TUYỆT ĐỐI không đoán khi có >1 ứng viên — hỏi lại "
+          "đúng 1 câu kèm danh sách cụ thể.", ResolveTaskToolIn, _resolve_task)
 
 
 class ProposedActionIn(BaseModel):
