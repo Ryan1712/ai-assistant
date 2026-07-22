@@ -116,6 +116,8 @@ const TOOL_LABELS: Record<string, string> = {
   resolve_person: "Tra cứu người",
   resolve_task: "Tra cứu task",
   propose_actions: "Đề xuất hành động",
+  create_directive: "Giao việc chính thức",
+  get_directive_status: "Tra tình trạng việc đã giao",
 };
 
 function labelForTool(name: string): string {

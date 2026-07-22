@@ -9,8 +9,9 @@ import {
   markNotificationRead,
   setNotificationPreference,
 } from "../../src/api/notifications";
+import { ackDirective, raiseDirectiveQuestion, renegotiateDirective } from "../../src/api/directives";
 import { BackHeader } from "../../src/ui/BackHeader";
-import { ErrorText } from "../../src/ui/form";
+import { ErrorText, Field } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 const NOTIFICATION_TYPES: { type: string; label: string }[] = [
@@ -24,6 +25,7 @@ const NOTIFICATION_TYPES: { type: string; label: string }[] = [
   { type: "scheduled_report", label: "Báo cáo định kỳ sẵn sàng" },
   { type: "email_received", label: "Có mail mới" },
   { type: "mentioned", label: "Được nhắc tên trong bình luận/cập nhật" },
+  { type: "directive_assigned", label: "Được giao việc chính thức" },
 ];
 
 function PreferencesSection() {
@@ -118,9 +120,139 @@ function describe(n: Notification): { title: string; taskId?: string; goTo?: "em
       return { title: `${p.from_name} vừa gửi mail: "${p.subject}"`, goTo: "emails" };
     case "mentioned":
       return { title: `${p.from_name} đã nhắc đến bạn trong task "${p.task_title}"`, taskId: p.task_id };
+    case "directive_assigned": {
+      const task = p.task_title ? ` (${p.task_title})` : "";
+      return { title: `${p.from_name} giao việc: ${p.summary}${task}` };
+    }
     default:
       return { title: n.type };
   }
+}
+
+type DirectiveFormMode = "idle" | "question" | "renegotiate";
+
+/** Directive (Phase 3): dòng thông báo duy nhất có nút hành động thay vì chỉ
+ * tap-to-navigate — người nhận phản hồi ngay tại đây (Nhận việc / Hỏi lại /
+ * Xin dời hạn), không cần mở màn hình khác. */
+function DirectiveAssignedRow({
+  n,
+  onRead,
+}: {
+  n: Notification;
+  onRead: (id: string) => void;
+}) {
+  const p = n.payload as Record<string, any>;
+  const directiveId = p.directive_id as string;
+  const [mode, setMode] = useState<DirectiveFormMode>("idle");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [acted, setActed] = useState(false);
+  const unread = n.read_at === null;
+
+  const markReadOnce = () => {
+    if (unread) {
+      markNotificationRead(n.id).catch(() => {});
+      onRead(n.id);
+    }
+  };
+
+  const doAck = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await ackDirective(directiveId);
+      markReadOnce();
+      setActed(true);
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitForm = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (mode === "question") await raiseDirectiveQuestion(directiveId, text.trim());
+      else await renegotiateDirective(directiveId, text.trim());
+      markReadOnce();
+      setActed(true);
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const { title } = describe(n);
+
+  return (
+    <View style={styles.row}>
+      {unread && <View style={styles.dot} />}
+      <View style={{ flex: 1 }}>
+        <Text style={{ ...type.body, fontWeight: unread ? "700" : "400" }}>{title}</Text>
+        <Text style={{ color: colors.textSecondary }}>
+          {new Date(n.created_at).toLocaleString("vi-VN")}
+        </Text>
+        {acted ? (
+          <Text style={{ color: colors.success, marginTop: spacing.xs, fontWeight: "700" }}>
+            ✓ Đã phản hồi
+          </Text>
+        ) : (
+          <>
+            <ErrorText error={error} />
+            {mode === "idle" && (
+              <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm }}>
+                <TouchableOpacity style={styles.okBtn} onPress={doAck} disabled={busy}>
+                  {busy ? (
+                    <ActivityIndicator color={colors.onPrimary} />
+                  ) : (
+                    <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>Nhận việc</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryBtn} onPress={() => setMode("question")}
+                                  disabled={busy}>
+                  <Text style={{ color: colors.text }}>Hỏi lại</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryBtn} onPress={() => setMode("renegotiate")}
+                                  disabled={busy}>
+                  <Text style={{ color: colors.text }}>Xin dời hạn</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {mode !== "idle" && (
+              <View style={{ marginTop: spacing.sm }}>
+                <Field
+                  placeholder={mode === "question" ? "Câu hỏi của bạn…" : "Lý do xin dời hạn…"}
+                  value={text}
+                  onChangeText={setText}
+                  multiline
+                />
+                <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                  <TouchableOpacity style={styles.okBtn} onPress={submitForm}
+                                    disabled={busy || !text.trim()}>
+                    {busy ? (
+                      <ActivityIndicator color={colors.onPrimary} />
+                    ) : (
+                      <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>Gửi</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryBtn}
+                                    onPress={() => { setMode("idle"); setText(""); }}
+                                    disabled={busy}>
+                    <Text style={{ color: colors.text }}>Hủy</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </>
+        )}
+      </View>
+    </View>
+  );
 }
 
 function NotificationRow({
@@ -131,6 +263,11 @@ function NotificationRow({
   onRead: (id: string) => void;
 }) {
   const router = useRouter();
+
+  if (n.type === "directive_assigned") {
+    return <DirectiveAssignedRow n={n} onRead={onRead} />;
+  }
+
   const { title, taskId, goTo } = describe(n);
   const unread = n.read_at === null;
 
@@ -242,5 +379,19 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderTopWidth: 1,
     borderColor: colors.divider,
+  },
+  okBtn: {
+    backgroundColor: colors.success,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  secondaryBtn: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
   },
 });
