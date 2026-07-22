@@ -863,6 +863,43 @@ _register("propose_actions",
     ProposeActionsToolIn, _propose_actions_noop)
 
 
+# Phân nhóm tool cho Router động (Phase 4, §6.4/§8 spec) — CHỈ dữ liệu, CHƯA wiring
+# lọc vào _tool_specs_for_api()/loop.py (quyết định thiết kế #3 trong plan Phase 2:
+# Router chưa xây, wiring sớm hoặc vô nghĩa hoặc âm thầm bỏ sót tool model cần).
+TOOL_GROUPS: dict[str, frozenset[str]] = {
+    "core": frozenset({
+        "get_task", "search", "resolve_person", "resolve_task", "propose_actions",
+    }),
+    "work": frozenset({
+        "create_project", "update_project", "list_projects",
+        "create_task", "update_task", "list_tasks", "assign_task", "unassign_task",
+        "delete_task", "delete_project", "add_task_update", "list_task_updates",
+        "add_comment", "list_comments", "send_email", "list_task_attachments",
+    }),
+    "admin": frozenset({
+        "list_users", "create_invite", "lock_user", "unlock_user",
+        "offboard_user", "change_user_role", "list_audit_events",
+    }),
+    "reporting": frozenset({
+        "generate_report", "list_reports", "create_report_schedule",
+        "list_report_schedules", "delete_report_schedule",
+        "list_portal_reports", "get_portal_report",
+    }),
+    "skill_instruction": frozenset({
+        "create_skill", "add_skill_version", "grant_skill", "list_skills", "use_skill",
+        "list_skill_grants", "revoke_skill_grant",
+        "create_instruction", "update_instruction", "list_instructions", "delete_instruction",
+    }),
+    "personal": frozenset({
+        "list_voice_notes", "get_voice_note", "create_note", "list_notes",
+        "list_notifications", "get_notification_preferences", "set_notification_preference",
+    }),
+    "insight": frozenset({
+        "get_today_dashboard",
+    }),
+}
+
+
 SENSITIVE_TOOLS: frozenset[str] = frozenset(
     name for name, spec in TOOLS.items() if spec.sensitive
 )
