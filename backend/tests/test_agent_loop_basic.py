@@ -213,7 +213,9 @@ async def test_sensitive_tool_pauses_for_confirmation_without_executing(db_sessi
 
     assert req.status.value == "awaiting_confirmation"
     assert req.pending_action["tool_name"] == "lock_user"
+    assert req.pending_action["kind"] == "tool"
     await db_session.refresh(target)
     assert target.status == UserStatus.active
-    assert any(e["type"] == "confirmation_required" for _, e in pub.events)
+    confirmation_event = next(e for _, e in pub.events if e["type"] == "confirmation_required")
+    assert confirmation_event["kind"] == "tool"
     assert len(llm.calls) == 1

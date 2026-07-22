@@ -269,12 +269,13 @@ async def run_agent_loop(
                                    None)
             if first_sensitive is not None:
                 req.status = ChatRequestStatus.awaiting_confirmation
-                req.pending_action = {"tool_name": first_sensitive.name,
+                req.pending_action = {"kind": "tool", "tool_name": first_sensitive.name,
                                       "tool_input": first_sensitive.input,
                                       "tool_use_id": first_sensitive.id}
                 await db.commit()
                 await publisher.publish(req.conversation_id,
                                         {"type": "confirmation_required",
+                                         "kind": "tool",
                                          "chat_request_id": str(req.id),
                                          "tool_name": first_sensitive.name,
                                          "tool_input": first_sensitive.input})
@@ -312,6 +313,9 @@ async def resolve_confirmation(db: AsyncSession, req: ChatRequest, approved: boo
         raise ValueError("no_pending_action")
     actor = await db.get(User, req.user_id)
     action = req.pending_action
+    # .get("kind", "tool"): dong pending_action tao TRUOC Phase 2 khong co "kind" —
+    # mac dinh ve nhanh cu de tuong thich nguoc, khong can migrate du lieu.
+    kind = action.get("kind", "tool")
     if approved:
         result = await call_tool(db, actor, action["tool_name"], action["tool_input"])
         if action["tool_name"] in SNAPSHOT_WRITE_TOOLS:
