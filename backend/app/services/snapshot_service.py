@@ -21,7 +21,7 @@ from functools import lru_cache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Project, Task, TaskAssignee, TaskStatus, TaskUpdate, User
+from app.models import Directive, DirectiveStatus, Project, Task, TaskAssignee, TaskStatus, TaskUpdate, User
 from app.tz import VN_TZ
 
 logger = logging.getLogger(__name__)
@@ -196,6 +196,11 @@ async def build_workspace_data(db: AsyncSession, workspace_id, *,
     due_today = [t for t in tasks if _is_open(t) and _vn_date(t.deadline) == today_vn]
     overdue = [t for t in tasks if _is_overdue(t)]
 
+    directives = (await db.execute(select(Directive).where(
+        Directive.workspace_id == workspace_id,
+        Directive.status.in_([DirectiveStatus.sent, DirectiveStatus.seen]),
+    ))).scalars().all()
+
     return {
         "built_at": now.isoformat(),
         "projects": out_projects,
@@ -208,6 +213,17 @@ async def build_workspace_data(db: AsyncSession, workspace_id, *,
                          "author": name_by_uid.get(r.author_id, "?"),
                          "content": r.content, "percent": r.percent,
                          "at": _iso(r.created_at)} for r in upd_rows],
+        # Goc nhin NGUOI GIAO (created_by), khac cac section tren von loc theo
+        # visible_task_ids/visible_user_ids - render_for_actor loc rieng bang
+        # own_directive_creator_ids (xem Phase 3 §7.4).
+        "pending_directives": [
+            {"directive_id": str(d.id), "created_by": str(d.created_by),
+             "recipient_name": name_by_uid.get(d.recipient_id, "?"),
+             "task_title": task_by_id[d.task_id].title if d.task_id in task_by_id else None,
+             "deadline": _iso(d.deadline), "sent_at": _iso(d.created_at),
+             "status": d.status.value}
+            for d in directives
+        ],
     }
 
 
@@ -216,6 +232,7 @@ _MAX_PROJECTS = 20
 _MAX_USERS = 30
 _MAX_TODAY = 12
 _MAX_UPDATES = 10
+_MAX_DIRECTIVES = 10
 _MAX_CHARS = 8000
 
 
@@ -240,6 +257,7 @@ def _fmt_hm(iso: str | None) -> str:
 
 def render_for_actor(data: dict, actor_user_id: str, *, visible_projects: set[str],
                      visible_tasks: set[str], visible_users: set[str],
+                     own_directive_creator_ids: set[str] = frozenset(),
                      now: datetime | None = None) -> str:
     """Cắt data theo phạm vi quyền rồi render text. Chỉ nhận id dạng str.
 
@@ -267,8 +285,13 @@ def render_for_actor(data: dict, actor_user_id: str, *, visible_projects: set[st
     due_today = [t for t in data.get("due_today", []) if t["task_id"] in visible_tasks]
     overdue = [t for t in data.get("overdue", []) if t["task_id"] in visible_tasks]
     updates = [u for u in data.get("updates_24h", []) if u["task_id"] in visible_tasks]
+    # Goc nhin NGUOI GIAO (created_by) - KHONG loc theo visible_tasks/visible_users vì
+    # đây là "việc TÔI đã giao", không phải "task tôi được thấy" (Phase 3 §7.4).
+    pending_directives = [d for d in data.get("pending_directives", [])
+                         if d["created_by"] in own_directive_creator_ids]
 
-    if not projects and not users and not due_today and not overdue and not updates:
+    if (not projects and not users and not due_today and not overdue and not updates
+            and not pending_directives):
         lines.append("(chưa có dữ liệu trong phạm vi của bạn)")
         return "\n".join(lines)
 
@@ -315,6 +338,14 @@ def render_for_actor(data: dict, actor_user_id: str, *, visible_projects: set[st
     if not due_today and not overdue and not updates:
         lines.append("- (không có deadline/cập nhật đáng chú ý)")
 
+    if pending_directives:
+        lines.append("## Việc đã giao đang chờ xác nhận")
+        for d in pending_directives[:_MAX_DIRECTIVES]:
+            title = f"\"{d['task_title']}\"" if d["task_title"] else "(không gắn task)"
+            dl = f" hạn {_fmt_dm(d['deadline'])}" if d["deadline"] else ""
+            lines.append(f"- {d['recipient_name']} — {title}{dl} — gửi "
+                         f"{_fmt_hm(d['sent_at'])}, CHƯA xác nhận ({d['status']})")
+
     text = "\n".join(lines)
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS] + "\n(… snapshot dài quá đã bị cắt)"
@@ -346,7 +377,8 @@ async def get_snapshot_text(db, actor, *, now: datetime | None = None) -> str:
         vt = {str(i) for i in await visible_task_ids(db, actor)}
         vu = {str(i) for i in await visible_user_ids(db, actor)}
         return render_for_actor(data, str(actor.id), visible_projects=vp,
-                                visible_tasks=vt, visible_users=vu, now=now)
+                                visible_tasks=vt, visible_users=vu,
+                                own_directive_creator_ids={str(actor.id)}, now=now)
     except Exception:
         logger.exception("snapshot fail cho workspace %s", workspace_id)
         return ""

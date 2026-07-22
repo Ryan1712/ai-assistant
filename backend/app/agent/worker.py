@@ -13,7 +13,7 @@ from app.agent.loop import run_agent_loop
 from app.agent.publisher import get_event_publisher
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
-from app.services import report_schedule_service, voice_service, work_service
+from app.services import directive_service, report_schedule_service, voice_service, work_service
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,13 @@ async def check_task_deadlines(ctx: dict) -> None:
         await work_service.notify_upcoming_deadlines(db)
 
 
+async def check_directive_escalations(ctx: dict) -> None:
+    """arq cron (mỗi phút): nhắc/escalate Directive chưa xác nhận sau 24h/48h
+    (Phase 3 §7.3)."""
+    async with ctx["session_factory"]() as db:
+        await directive_service.escalate_overdue(db)
+
+
 async def transcribe_voice_note(ctx: dict, voice_note_id: uuid.UUID) -> None:
     """arq job: chạy STT cho 1 voice note (enqueue sau upload hoặc từ POST
     /voice-notes/{id}/transcribe — Task 16)."""
@@ -118,7 +125,8 @@ async def _shutdown(ctx: dict) -> None:
 
 class WorkerSettings:
     functions = [process_conversation, transcribe_voice_note]
-    cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0)]
+    cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0),
+                cron(check_directive_escalations, second=0)]
     on_startup = _startup
     on_shutdown = _shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

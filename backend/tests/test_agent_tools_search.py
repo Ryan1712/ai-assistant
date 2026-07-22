@@ -19,7 +19,7 @@ async def _ceo(db):
 def test_search_tool_registered_and_not_sensitive():
     assert "search" in TOOLS
     assert TOOLS["search"].sensitive is False
-    assert len(TOOLS) == 54  # +resolve_person +resolve_task (Phase 2 6.3)
+    assert len(TOOLS) == 56  # +create_directive +get_directive_status (Phase 3)
 
 
 @pytest.mark.asyncio

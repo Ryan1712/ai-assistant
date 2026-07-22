@@ -158,7 +158,7 @@ async def test_ceo_xoa_project_keo_theo_tasks(client, db_session):
 def test_tools_dang_ky_va_nhay_cam():
     assert "delete_task" in TOOLS and "delete_project" in TOOLS
     assert "delete_task" in SENSITIVE_TOOLS and "delete_project" in SENSITIVE_TOOLS
-    assert len(TOOLS) == 54  # +resolve_person +resolve_task (Phase 2 6.3)
+    assert len(TOOLS) == 56  # +create_directive +get_directive_status (Phase 3)
 
 
 @pytest.mark.asyncio

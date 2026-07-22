@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -16,8 +16,8 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    attachment_service, audit_service, auth_service, dashboard_service, email_service,
-    instruction_service, note_service, notification_service, portal_service,
+    attachment_service, audit_service, auth_service, dashboard_service, directive_service,
+    email_service, instruction_service, note_service, notification_service, portal_service,
     report_schedule_service, report_service, resolver_service, search_service, skill_service,
     voice_service, work_service,
 )
@@ -553,6 +553,45 @@ async def _send_email(db, actor, body: SendEmailToolIn) -> dict:
     return {"id": str(email.id), "subject": email.subject, "sent": True}
 
 
+class CreateDirectiveToolIn(BaseModel):
+    recipient_id: uuid.UUID
+    task_id: uuid.UUID | None = None
+    verbatim_text: str
+    structured_summary: str = ""
+    deadline: datetime | None = None
+
+
+async def _create_directive(db, actor, body: CreateDirectiveToolIn) -> dict:
+    return await directive_service.create_directive(
+        db, actor, recipient_id=body.recipient_id, task_id=body.task_id,
+        verbatim_text=body.verbatim_text, structured_summary=body.structured_summary,
+        deadline=body.deadline)
+
+
+_register("create_directive", "Giao việc CHÍNH THỨC cho 1 người — khác update_task/assign_task "
+          "ở chỗ tạo ra 1 'directive' có trạng thái riêng (sent/acked/...), gửi thông báo + "
+          "email nội bộ, và người nhận PHẢI xác nhận đã nhận việc. Dùng khi câu nói mang tính "
+          "CHỈ THỊ rõ ràng (vd 'bảo X làm Y', 'giao Y cho X') — không dùng cho việc cập nhật/"
+          "sửa task thông thường (dùng update_task/assign_task cho việc đó). CEO giao được cho "
+          "bất kỳ ai; manager chỉ giao được cho nhân viên dưới quyền trực tiếp của mình. Gọi "
+          "bên trong propose_actions cùng update_task nếu câu nói vừa đổi deadline vừa giao "
+          "việc.", CreateDirectiveToolIn, _create_directive)
+
+
+class GetDirectiveStatusToolIn(BaseModel):
+    pass
+
+
+async def _get_directive_status(db, actor, body: GetDirectiveStatusToolIn) -> dict:
+    return await directive_service.get_directive_status(db, actor)
+
+
+_register("get_directive_status", "Xem tình trạng các directive (việc đã giao chính thức) "
+          "trong phạm vi actor được thấy — dùng khi hỏi 'tuần này tôi giao gì', 'ai chưa xác "
+          "nhận', 'Duy còn nợ tôi mấy việc'. Trả danh sách kèm trạng thái, không tự tính toán "
+          "— đọc thẳng kết quả.", GetDirectiveStatusToolIn, _get_directive_status)
+
+
 _register("send_email", "Gửi email cho 1 người trong công ty theo ma trận tương tác "
           "(nhân viên không gửi được cho nhân viên khác). Gắn task_id/project_id nếu "
           "nội dung mail liên quan tới 1 task/project cụ thể. Hành động nhạy cảm - hệ "
@@ -875,6 +914,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         "create_task", "update_task", "list_tasks", "assign_task", "unassign_task",
         "delete_task", "delete_project", "add_task_update", "list_task_updates",
         "add_comment", "list_comments", "send_email", "list_task_attachments",
+        "create_directive",
     }),
     "admin": frozenset({
         "list_users", "create_invite", "lock_user", "unlock_user",
@@ -895,7 +935,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         "list_notifications", "get_notification_preferences", "set_notification_preference",
     }),
     "insight": frozenset({
-        "get_today_dashboard",
+        "get_today_dashboard", "get_directive_status",
     }),
 }
 
@@ -911,5 +951,5 @@ SNAPSHOT_WRITE_TOOLS: frozenset[str] = frozenset({
     "create_project", "update_project", "delete_project",
     "create_task", "update_task", "delete_task",
     "assign_task", "unassign_task", "add_task_update",
-    "offboard_user", "change_user_role",
+    "offboard_user", "change_user_role", "create_directive",
 })

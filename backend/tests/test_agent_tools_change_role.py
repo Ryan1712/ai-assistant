@@ -21,7 +21,7 @@ async def _seed(db):
 def test_change_user_role_tool_registered_and_sensitive():
     assert "change_user_role" in TOOLS
     assert TOOLS["change_user_role"].sensitive is True
-    assert len(TOOLS) == 54  # +resolve_person +resolve_task (Phase 2 6.3)
+    assert len(TOOLS) == 56  # +create_directive +get_directive_status (Phase 3)
 
 
 @pytest.mark.asyncio

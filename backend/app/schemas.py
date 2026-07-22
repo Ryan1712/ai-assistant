@@ -323,6 +323,38 @@ class NotificationOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CreateDirectiveIn(BaseModel):
+    recipient_id: uuid.UUID
+    task_id: uuid.UUID | None = None
+    verbatim_text: str = Field(min_length=1)
+    structured_summary: str = ""
+    deadline: dt.datetime | None = None
+
+
+class DirectiveOut(BaseModel):
+    id: uuid.UUID
+    created_by: uuid.UUID
+    recipient_id: uuid.UUID
+    task_id: uuid.UUID | None
+    verbatim_text: str
+    structured_summary: str
+    deadline: dt.datetime | None
+    status: str
+    response_text: str | None
+    created_at: dt.datetime
+
+
+class DirectiveQuestionIn(BaseModel):
+    question_text: str = Field(min_length=1)
+
+
+class DirectiveRenegotiateIn(BaseModel):
+    # V1 (spec §7.5): "dạng câu hỏi thường" — chỉ cần lý do bằng lời; ngày đề nghị cụ
+    # thể là optional (đàm phán thẳng bằng chat/update_task, không ép chọn ngày ở đây).
+    reason: str = Field(min_length=1)
+    new_deadline_proposal: dt.datetime | None = None
+
+
 class MessageSendIn(BaseModel):
     # Rỗng/toàn khoảng trắng → Anthropic từ chối text block rỗng → request failed;
     # chặn ngay từ API. Trần 8000 ký tự chống paste khổng lồ làm nổ context.

@@ -207,6 +207,36 @@ def test_worker_settings_registers_report_schedule_cron():
     assert job.coroutine is check_report_schedules
 
 
+def test_worker_settings_registers_directive_escalation_cron():
+    """Phase 3 §7.3: arq cron nhắc/escalate Directive chưa xác nhận sau 24h/48h."""
+    from app.agent.worker import check_directive_escalations
+
+    names = [j.name for j in WorkerSettings.cron_jobs]
+    assert "cron:check_directive_escalations" in names
+    job = next(j for j in WorkerSettings.cron_jobs
+              if j.name == "cron:check_directive_escalations")
+    assert job.coroutine is check_directive_escalations
+
+
+@pytest.mark.asyncio
+async def test_check_directive_escalations_calls_escalate_overdue(engine, monkeypatch):
+    from app.agent import worker as worker_module
+
+    called = {}
+
+    async def fake_escalate_overdue(db):
+        called["db"] = db
+        return 0
+
+    monkeypatch.setattr(worker_module.directive_service, "escalate_overdue",
+                        fake_escalate_overdue)
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False)}
+
+    await worker_module.check_directive_escalations(ctx)
+
+    assert "db" in called
+
+
 @pytest.mark.asyncio
 async def test_check_report_schedules_calls_run_due_schedules(engine, monkeypatch):
     from app.agent import worker as worker_module

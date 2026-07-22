@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
-    attachments, audit, auth, chat, dashboard, devices, emails, instructions, invites,
-    notes, notifications, portal, projects, report_schedules, reports, search, skills,
-    subscription, tasks, traces, users, voice_notes, workspace, ws,
+    attachments, audit, auth, chat, dashboard, devices, directives, emails, instructions,
+    invites, notes, notifications, portal, projects, report_schedules, reports, search,
+    skills, subscription, tasks, traces, users, voice_notes, workspace, ws,
 )
 from app.config import assert_safe_config, get_settings
 
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(traces.router)
     app.include_router(notifications.router)
+    app.include_router(directives.router)
     app.include_router(chat.router)
     app.include_router(chat.chat_requests_router)
     app.include_router(ws.router)
