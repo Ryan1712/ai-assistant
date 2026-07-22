@@ -188,6 +188,41 @@ class TaskAssignee(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class DirectiveStatus(str, enum.Enum):
+    sent = "sent"
+    seen = "seen"
+    acked = "acked"
+    question = "question"
+    renegotiate = "renegotiate"
+    done = "done"
+    cancelled = "cancelled"
+
+
+class Directive(Base):
+    """Giao việc chính thức có state machine riêng (Phase 3 §7.1) — khác
+    update_task/assign_task ở chỗ người nhận PHẢI xác nhận đã nhận việc."""
+    __tablename__ = "directives"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    verbatim_text: Mapped[str] = mapped_column(Text)
+    structured_summary: Mapped[str] = mapped_column(Text, default="")
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[DirectiveStatus] = mapped_column(Enum(DirectiveStatus),
+                                                    default=DirectiveStatus.sent)
+    # Cau hoi (question) hoac ly do de nghi doi han (renegotiate) cua nguoi nhan.
+    response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Guard chong spam cho escalate_overdue (cron moi phut) - cung pattern
+    # deadline_reminder_sent_at cua Task.
+    remind_count: Mapped[int] = mapped_column(Integer, default=0)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class TaskUpdate(Base):
     __tablename__ = "task_updates"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)

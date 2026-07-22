@@ -41,6 +41,17 @@ async def direct_report_ids(db: AsyncSession, actor: User) -> list[uuid.UUID]:
     return list(rows.scalars())
 
 
+async def can_assign_directive(db: AsyncSession, actor: User, recipient_id: uuid.UUID) -> bool:
+    """Quyền tạo Directive (Phase 3 §7.1) — TÁCH BIỆT khỏi work_service's require_ceo (đó
+    là quyết định thiết kế cố ý: work_service không có ma trận CEO/manager nào, Directive
+    có logic riêng, không mở rộng phạm vi quyền của assign_task/create_task/update_task)."""
+    if actor.role == Role.ceo:
+        return True
+    if actor.role == Role.manager:
+        return recipient_id in await direct_report_ids(db, actor)
+    return False
+
+
 async def _assigned_task_ids(db: AsyncSession, actor: User, user_ids: list[uuid.UUID]) -> set[uuid.UUID]:
     rows = await db.execute(select(TaskAssignee.task_id).where(
         TaskAssignee.workspace_id == actor.workspace_id,
