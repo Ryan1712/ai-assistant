@@ -1,9 +1,9 @@
 """Email theo vai trò (funtional-plan 6.4) — ma trận tương tác: employee ⇎ employee,
 mọi cặp khác trong cùng workspace được phép.
 
-EmailClient real CHƯA implement — chờ product chốt OAuth send-as hay SMTP
-(phụ lục funtional-plan). Mặc định MockEmailClient (email_mock=True): mail vẫn
-được ghi vào email_messages làm nguồn chuẩn trong app.
+EmailClient thật = SmtpEmailClient (aiosmtplib) khi email_mock=False — cấu hình
+SMTP_HOST/PORT/USER/PASSWORD/FROM trong .env. Mặc định MockEmailClient (email_mock=True):
+mail chỉ ghi vào email_messages làm nguồn chuẩn trong app, KHÔNG gửi ra ngoài.
 """
 import uuid
 from typing import Protocol
@@ -36,11 +36,40 @@ class MockEmailClient:
 mock_email_client = MockEmailClient()
 
 
+class SmtpEmailClient:
+    """Gửi email thật qua SMTP (aiosmtplib). Người gửi = smtp_from (hoặc smtp_user);
+    from_email logic (vd người gửi trong app) đặt vào Reply-To khi khác người gửi SMTP."""
+
+    async def send(self, *, from_email: str, to_email: str, subject: str, body: str) -> None:
+        import aiosmtplib
+        from email.message import EmailMessage as _Msg
+
+        s = get_settings()
+        sender = s.smtp_from or s.smtp_user or from_email
+        msg = _Msg()
+        msg["From"] = sender
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        if from_email and from_email != sender:
+            msg["Reply-To"] = from_email
+        msg.set_content(body)
+        await aiosmtplib.send(
+            msg,
+            hostname=s.smtp_host,
+            port=s.smtp_port,
+            username=s.smtp_user or None,
+            password=s.smtp_password or None,
+            start_tls=s.smtp_starttls,
+        )
+
+
+smtp_email_client = SmtpEmailClient()
+
+
 def get_email_client() -> EmailClient:
     if get_settings().email_mock:
         return mock_email_client
-    raise NotImplementedError(
-        "Email client thật chưa được chọn (OAuth send-as vs SMTP) — xem phụ lục funtional-plan")
+    return smtp_email_client
 
 
 def _check_matrix(sender: User, recipient: User) -> None:

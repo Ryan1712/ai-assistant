@@ -1,5 +1,4 @@
 import React from "react";
-import { Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ConversationalForm, ConversationalStep } from "../../src/ui/ConversationalForm";
 
@@ -24,10 +23,8 @@ export default function SignupWorkspace() {
   const { signupWorkspace } = useAuth();
 
   return (
-    <>
-      <Stack.Screen options={{ title: "Tạo công ty mới" }} />
-      <ConversationalForm
-        intro="Chào bạn! Mình hỏi vài câu để tạo công ty cho bạn nhé."
+    <ConversationalForm
+      intro="Chào bạn! Mình hỏi vài câu để tạo công ty cho bạn nhé."
         steps={STEPS}
         submittingLabel="Đang tạo công ty cho bạn..."
         onComplete={(a) =>
@@ -42,7 +39,6 @@ export default function SignupWorkspace() {
           e?.detail === "email_taken" ? "Email này đã được dùng rồi, bạn thử email khác nhé." : String(e?.message ?? e)
         }
         errorStepKey={(e) => (e?.detail === "email_taken" ? "email" : undefined)}
-      />
-    </>
+    />
   );
 }

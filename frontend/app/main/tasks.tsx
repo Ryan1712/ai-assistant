@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { useAuth } from "../../src/auth/AuthContext";
 import { Project, listProjects } from "../../src/api/projects";
 import { TaskDetail, listTasks } from "../../src/api/tasks";
@@ -45,10 +45,10 @@ function TaskRow({
   projectName: string;
   assigneeNames: string;
 }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   const overdue = isOverdue(t);
   return (
-    <TouchableOpacity style={styles.row} onPress={() => router.push(`/tasks/${t.id}`)}>
+    <TouchableOpacity style={styles.row} onPress={() => navigation.navigate("TaskDetail", { id: t.id })}>
       <View style={{ flex: 1 }}>
         <Text style={type.body} numberOfLines={1}>
           {t.title}
@@ -73,7 +73,7 @@ function TaskRow({
 
 export default function Tasks() {
   const { user } = useAuth();
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   const [tasks, setTasks] = useState<TaskDetail[] | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [users, setUsers] = useState<TeamUser[] | null>(null);
@@ -130,7 +130,7 @@ export default function Tasks() {
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
     >
-      <TouchableOpacity onPress={() => router.push("/projects")} style={{ alignSelf: "flex-end" }}>
+      <TouchableOpacity onPress={() => navigation.navigate("Projects")} style={{ alignSelf: "flex-end" }}>
         <Text style={{ color: colors.primary, fontWeight: "700" }}>📁 Xem theo Project</Text>
       </TouchableOpacity>
       <View style={styles.filterRow}>

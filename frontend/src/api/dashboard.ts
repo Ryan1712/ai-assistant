@@ -10,6 +10,8 @@ export type DashTask = {
 };
 
 export type TodayDashboard = {
+  employee_count: number;
+  latest_note: { id: string; content: string; tags: string[]; created_at: string } | null;
   due_today: DashTask[];
   overdue: DashTask[];
   in_progress: DashTask[];

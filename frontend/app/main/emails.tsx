@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { Email, listEmails } from "../../src/api/emails";
 import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
@@ -30,7 +30,7 @@ function BoxToggle({ box, onChange }: { box: Box; onChange: (b: Box) => void }) 
 }
 
 function EmailRow({ email, box }: { email: Email; box: Box }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>
@@ -42,7 +42,7 @@ function EmailRow({ email, box }: { email: Email; box: Box }) {
       </Text>
       <Text style={styles.meta}>{new Date(email.created_at).toLocaleString("vi-VN")}</Text>
       {email.task_id && (
-        <TouchableOpacity onPress={() => router.push(`/tasks/${email.task_id}`)}>
+        <TouchableOpacity onPress={() => navigation.navigate("TaskDetail", { id: email.task_id })}>
           <Text style={{ color: colors.primary, fontWeight: "700" }}>Xem task liên quan →</Text>
         </TouchableOpacity>
       )}

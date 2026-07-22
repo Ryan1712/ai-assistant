@@ -16,7 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { DashTask, Subscription, TodayDashboard, getSubscription, getTodayDashboard } from "../../src/api/dashboard";
 import { VoiceNote, listVoiceNotes, uploadVoiceNote } from "../../src/api/voice";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
@@ -34,7 +34,7 @@ const VISIBLE_NOTES = 3;
 type Pending = { uri: string; durationMs: number };
 
 function QuickVoiceCard() {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
   const [notes, setNotes] = useState<VoiceNote[]>([]);
@@ -121,7 +121,7 @@ function QuickVoiceCard() {
     <View style={styles.card}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Text style={styles.cardTitle}>🎙️ Ghi âm nhanh</Text>
-        <TouchableOpacity onPress={() => router.push("/voice-notes")}>
+        <TouchableOpacity onPress={() => navigation.navigate("VoiceNotes")}>
           <Text style={{ color: colors.primary, fontWeight: "700" }}>Thư viện →</Text>
         </TouchableOpacity>
       </View>
@@ -130,7 +130,9 @@ function QuickVoiceCard() {
         onPress={toggle}
         disabled={busy}
       >
-        <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
+        {/* Nền xanh khi idle, nền đỏ (danger) khi đang ghi — chọn màu chữ tương ứng
+            để đảm bảo contrast ≥ 4.5:1: onPrimary (#06281F) trên xanh, onDanger (#fff) trên đỏ. */}
+        <Text style={{ color: recorderState.isRecording ? colors.onDanger : colors.onPrimary, fontWeight: "700" }}>
           {busy
             ? "Đang tải lên…"
             : recorderState.isRecording
@@ -144,7 +146,8 @@ function QuickVoiceCard() {
           onPress={() => upload(retry.uri, retry.durationMs)}
           disabled={busy}
         >
-          <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>↻ Thử lại</Text>
+          {/* Retry button luôn có nền danger (đỏ) → dùng onDanger (#fff) để đủ contrast. */}
+          <Text style={{ color: colors.onDanger, fontWeight: "700" }}>↻ Thử lại</Text>
         </TouchableOpacity>
       )}
       {error && <Text style={styles.error}>{error}</Text>}
@@ -166,7 +169,7 @@ function QuickVoiceCard() {
             </View>
           ))}
           {notes.length > VISIBLE_NOTES && (
-            <TouchableOpacity onPress={() => router.push("/voice-notes")}>
+            <TouchableOpacity onPress={() => navigation.navigate("VoiceNotes")}>
               <Text style={{ color: colors.primary, fontWeight: "700", marginTop: spacing.xs }}>
                 +{notes.length - VISIBLE_NOTES} ghi âm khác — xem Thư viện →
               </Text>
@@ -179,9 +182,9 @@ function QuickVoiceCard() {
 }
 
 function TaskLine({ t }: { t: DashTask }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   return (
-    <TouchableOpacity style={styles.taskLine} onPress={() => router.push(`/tasks/${t.id}`)}>
+    <TouchableOpacity style={styles.taskLine} onPress={() => navigation.navigate("TaskDetail", { id: t.id })}>
       <Text style={{ flex: 1 }} numberOfLines={1}>
         {t.title}
       </Text>
@@ -204,7 +207,7 @@ function Section({ title, tasks, empty }: { title: string; tasks: DashTask[]; em
 }
 
 export default function Today() {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   const [data, setData] = useState<TodayDashboard | null>(null);
   const [sub, setSub] = useState<Subscription | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -234,9 +237,28 @@ export default function Today() {
       )}
       {data && (
         <>
-          <TouchableOpacity onPress={() => router.push("/notifications")} style={{ alignSelf: "flex-end" }}>
+          <TouchableOpacity onPress={() => navigation.navigate("Notifications")} style={{ alignSelf: "flex-end" }}>
             <Text style={{ color: colors.primary, fontWeight: "700" }}>🔔 Thông báo</Text>
           </TouchableOpacity>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>📊 Báo cáo hôm nay</Text>
+            <View style={styles.statRow}>
+              <View style={styles.statTile}>
+                <Text style={styles.statNum}>{data.due_today.length}</Text>
+                <Text style={styles.statLabel}>Task hôm nay</Text>
+              </View>
+              <View style={styles.statTile}>
+                <Text style={styles.statNum}>{data.employee_count}</Text>
+                <Text style={styles.statLabel}>Nhân viên</Text>
+              </View>
+            </View>
+            <View style={styles.latestNote}>
+              <Text style={styles.latestNoteLabel}>Ghi chú mới nhất</Text>
+              <Text style={styles.latestNoteText} numberOfLines={2}>
+                {data.latest_note ? data.latest_note.content : "Chưa có ghi chú nào"}
+              </Text>
+            </View>
+          </View>
           <View style={styles.counters}>
             <View style={styles.counter}>
               <Text style={styles.counterNum}>{data.counters.overdue}</Text>
@@ -271,7 +293,7 @@ export default function Today() {
                 <TouchableOpacity
                   key={i}
                   style={styles.updateLine}
-                  onPress={() => router.push(`/tasks/${u.task_id}`)}
+                  onPress={() => navigation.navigate("TaskDetail", { id: u.task_id })}
                 >
                   <Text style={{ fontWeight: "600" }}>
                     {u.author} — {u.task_title}
@@ -285,7 +307,7 @@ export default function Today() {
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.cardTitle}>📝 Ghi chú hôm nay</Text>
-              <TouchableOpacity onPress={() => router.push("/notes")}>
+              <TouchableOpacity onPress={() => navigation.navigate("Notes")}>
                 <Text style={{ color: colors.primary, fontWeight: "700" }}>Xem tất cả</Text>
               </TouchableOpacity>
             </View>
@@ -312,6 +334,24 @@ const styles = StyleSheet.create({
   },
   counterNum: { ...type.metric },
   counterLabel: { ...type.caption },
+  statRow: { flexDirection: "row", gap: spacing.md },
+  statTile: {
+    flex: 1,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+  },
+  statNum: { ...type.metric, color: colors.primary },
+  statLabel: { ...type.caption },
+  latestNote: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderColor: colors.divider,
+  },
+  latestNoteLabel: { ...type.caption, marginBottom: 2 },
+  latestNoteText: { ...type.body },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
   cardTitle: { ...type.heading, marginBottom: spacing.sm },
   cardHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

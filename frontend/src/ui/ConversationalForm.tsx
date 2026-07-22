@@ -2,13 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { colors, radius, spacing, type } from "./theme";
 
 export type ConversationalStep = {
@@ -46,6 +46,7 @@ export function ConversationalForm({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const listRef = useRef<FlatList>(null);
+  const headerHeight = useHeaderHeight(); // bù chiều cao header của native-stack cho KAV
 
   useEffect(() => {
     const seed: Row[] = [];
@@ -105,12 +106,15 @@ export function ConversationalForm({
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.bg }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
+      keyboardVerticalOffset={headerHeight}
     >
       <FlatList
         ref={listRef}
         data={rows}
         keyExtractor={(r) => r.key}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         contentContainerStyle={{ padding: spacing.md, gap: spacing.sm }}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (

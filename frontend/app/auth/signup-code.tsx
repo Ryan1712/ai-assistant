@@ -1,5 +1,4 @@
 import React from "react";
-import { Stack } from "expo-router";
 import { useAuth } from "../../src/auth/AuthContext";
 import { ConversationalForm, ConversationalStep } from "../../src/ui/ConversationalForm";
 
@@ -29,10 +28,8 @@ export default function SignupCode() {
   const { signupCode } = useAuth();
 
   return (
-    <>
-      <Stack.Screen options={{ title: "Đăng ký bằng mã mời" }} />
-      <ConversationalForm
-        intro="Chào bạn! Mình hỏi vài câu để đưa bạn vào đúng công ty nhé."
+    <ConversationalForm
+      intro="Chào bạn! Mình hỏi vài câu để đưa bạn vào đúng công ty nhé."
         steps={STEPS}
         submittingLabel="Đang tạo tài khoản cho bạn..."
         onComplete={(a) =>
@@ -49,7 +46,6 @@ export default function SignupCode() {
           if (e?.detail === "email_taken") return "email";
           return undefined;
         }}
-      />
-    </>
+    />
   );
 }

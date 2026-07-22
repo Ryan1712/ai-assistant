@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useRoute } from "@react-navigation/native";
 import {
   Device,
   TeamUser,
@@ -68,7 +68,7 @@ function PersonPicker({
 }
 
 export default function TeamDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = (useRoute<any>().params ?? {}) as { id: string };
   const [users, setUsers] = useState<TeamUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
@@ -191,7 +191,7 @@ export default function TeamDetail() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <BackHeader title={target?.full_name ?? "Chi tiết thành viên"} fallback="/team" />
+      <BackHeader title={target?.full_name ?? "Chi tiết thành viên"} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { TeamUser, listUsers } from "../../src/api/team";
 import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText } from "../../src/ui/form";
@@ -11,9 +11,9 @@ function roleLabel(role: TeamUser["role"]): string {
 }
 
 function TeamRow({ u }: { u: TeamUser }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   return (
-    <TouchableOpacity style={styles.row} onPress={() => router.push(`/team/${u.id}`)}>
+    <TouchableOpacity style={styles.row} onPress={() => navigation.navigate("TeamDetail", { id: u.id })}>
       <View style={{ flex: 1 }}>
         <Text style={type.body}>{u.full_name}</Text>
         <Text style={{ color: colors.textSecondary }}>{roleLabel(u.role)}</Text>

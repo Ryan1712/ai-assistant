@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { Project, listProjects } from "../../src/api/projects";
 import { TaskDetail, listTasks } from "../../src/api/tasks";
 import { BackHeader } from "../../src/ui/BackHeader";
@@ -14,7 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function ProjectCard({ p, tasks }: { p: Project; tasks: TaskDetail[] }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   const [expanded, setExpanded] = useState(false);
   const done = tasks.filter((t) => t.status === "done").length;
   const percent = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
@@ -43,7 +43,7 @@ function ProjectCard({ p, tasks }: { p: Project; tasks: TaskDetail[] }) {
             <TouchableOpacity
               key={t.id}
               style={styles.taskRow}
-              onPress={() => router.push(`/tasks/${t.id}`)}
+              onPress={() => navigation.navigate("TaskDetail", { id: t.id })}
             >
               <Text style={{ flex: 1 }} numberOfLines={1}>
                 {t.title}

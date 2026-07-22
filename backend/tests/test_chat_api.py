@@ -128,3 +128,28 @@ async def test_rename_others_conversation_404(chat_client):
     resp = await client.patch(f"/api/v1/conversations/{conv['id']}", headers=m1_headers,
                               json={"title": "x"})
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_own_conversation(chat_client):
+    client, _ = chat_client
+    ceo_h = await _ceo_headers(client)
+    conv = (await client.post("/api/v1/conversations", headers=ceo_h, json={})).json()
+
+    resp = await client.delete(f"/api/v1/conversations/{conv['id']}", headers=ceo_h)
+    assert resp.status_code == 204, resp.text
+
+    listed = await client.get("/api/v1/conversations", headers=ceo_h)
+    assert conv["id"] not in [c["id"] for c in listed.json()]
+
+
+@pytest.mark.asyncio
+async def test_delete_others_conversation_404(chat_client):
+    client, _ = chat_client
+    ceo_h = await _ceo_headers(client)
+    m1 = await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")
+    conv = (await client.post("/api/v1/conversations", headers=ceo_h, json={})).json()
+
+    m1_headers = {"Authorization": f"Bearer {m1['access_token']}"}
+    resp = await client.delete(f"/api/v1/conversations/{conv['id']}", headers=m1_headers)
+    assert resp.status_code == 404

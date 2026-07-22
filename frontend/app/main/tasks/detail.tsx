@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
 import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
@@ -227,8 +227,8 @@ function CommentsSection({ taskId }: { taskId: string }) {
 }
 
 export default function TaskDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
+  const { id } = (useRoute<any>().params ?? {}) as { id: string };
+  const navigation = useNavigation<any>();
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -243,7 +243,7 @@ export default function TaskDetailScreen() {
     setError(null);
     try {
       await deleteTask(id);
-      router.back();
+      navigation.goBack();
     } catch (e: any) {
       // Non-CEO sẽ nhận 403 từ BE — hiện message thô, không tự check role ở FE
       setError(String(e?.message ?? e));
@@ -270,7 +270,7 @@ export default function TaskDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <BackHeader title={task?.title ?? "Chi tiết task"} fallback="/tasks" />
+      <BackHeader title={task?.title ?? "Chi tiết task"} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}

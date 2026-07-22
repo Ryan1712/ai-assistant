@@ -1,7 +1,7 @@
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import {
   VoiceNote,
   deleteVoiceNote,
@@ -71,7 +71,7 @@ function VoiceNoteRow({
   onSaveEdit: () => void;
   onCancelEdit: () => void;
 }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   return (
     <View style={styles.row}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
@@ -120,7 +120,7 @@ function VoiceNoteRow({
         {transcriptLine(note)}
       </Text>
       {note.task_id && (
-        <TouchableOpacity onPress={() => router.push(`/tasks/${note.task_id}`)}>
+        <TouchableOpacity onPress={() => navigation.navigate("TaskDetail", { id: note.task_id })}>
           <Text style={{ color: colors.primary, fontWeight: "700" }}>Xem task liên quan →</Text>
         </TouchableOpacity>
       )}

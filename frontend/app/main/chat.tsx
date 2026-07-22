@@ -2,15 +2,17 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
+  Keyboard,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Markdown from "react-native-markdown-display";
 import * as DocumentPicker from "expo-document-picker";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
@@ -34,7 +36,7 @@ import {
 } from "../../src/api/chat";
 import { WsEvent, openConversationStream } from "../../src/api/ws";
 import { ErrorText } from "../../src/ui/form";
-import { colors, radius, spacing, type } from "../../src/ui/theme";
+import { colors, fonts, radius, shadow, spacing, type } from "../../src/ui/theme";
 
 type Row =
   | { key: string; kind: "user" | "assistant"; text: string; voiceNoteId?: string | null }
@@ -113,16 +115,35 @@ function labelForTool(name: string): string {
 }
 
 const mdStyles = {
-  body: { color: colors.text, fontSize: type.body.fontSize },
-  code_inline: { backgroundColor: colors.surface, color: colors.text },
-  fence: { backgroundColor: colors.surface, borderColor: colors.divider },
+  body: { color: colors.text, fontSize: 16, lineHeight: 26, fontFamily: fonts.regular },
+  strong: { fontFamily: fonts.bold },
+  heading1: { fontFamily: fonts.bold, color: colors.text },
+  heading2: { fontFamily: fonts.bold, color: colors.text },
+  heading3: { fontFamily: fonts.semibold, color: colors.text },
+  code_inline: { backgroundColor: colors.surfaceAlt, color: colors.text, borderRadius: 4 },
+  fence: { backgroundColor: colors.surfaceAlt, borderColor: colors.divider, color: colors.text, borderRadius: radius.md },
+  code_block: { backgroundColor: colors.surfaceAlt, borderColor: colors.divider, color: colors.text, borderRadius: radius.md },
   table: { borderColor: colors.divider },
   link: { color: colors.primary },
 } as const;
 
+// Cold start (app khởi động lại) → mở Chat với cuộc trò chuyện MỚI. Biến module,
+// tự reset về true mỗi khi app nạp lại bundle (tức khởi động lại).
+let coldStart = true;
+
 export default function Chat() {
-  const { id: requestedId } = useLocalSearchParams<{ id?: string }>();
-  const router = useRouter();
+  const { id: requestedId } = (useRoute<any>().params ?? {}) as { id?: string };
+  const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const [kbVisible, setKbVisible] = useState(false);
+  useEffect(() => {
+    const s = Keyboard.addListener("keyboardWillShow", () => setKbVisible(true));
+    const h = Keyboard.addListener("keyboardWillHide", () => setKbVisible(false));
+    return () => {
+      s.remove();
+      h.remove();
+    };
+  }, []);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -174,7 +195,7 @@ export default function Chat() {
       const toolUses = m.content.filter((b) => b.type === "tool_use");
       for (const b of toolUses) {
         if (b.type === "tool_use")
-          out.push({ key: `${m.id}-${b.id}`, kind: "system", text: `🔧 ${labelForTool(b.name)}` });
+          out.push({ key: `${m.id}-${b.id}`, kind: "system", text: labelForTool(b.name) });
       }
     }
     setRows(out);
@@ -216,7 +237,7 @@ export default function Chat() {
           {
             key: `fail-${e.chat_request_id}`,
             kind: "failed",
-            text: `⚠️ ${friendlyError(e.error)}`,
+            text: friendlyError(e.error),
             retryContent,
           },
         ]);
@@ -248,12 +269,16 @@ export default function Chat() {
     (async () => {
       try {
         const convs = await listConversations();
+        const freshStart = coldStart; // true chỉ ở lần mở app đầu tiên (cold start)
+        coldStart = false;
         let conv: Conversation | undefined;
         if (requestedId) {
           conv = convs.find((c) => c.id === requestedId);
           if (!conv) throw new Error("Không tìm thấy cuộc trò chuyện này");
+        } else if (freshStart) {
+          conv = await createConversation("Cuộc trò chuyện mới"); // cold start → new chat
         } else {
-          conv = convs[0] ?? (await createConversation("Cuộc trò chuyện đầu tiên"));
+          conv = convs[0] ?? (await createConversation("Cuộc trò chuyện mới"));
         }
         if (cancelled) return;
         setConversationId(conv.id);
@@ -274,11 +299,22 @@ export default function Chat() {
     };
   }, [requestedId, loadHistory, onWsEvent, refreshQueue]);
 
+  const newConversation = async () => {
+    setActionError(null);
+    try {
+      const conv = await createConversation("Cuộc trò chuyện mới");
+      navigation.setParams({ id: conv.id }); // đổi param → effect nạp lại hội thoại mới
+    } catch {
+      setActionError("Không tạo được cuộc trò chuyện mới — thử lại.");
+    }
+  };
+
   const submit = async () => {
     if (!conversationId) return;
     const content = input.trim() || (attachedAudio ? "Xử lý file ghi âm này giúp tôi" : "");
     if (!content) return;
     setInput("");
+    Keyboard.dismiss(); // ẩn bàn phím ngay khi gửi
     try {
       let voiceNoteId: string | undefined;
       if (attachedAudio) {
@@ -292,6 +328,7 @@ export default function Chat() {
       if (held && isResumePhrase(content)) setHeld(false);
       setRows((prev) => [...prev, { key: `u-${req.id}`, kind: "user", text: content,
                                     voiceNoteId: voiceNoteId ?? null }]);
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
       await refreshQueue(conversationId);
     } catch (e: any) {
       setInput(content); // không được làm mất chữ người dùng vừa gõ (attachment cũng giữ)
@@ -300,7 +337,7 @@ export default function Chat() {
         {
           key: `senderr-${Date.now()}`,
           kind: "system",
-          text: `⚠️ Gửi thất bại (${String(e?.message ?? e).slice(0, 80)}) — nội dung đã được giữ lại trong ô nhập.`,
+          text: `Gửi thất bại (${String(e?.message ?? e).slice(0, 80)}) — nội dung đã được giữ lại trong ô nhập.`,
         },
       ]);
     }
@@ -347,7 +384,7 @@ export default function Chat() {
     } catch {
       setRows((prev) => [
         ...prev,
-        { key: `resumeerr-${Date.now()}`, kind: "system", text: "⚠️ Không gửi được — thử lại." },
+        { key: `resumeerr-${Date.now()}`, kind: "system", text: "Không gửi được — thử lại." },
       ]);
     }
   };
@@ -394,327 +431,358 @@ export default function Chat() {
 
   const running = queue.find((q) => q.status === "running");
   const queuedOnly = queue.filter((q) => q.status === "queued");
+  const canSend = input.trim().length > 0 || !!attachedAudio;
+
+  const renderItem = ({ item }: { item: Row }) => {
+    if (item.kind === "assistant" || item.kind === "streaming") {
+      return (
+        <View style={styles.assistantWrap}>
+          <Markdown style={mdStyles}>
+            {item.text + (item.kind === "streaming" ? " ▍" : "")}
+          </Markdown>
+        </View>
+      );
+    }
+    if (item.kind === "user") {
+      const playing = audioPlayingId === item.voiceNoteId && audioStatus.playing;
+      return (
+        <View style={styles.userWrap}>
+          <View style={styles.userBubble}>
+            <Text style={styles.userText}>{item.text}</Text>
+            {item.voiceNoteId && (
+              <TouchableOpacity
+                onPress={() => toggleAudioBubble(item.voiceNoteId!)}
+                style={styles.audioChip}
+                accessibilityLabel="Phát ghi âm đính kèm"
+              >
+                <Ionicons name={playing ? "pause" : "play"} size={14} color={colors.text} />
+                <Text style={styles.audioChipText}>Ghi âm đính kèm</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      );
+    }
+    // system (tool-use) hoặc failed — dòng phụ kiểu "thinking/tool" của Claude
+    const failed = item.kind === "failed";
+    return (
+      <View style={[styles.systemRow, failed && styles.systemRowFailed]}>
+        <Ionicons
+          name={failed ? "alert-circle-outline" : "sparkles-outline"}
+          size={15}
+          color={failed ? colors.danger : colors.textSecondary}
+        />
+        <Text style={[styles.systemText, failed && { color: colors.danger }]} numberOfLines={2}>
+          {item.text}
+        </Text>
+        {failed && item.retryContent && (
+          <TouchableOpacity onPress={() => setInput(item.retryContent!)}>
+            <Text style={styles.retryLink}>Gửi lại</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={styles.headerBar}>
-        <Text style={{ flex: 1, color: colors.textSecondary }} numberOfLines={1}>
-          {conversationTitle || "Cuộc trò chuyện"}
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.surface }} behavior="padding">
+      {/* Header tối giản kiểu Claude: lịch sử · tiêu đề · tạo mới */}
+      <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
+        <TouchableOpacity
+          style={styles.headerBtn}
+          onPress={() => navigation.openDrawer()}
+          accessibilityLabel="Menu"
+        >
+          <Ionicons name="menu-outline" size={26} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {conversationTitle || "Trợ lý AI"}
         </Text>
-        <TouchableOpacity onPress={() => router.push("/conversations")}>
-          <Text style={{ color: colors.primary, fontWeight: "700" }}>🗂 Lịch sử</Text>
+        <TouchableOpacity
+          style={styles.headerBtn}
+          onPress={newConversation}
+          accessibilityLabel="Cuộc trò chuyện mới"
+        >
+          <Ionicons name="create-outline" size={23} color={colors.text} />
         </TouchableOpacity>
       </View>
+
       <ErrorText error={loadError} />
+
       {held && (
         <View style={styles.heldBar}>
-          <Text style={{ flex: 1, color: colors.warningText }}>
+          <Text style={styles.heldText}>
             ⏸ Việc dang dở đang chờ — gõ “{RESUME_PHRASE}” để AI làm nốt
           </Text>
-          <TouchableOpacity
-            style={styles.resumeBtn}
-            onPress={resumeQueue}
-            accessibilityLabel="Tiếp tục công việc"
-          >
-            <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>▶ Tiếp tục</Text>
+          <TouchableOpacity style={styles.pillPrimary} onPress={resumeQueue} accessibilityLabel="Tiếp tục công việc">
+            <Text style={styles.pillPrimaryText}>Tiếp tục</Text>
           </TouchableOpacity>
         </View>
       )}
-      {queue.length > 0 && (
-        <View style={styles.queueBar}>
-          <Text style={{ flex: 1, color: colors.text }}>
-            Đang xử lý {running ? 1 : 0}/{queue.length}
-            {running ? ` — “${running.content.slice(0, 40)}”` : ""}
-          </Text>
-          <TouchableOpacity onPress={doStopAll}>
-            <Text style={{ color: colors.danger, fontWeight: "700" }}>Dừng tất cả</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+
       <ErrorText error={actionError} />
-      {queuedOnly.length > 0 && (
-        <View style={styles.queueList}>
-          <Text style={styles.queueTitle}>Hàng đợi ({queuedOnly.length})</Text>
-          {queuedOnly.map((q) => (
-            <View key={q.id} style={styles.queueItem}>
-              <Text style={{ flex: 1, color: colors.text }} numberOfLines={1}>
-                {q.content}
-              </Text>
-              <TouchableOpacity
-                style={styles.queueBtn}
-                onPress={() => prioritize(q.id)}
-                accessibilityLabel="Ưu tiên lên đầu"
-              >
-                <Text style={{ color: colors.primary, fontWeight: "700" }}>⬆</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.queueBtn}
-                onPress={() => cancelQueued(q.id)}
-                accessibilityLabel="Hủy yêu cầu"
-              >
-                <Text style={{ color: colors.danger, fontWeight: "700" }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
+
       <FlatList
         ref={listRef}
         data={rows}
         keyExtractor={(r) => r.key}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         ListEmptyComponent={
           loading ? (
-            <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
+            <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxxl }} />
           ) : (
-            <Text style={styles.emptyChat}>
-              Chưa có tin nhắn — nhắn cho AI để giao việc, hỏi tiến độ, tạo note…
-            </Text>
+            <View style={styles.empty}>
+              <Ionicons name="sparkles" size={30} color={colors.primary} />
+              <Text style={styles.emptyText}>
+                Nhắn cho trợ lý để giao việc, hỏi tiến độ, tạo note… — gửi không cần chờ.
+              </Text>
+            </View>
           )
         }
-        contentContainerStyle={{ padding: spacing.md, gap: spacing.sm }}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.bubble,
-              item.kind === "user"
-                ? styles.userBubble
-                : item.kind === "system" || item.kind === "failed"
-                  ? styles.systemBubble
-                  : styles.aiBubble,
-            ]}
-          >
-            {item.kind === "assistant" || item.kind === "streaming" ? (
-              <Markdown style={mdStyles}>
-                {item.text + (item.kind === "streaming" ? " ▍" : "")}
-              </Markdown>
-            ) : (
-              <Text style={{ color: item.kind === "user" ? colors.onPrimary : colors.text }}>
-                {item.text}
-              </Text>
-            )}
-            {item.kind === "user" && item.voiceNoteId && (
-              <TouchableOpacity
-                onPress={() => toggleAudioBubble(item.voiceNoteId!)}
-                style={{ marginTop: spacing.xs }}
-                accessibilityLabel="Phát ghi âm đính kèm"
-              >
-                <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>
-                  {audioPlayingId === item.voiceNoteId && audioStatus.playing
-                    ? "⏸ Ghi âm đính kèm"
-                    : "▶ Ghi âm đính kèm"}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {item.kind === "failed" && item.retryContent && (
-              <TouchableOpacity
-                onPress={() => {
-                  setInput(item.retryContent!);
-                }}
-              >
-                <Text style={{ color: colors.primary, fontWeight: "700", marginTop: spacing.xs }}>
-                  ↻ Gửi lại nội dung này
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
+        contentContainerStyle={styles.listContent}
+        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        renderItem={renderItem}
       />
+
       {runningTool && !pendingConfirm && (
-        <View style={styles.toolBar}>
+        <View style={styles.working}>
           <ActivityIndicator color={colors.primary} size="small" />
-          <Text style={{ color: colors.textSecondary }}>Đang {runningTool}…</Text>
+          <Text style={styles.workingText}>Đang {runningTool}…</Text>
         </View>
       )}
       {running && !runningTool && !pendingConfirm && !streamingText.current.get(running.id) && (
-        <View style={styles.toolBar}>
+        <View style={styles.working}>
           <ActivityIndicator color={colors.primary} size="small" />
-          <Text style={{ color: colors.textSecondary }}>AI đang soạn…</Text>
+          <Text style={styles.workingText}>AI đang soạn…</Text>
         </View>
       )}
+
       {pendingConfirm && (
         <View style={styles.confirmBar}>
-          <Text style={{ fontWeight: "700", marginBottom: spacing.xs, color: colors.text }}>
-            ⚠️ AI muốn: {labelForTool(pendingConfirm.toolName)}
-          </Text>
+          <Text style={styles.confirmTitle}>AI muốn: {labelForTool(pendingConfirm.toolName)}</Text>
           {Object.entries(pendingConfirm.toolInput).map(([k, v]) => (
-            <Text key={k} style={{ color: colors.text }}>
+            <Text key={k} style={styles.confirmDetail}>
               • {k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}
             </Text>
           ))}
-          <Text style={{ marginVertical: spacing.sm, color: colors.text }}>
-            Xác nhận thực hiện?
-          </Text>
-          <View style={{ flexDirection: "row", gap: spacing.md }}>
-            <TouchableOpacity style={styles.okBtn} onPress={() => resolveConfirm(true)}>
-              <Text style={{ color: colors.onPrimary }}>Đồng ý</Text>
+          <Text style={styles.confirmAsk}>Xác nhận thực hiện?</Text>
+          <View style={{ flexDirection: "row", gap: spacing.sm }}>
+            <TouchableOpacity style={styles.pillPrimary} onPress={() => resolveConfirm(true)}>
+              <Text style={styles.pillPrimaryText}>Đồng ý</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.denyBtn} onPress={() => resolveConfirm(false)}>
-              <Text style={{ color: colors.onPrimary }}>Từ chối</Text>
+            <TouchableOpacity style={styles.pillGhostDanger} onPress={() => resolveConfirm(false)}>
+              <Text style={styles.pillGhostDangerText}>Từ chối</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
-      {attachedAudio && (
-        <View style={styles.attachChip}>
-          <Text style={{ flex: 1, color: colors.text }} numberOfLines={1}>
-            🎙️ {attachedAudio.name}
-          </Text>
-          <TouchableOpacity
-            onPress={() => setAttachedAudio(null)}
-            accessibilityLabel="Bỏ đính kèm"
-          >
-            <Text style={{ color: colors.danger, fontWeight: "700" }}>✕</Text>
-          </TouchableOpacity>
+
+      {/* Composer kiểu Claude: card bo tròn, input trên, hàng nút dưới (bỏ chọn model) */}
+      <View style={[styles.composerWrap, { paddingBottom: kbVisible ? spacing.sm : insets.bottom || spacing.sm }]}>
+        <View style={styles.composerCard}>
+          {attachedAudio && (
+            <View style={styles.attachChip}>
+              <Ionicons name="mic" size={16} color={colors.primary} />
+              <Text style={{ flex: 1, color: colors.text, fontFamily: fonts.medium }} numberOfLines={1}>
+                {attachedAudio.name}
+              </Text>
+              <TouchableOpacity onPress={() => setAttachedAudio(null)} accessibilityLabel="Bỏ đính kèm" hitSlop={8}>
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          )}
+          <TextInput
+            style={styles.input}
+            placeholder="Nhắn cho trợ lý AI…"
+            placeholderTextColor={colors.textMuted}
+            value={input}
+            onChangeText={setInput}
+            multiline
+          />
+          <View style={styles.composerRow}>
+            <TouchableOpacity style={styles.plusBtn} onPress={pickAudio} accessibilityLabel="Đính kèm file ghi âm">
+              <Ionicons name="add" size={26} color={colors.textSecondary} />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }} />
+            <DictationButton onText={(t) => setInput(t)} />
+            <TouchableOpacity
+              style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
+              onPress={submit}
+              disabled={!canSend}
+              accessibilityLabel="Gửi"
+            >
+              <Ionicons name="arrow-up" size={20} color={canSend ? colors.onPrimary : colors.textMuted} />
+            </TouchableOpacity>
+          </View>
         </View>
-      )}
-      <View style={styles.inputBar}>
-        <TouchableOpacity
-          style={styles.attachBtn}
-          onPress={pickAudio}
-          accessibilityLabel="Đính kèm file ghi âm"
-        >
-          <Text style={{ fontSize: 20 }}>📎</Text>
-        </TouchableOpacity>
-        <DictationButton onText={(t) => setInput(t)} />
-        <TextInput
-          style={styles.input}
-          placeholder="Nhắn cho trợ lý AI… (gửi không cần chờ)"
-          placeholderTextColor={colors.textMuted}
-          value={input}
-          onChangeText={setInput}
-          onSubmitEditing={submit}
-          multiline
-        />
-        <TouchableOpacity style={styles.sendBtn} onPress={submit}>
-          <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>Gửi</Text>
-        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerBar: {
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, textAlign: "center", fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
+
+  listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, gap: spacing.lg },
+
+  // Tin nhắn AI: chữ thuần, full-width (không bong bóng) — như Claude
+  assistantWrap: { paddingRight: spacing.sm },
+
+  // Tin nhắn người dùng: bong bóng xám trung tính, canh phải
+  userWrap: { alignItems: "flex-end" },
+  userBubble: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    maxWidth: "88%",
+  },
+  userText: { color: colors.text, fontSize: 16, lineHeight: 23, fontFamily: fonts.regular },
+  audioChip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.sm },
+  audioChipText: { color: colors.text, fontFamily: fonts.semibold, fontSize: 13 },
+
+  // Dòng tool-use / lỗi — nhỏ, mờ, kiểu "thinking row"
+  systemRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
+    alignSelf: "flex-start",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderColor: colors.divider,
-    backgroundColor: colors.surface,
+    maxWidth: "92%",
   },
+  systemRowFailed: { backgroundColor: colors.dangerBg },
+  systemText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13, flexShrink: 1 },
+  retryLink: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 13 },
+
+  empty: { alignItems: "center", gap: spacing.md, marginTop: spacing.xxxl, paddingHorizontal: spacing.xl },
+  emptyText: { color: colors.textMuted, textAlign: "center", fontSize: 15, lineHeight: 22, fontFamily: fonts.regular },
+
+  working: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  workingText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 14 },
+
   heldBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
     backgroundColor: colors.warningBg,
+    borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: colors.warningBorder,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
-  resumeBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
+  heldText: { flex: 1, color: colors.warningText, fontFamily: fonts.medium, fontSize: 13 },
+
   queueBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.warningBarBg,
-    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
   queueList: {
-    backgroundColor: colors.warningBg,
-    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    borderColor: colors.warningBorder,
-  },
-  queueTitle: {
-    ...type.caption,
-    fontWeight: "700",
-    color: colors.warningText,
-    marginBottom: spacing.xs,
-  },
-  queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs, gap: spacing.sm },
-  queueBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  emptyChat: { color: colors.textMuted, textAlign: "center", marginTop: spacing.xxl },
-  toolBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surfaceAlt,
-    borderTopWidth: 1,
     borderColor: colors.divider,
   },
-  bubble: { borderRadius: radius.lg, padding: spacing.md, maxWidth: "85%" },
-  userBubble: { backgroundColor: colors.primary, alignSelf: "flex-end" },
-  aiBubble: { backgroundColor: colors.surfaceAlt, alignSelf: "flex-start" },
-  systemBubble: { backgroundColor: colors.dangerBg, alignSelf: "center" },
+  queueTitle: { ...type.caption, fontFamily: fonts.bold, color: colors.textSecondary, marginBottom: spacing.xs },
+  queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs, gap: spacing.sm },
+  queueBtn: { padding: spacing.xs },
+  dangerLink: { color: colors.danger, fontFamily: fonts.semibold, fontSize: 14 },
+
   confirmBar: {
     backgroundColor: colors.confirmBg,
-    padding: spacing.md,
+    padding: spacing.lg,
     borderTopWidth: 1,
     borderColor: colors.confirmBorder,
   },
-  okBtn: {
-    backgroundColor: colors.success,
-    borderRadius: radius.sm,
+  confirmTitle: { fontFamily: fonts.bold, fontSize: 15, marginBottom: spacing.xs, color: colors.text },
+  confirmDetail: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  confirmAsk: { marginVertical: spacing.sm, color: colors.text, fontFamily: fonts.medium },
+
+  // Nút pill dùng chung
+  pillPrimary: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  denyBtn: {
-    backgroundColor: colors.danger,
-    borderRadius: radius.sm,
+  pillPrimaryText: { color: colors.onPrimary, fontFamily: fonts.bold, fontSize: 14 },
+  pillGhostDanger: {
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: colors.danger,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.sm - 1.5,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  inputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    padding: spacing.md,
-    gap: spacing.sm,
-    borderTopWidth: 1,
-    borderColor: colors.border,
+  pillGhostDangerText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 14 },
+
+  // Composer
+  composerWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.xs, backgroundColor: colors.surface },
+  composerCard: {
     backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    ...shadow.soft,
   },
-  attachBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
   attachChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
     backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    marginHorizontal: spacing.md,
-    marginTop: spacing.xs,
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    maxHeight: 120,
-    fontSize: type.body.fontSize,
+    marginBottom: spacing.sm,
+  },
+  input: {
+    fontSize: 16,
+    lineHeight: 22,
     color: colors.text,
+    fontFamily: fonts.regular,
+    maxHeight: 140,
+    paddingHorizontal: spacing.xs,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
   },
+  composerRow: { flexDirection: "row", alignItems: "center", marginTop: spacing.xs },
+  plusBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   sendBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
     backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: spacing.xs,
   },
+  sendBtnOff: { backgroundColor: colors.surfaceAlt },
 });

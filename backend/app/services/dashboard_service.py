@@ -5,7 +5,7 @@ project mình own; CEO: cả workspace). Note luôn chỉ của chính actor.
 """
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import plans
@@ -84,7 +84,26 @@ async def today_dashboard(db: AsyncSession, actor: User, *, now: datetime | None
     ws = await db.get(Workspace, actor.workspace_id)
     full = plans.plan_allows(ws, "full_dashboard")
 
+    # Tổng nhân viên của workspace (mọi thành viên).
+    employee_count = (await db.execute(
+        select(func.count()).select_from(User).where(User.workspace_id == actor.workspace_id)
+    )).scalar_one()
+
+    # Ghi chú mới nhất của actor (bất kỳ ngày nào) — khác notes_today (chỉ hôm nay).
+    latest_note_row = (await db.execute(
+        select(Note).where(
+            Note.workspace_id == actor.workspace_id, Note.author_id == actor.id,
+        ).order_by(Note.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    latest_note = (
+        {"id": str(latest_note_row.id), "content": latest_note_row.content,
+         "tags": latest_note_row.tags or [], "created_at": latest_note_row.created_at.isoformat()}
+        if latest_note_row else None
+    )
+
     return {
+        "employee_count": employee_count,
+        "latest_note": latest_note,
         "due_today": [_task_out(t) for t in due_today],
         "overdue": [_task_out(t) for t in overdue],
         "in_progress": [_task_out(t) for t in in_progress] if full else [],

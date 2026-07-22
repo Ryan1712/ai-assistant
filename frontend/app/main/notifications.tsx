@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import {
   Notification,
   getNotificationPreferences,
@@ -130,7 +130,7 @@ function NotificationRow({
   n: Notification;
   onRead: (id: string) => void;
 }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   const { title, taskId, goTo } = describe(n);
   const unread = n.read_at === null;
 
@@ -139,8 +139,8 @@ function NotificationRow({
       markNotificationRead(n.id).catch(() => {});
       onRead(n.id);
     }
-    if (taskId) router.push(`/tasks/${taskId}`);
-    else if (goTo === "emails") router.push("/emails");
+    if (taskId) navigation.navigate("TaskDetail", { id: taskId });
+    else if (goTo === "emails") navigation.navigate("Emails");
   };
 
   return (

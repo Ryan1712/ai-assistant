@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { SearchResult, SearchTask, searchAll } from "../../src/api/search";
 import { ErrorText, Field } from "../../src/ui/form";
 import { colors, radius, spacing, type } from "../../src/ui/theme";
 
 function TaskRow({ t }: { t: SearchTask }) {
-  const router = useRouter();
+  const navigation = useNavigation<any>();
   return (
-    <TouchableOpacity style={styles.row} onPress={() => router.push(`/tasks/${t.id}`)}>
+    <TouchableOpacity style={styles.row} onPress={() => navigation.navigate("TaskDetail", { id: t.id })}>
       <Text style={{ flex: 1 }} numberOfLines={1}>
         {t.title}
       </Text>
