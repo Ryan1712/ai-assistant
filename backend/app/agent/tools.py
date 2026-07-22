@@ -729,6 +729,48 @@ _register("set_notification_preference", "Bật/tắt 1 loại thông báo cho c
           SetNotificationPreferenceToolIn, _set_notification_preference)
 
 
+class ProposedActionIn(BaseModel):
+    tool_name: str
+    tool_input: dict = {}
+    display_text: str
+
+
+class ProposeActionsToolIn(BaseModel):
+    actions: list[ProposedActionIn] = Field(min_length=1)
+    reasoning: str = ""
+
+
+def validate_proposal_actions(actions: list[dict]) -> str | None:
+    """None nếu hợp lệ; nếu không, trả lý do (cho model đọc lại và tự sửa lượt sau)."""
+    if not actions:
+        return "actions rỗng — propose_actions cần ít nhất 1 hành động."
+    for a in actions:
+        name = a.get("tool_name")
+        if name not in TOOLS:
+            return f"tool_name '{name}' không tồn tại — gọi lại với tên tool đúng."
+        if name == "propose_actions" or name in SENSITIVE_TOOLS:
+            return (f"tool_name '{name}' không được đưa vào propose_actions (nhạy cảm/"
+                   "chính nó phải xác nhận riêng) — gọi tool đó trực tiếp thay vì lồng vào đây.")
+    return None
+
+
+async def _propose_actions_noop(db, actor, body: ProposeActionsToolIn) -> dict:
+    # KHONG BAO GIO duoc goi that qua call_tool — loop.py chan propose_actions truoc
+    # khi toi day (giong het cach sensitive tool khong bao gio chay luc phat hien).
+    # Handler ton tai vi ToolSpec yeu cau 1 callable; day la safety-net neu lot qua.
+    return {"error": "tool_failed", "hint": "propose_actions không được gọi trực tiếp qua call_tool."}
+
+
+_register("propose_actions",
+    "Trình bản nháp 1+ hành động cho người dùng duyệt trước khi thực thi. "
+    "BẮT BUỘC dùng khi: (a) phải SUY LUẬN đối tượng (đoán task/người/deadline từ "
+    "ngữ cảnh thay vì user nói tường minh), (b) hành động khó đảo ngược, "
+    "(c) gộp nhiều hành động một lượt. Gọi NGAY, hệ thống tự hiện thẻ xác nhận — "
+    "đừng tự hỏi xác nhận bằng lời. Mỗi action cần display_text là 1 câu tiếng Việt "
+    "người đọc hiểu ngay hành động đó làm gì (vd 'Cập nhật task X lên 80%').",
+    ProposeActionsToolIn, _propose_actions_noop)
+
+
 SENSITIVE_TOOLS: frozenset[str] = frozenset(
     name for name, spec in TOOLS.items() if spec.sensitive
 )

@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.llm_client import LLMClient, StreamDone, TextDelta
 from app.agent.publisher import EventPublisher
-from app.agent.tools import SENSITIVE_TOOLS, SNAPSHOT_WRITE_TOOLS, TOOLS, call_tool
+from app.agent.tools import (
+    SENSITIVE_TOOLS, SNAPSHOT_WRITE_TOOLS, TOOLS, call_tool, validate_proposal_actions,
+)
 from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User,
 )
@@ -265,20 +267,51 @@ async def run_agent_loop(
                 await _write_trace(done.stop_reason)
                 return
 
-            first_sensitive = next((tu for tu in done.tool_uses if tu.name in SENSITIVE_TOOLS),
-                                   None)
-            if first_sensitive is not None:
+            # propose_actions cùng hàng "chặn tuần tự" với sensitive tool — tool_use
+            # nào tới trước trong batch thắng, y hệt cơ chế sensitive hiện có (tool_use
+            # khác trong cùng lượt bị bỏ qua, không phải gap mới của Phase 2).
+            first_gate = next((tu for tu in done.tool_uses
+                               if tu.name == "propose_actions" or tu.name in SENSITIVE_TOOLS),
+                              None)
+            if first_gate is not None and first_gate.name == "propose_actions":
+                err = validate_proposal_actions(first_gate.input.get("actions", []))
+                if err is not None:
+                    # Sai định dạng — trả lỗi ngay trong lượt này (không pause chờ
+                    # người dùng) để model tự sửa hoặc gọi tool nhạy cảm trực tiếp.
+                    error_result = {"error": "invalid_input", "hint": err}
+                    db.add(Message(workspace_id=req.workspace_id,
+                                   conversation_id=req.conversation_id, chat_request_id=req.id,
+                                   role=MessageRole.user,
+                                   content=[{"type": "tool_result", "tool_use_id": first_gate.id,
+                                            "content": json.dumps(error_result, default=str)}]))
+                    await db.commit()
+                    continue
+                actions = first_gate.input.get("actions", [])
+                reasoning = first_gate.input.get("reasoning", "")
                 req.status = ChatRequestStatus.awaiting_confirmation
-                req.pending_action = {"kind": "tool", "tool_name": first_sensitive.name,
-                                      "tool_input": first_sensitive.input,
-                                      "tool_use_id": first_sensitive.id}
+                req.pending_action = {"kind": "proposal", "actions": actions,
+                                      "reasoning": reasoning, "tool_use_id": first_gate.id}
+                await db.commit()
+                await publisher.publish(req.conversation_id,
+                                        {"type": "confirmation_required",
+                                         "kind": "proposal",
+                                         "chat_request_id": str(req.id),
+                                         "actions": actions, "reasoning": reasoning})
+                await _write_trace("awaiting_confirmation")
+                return
+
+            if first_gate is not None:
+                req.status = ChatRequestStatus.awaiting_confirmation
+                req.pending_action = {"kind": "tool", "tool_name": first_gate.name,
+                                      "tool_input": first_gate.input,
+                                      "tool_use_id": first_gate.id}
                 await db.commit()
                 await publisher.publish(req.conversation_id,
                                         {"type": "confirmation_required",
                                          "kind": "tool",
                                          "chat_request_id": str(req.id),
-                                         "tool_name": first_sensitive.name,
-                                         "tool_input": first_sensitive.input})
+                                         "tool_name": first_gate.name,
+                                         "tool_input": first_gate.input})
                 await _write_trace("awaiting_confirmation")
                 return
 
