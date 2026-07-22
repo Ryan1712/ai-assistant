@@ -20,6 +20,7 @@ import {
   ChatRequest,
   Conversation,
   Message,
+  ProposedAction,
   RESUME_PHRASE,
   cancelRequest,
   confirmRequest,
@@ -106,6 +107,9 @@ const TOOL_LABELS: Record<string, string> = {
   list_notifications: "Tra thông báo",
   get_notification_preferences: "Tra cài đặt thông báo",
   set_notification_preference: "Đổi cài đặt thông báo",
+  resolve_person: "Tra cứu người",
+  resolve_task: "Tra cứu task",
+  propose_actions: "Đề xuất hành động",
 };
 
 function labelForTool(name: string): string {
@@ -131,11 +135,10 @@ export default function Chat() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [input, setInput] = useState("");
-  const [pendingConfirm, setPendingConfirm] = useState<{
-    requestId: string;
-    toolName: string;
-    toolInput: Record<string, unknown>;
-  } | null>(null);
+  type PendingConfirm =
+    | { requestId: string; kind: "tool"; toolName: string; toolInput: Record<string, unknown> }
+    | { requestId: string; kind: "proposal"; actions: ProposedAction[]; reasoning: string };
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [runningTool, setRunningTool] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [attachedAudio, setAttachedAudio] = useState<{ uri: string; name: string } | null>(null);
@@ -153,11 +156,22 @@ export default function Chat() {
     setQueue(reqs.filter((r) => r.status === "queued" || r.status === "running"));
     const waiting = reqs.find((r) => r.status === "awaiting_confirmation");
     if (waiting) {
-      setPendingConfirm({
-        requestId: waiting.id,
-        toolName: waiting.pending_action?.tool_name ?? "unknown",
-        toolInput: (waiting.pending_action?.tool_input ?? {}) as Record<string, unknown>,
-      });
+      const action = waiting.pending_action;
+      if (action?.kind === "proposal") {
+        setPendingConfirm({
+          requestId: waiting.id,
+          kind: "proposal",
+          actions: action.actions,
+          reasoning: action.reasoning,
+        });
+      } else {
+        setPendingConfirm({
+          requestId: waiting.id,
+          kind: "tool",
+          toolName: action?.tool_name ?? "unknown",
+          toolInput: (action?.tool_input ?? {}) as Record<string, unknown>,
+        });
+      }
     }
   }, []);
 
@@ -223,11 +237,21 @@ export default function Chat() {
         refreshQueue(cid);
       } else if (e.type === "confirmation_required") {
         setRunningTool(null);
-        setPendingConfirm({
-          requestId: e.chat_request_id,
-          toolName: e.tool_name,
-          toolInput: (e.tool_input ?? {}) as Record<string, unknown>,
-        });
+        if (e.kind === "proposal") {
+          setPendingConfirm({
+            requestId: e.chat_request_id,
+            kind: "proposal",
+            actions: e.actions,
+            reasoning: e.reasoning,
+          });
+        } else {
+          setPendingConfirm({
+            requestId: e.chat_request_id,
+            kind: "tool",
+            toolName: e.tool_name,
+            toolInput: (e.tool_input ?? {}) as Record<string, unknown>,
+          });
+        }
         refreshQueue(cid);
       } else if (e.type === "status_update") {
         refreshQueue(cid);
@@ -535,7 +559,35 @@ export default function Chat() {
           <Text style={{ color: colors.textSecondary }}>AI đang soạn…</Text>
         </View>
       )}
-      {pendingConfirm && (
+      {pendingConfirm && pendingConfirm.kind === "proposal" && (
+        <View style={styles.confirmBar}>
+          <Text style={{ fontWeight: "700", marginBottom: spacing.xs, color: colors.text }}>
+            ⚠️ AI muốn thực hiện:
+          </Text>
+          {pendingConfirm.actions.map((a, i) => (
+            <Text key={i} style={{ color: colors.text }}>
+              {i + 1}. {a.display_text}
+            </Text>
+          ))}
+          {pendingConfirm.reasoning ? (
+            <Text style={{ fontStyle: "italic", marginTop: spacing.xs, color: colors.textSecondary }}>
+              {pendingConfirm.reasoning}
+            </Text>
+          ) : null}
+          <Text style={{ marginVertical: spacing.sm, color: colors.text }}>
+            Xác nhận thực hiện?
+          </Text>
+          <View style={{ flexDirection: "row", gap: spacing.md }}>
+            <TouchableOpacity style={styles.okBtn} onPress={() => resolveConfirm(true)}>
+              <Text style={{ color: colors.onPrimary }}>Đồng ý</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.denyBtn} onPress={() => resolveConfirm(false)}>
+              <Text style={{ color: colors.onPrimary }}>Từ chối</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+      {pendingConfirm && pendingConfirm.kind === "tool" && (
         <View style={styles.confirmBar}>
           <Text style={{ fontWeight: "700", marginBottom: spacing.xs, color: colors.text }}>
             ⚠️ AI muốn: {labelForTool(pendingConfirm.toolName)}
