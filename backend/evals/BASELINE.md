@@ -176,3 +176,75 @@ khỏe hơn** (backlog, không phải blocker cho việc đóng Phase 2) — ghi
 - Đọc trực tiếp `result_summary`/`agent_traces.tools_called` cho 2 scenario mới thay vì chỉ
   tin cột PASS/FAIL của grader — grader hiện không phân biệt được "AI trả lời đúng" với
   "AI không trả lời gì" khi cả 2 đều thỏa `expected_status`/`forbidden_tools`.
+
+---
+
+# BASELINE: Phase 3 — Directive (giao việc khép kín, V1 email vẫn mock) (2026-07-22)
+
+Task 14 (verify e2e). Full pytest: **587 passed, 0 fail**. `npx tsc --noEmit`: 0 lỗi.
+`alembic upgrade head` chạy sạch trên Postgres dev thật (2 migration mới:
+`usage_log_hardening_fields`, `directives_table`).
+
+## Nội dung đã làm
+
+`Directive` (model + `DirectiveStatus` state machine sent→acked/question/renegotiate),
+`can_assign_directive` (permission MỚI trong `permissions.py`, tách khỏi `work_service`),
+`directive_service.py` (create/ack/raise_question/renegotiate/get_directive_status/
+escalate_overdue), 2 agent tool (`create_directive` không sensitive để lồng được trong
+`propose_actions`; `get_directive_status` nhóm insight), REST `app/api/directives.py`,
+snapshot section "Việc đã giao đang chờ xác nhận" (lọc theo `created_by`, khác các section
+khác lọc theo `visible_task_ids`), cron `check_directive_escalations` (24h nhắc/48h escalate,
+guard chống spam giống `deadline_reminder_sent_at`), FE `notifications.tsx` — dòng
+`directive_assigned` render 3 nút hành động (Nhận việc/Hỏi lại/Xin dời hạn) thay vì
+tap-to-navigate như các loại thông báo khác.
+
+## 3 quyết định lệch spec (chốt trong lúc lập kế hoạch, có bằng chứng từ đọc code thật)
+
+1. **Quyền tạo Directive là logic MỚI, không phải "tái dùng ma trận CEO/manager có sẵn"
+   như spec §7.1 giả định.** Đọc `work_service.py` xác nhận `create_task`/`update_task`/
+   `assign_task` đều `require_ceo` cứng — không có nhánh manager nào. Đã hỏi user, chọn: cho
+   manager giao Directive được cho direct report ngay (`can_assign_directive` mới, dùng
+   `direct_report_ids` có sẵn) — KHÔNG đụng tới quyền CEO-only hiện có của `work_service`.
+2. **Email thật (Resend/Postmark + public ack-link không cần login) bị lược khỏi V1 hoàn
+   toàn — đã hỏi user, chọn giữ `email_mock=True`.** Hệ quả: public ack-link (spec §7.2) có
+   chủ đích KHÔNG được xây, vì email không thực sự rời hệ thống nên link đó không có tác
+   dụng thật — xây trước sẽ là code chết. Người nhận xác nhận qua card trong Notification
+   Center (đã đăng nhập), "email" V1 = `email_service.send_email` nội bộ có sẵn (hiện trong
+   tab Emails), không phải SMTP/API thật ra ngoài.
+3. **`renegotiate` rút gọn còn `reason` bắt buộc + `new_deadline_proposal` optional** (spec
+   §7.5 tự nói "V1: dạng câu hỏi thường" — ban đầu code thẳng theo mô tả §7.1 chi tiết hơn
+   yêu cầu ngày cụ thể, phát hiện lệch khi thiết kế FE và sửa lại đúng ý spec).
+
+## Verify
+
+- Full pytest 587 pass (bao gồm ~55 test mới của Phase 3: model, permission, service
+  (create/ack/question/renegotiate/status/escalate), agent tools, REST API, snapshot, cron).
+- **REST end-to-end thật, chạy trực tiếp qua script `httpx` (không qua LLM) trên stack local
+  thật (Postgres/Redis/uvicorn/arq)**: signup CEO → invite+join manager → invite+join
+  employee dưới quyền manager → manager `POST /api/v1/directives` cho employee → employee
+  thấy `Notification` type `directive_assigned` đúng payload → employee thấy "email" nội bộ
+  trong `GET /api/v1/emails` → employee `POST .../ack` → manager `GET /api/v1/directives`
+  thấy `status=acked` → manager nhận `Notification` type `directive_acked`. **Toàn bộ 9 bước
+  pass sạch** — xác nhận plumbing thật hoạt động đúng, không chỉ đúng ở mức unit test.
+- Live eval scenario mới `xem-tinh-trang-directive` (phase 3): chạy cô lập 2 lần, kết quả
+  KHÁC NHAU — lần 1 model trả lời thẳng từ snapshot (0 tool, đúng "Việc đã giao đang chờ xác
+  nhận" vừa thêm ở Task 9), lần 2 model vẫn gọi thêm `get_directive_status` dù snapshot đã
+  đủ dữ liệu. Đây là **flakiness đã biết, không phải regression** — giống hệt pattern đã ghi
+  ở BASELINE Phase 1 cho 2/3 scenario snapshot ("model KHÔNG hoàn toàn tin snapshot dù có
+  sẵn... hành vi model, không phải bug hạ tầng, KHÔNG ép pass"). Giữ `expected_no_tools:
+  true` (hành vi lý tưởng) làm scenario, chấp nhận flake theo đúng tiền lệ, KHÔNG đổi model
+  chỉ để scenario này luôn xanh.
+
+## Cố ý CHƯA làm (backlog rõ ràng, không phải thiếu sót)
+
+- Email thật (chọn provider + verify domain SPF/DKIM/DMARC) + public ack-link không cần
+  login — chờ user chọn provider, code đã theo đúng `EmailClient` protocol nên chỉ cần thêm
+  1 class + đổi cờ khi có.
+- `DirectiveStatus.seen` không tự động set (cần recipient tap-to-view riêng — chưa cần cho
+  acceptance V1).
+- `DirectiveStatus.done` không tự đóng khi task liên quan hoàn thành — `acked` là trạng thái
+  cuối thực tế của V1.
+- Không có tool cho recipient ack qua chat (vd nói "tôi nhận việc rồi") — V1 chỉ qua card
+  REST trong Notification Center.
+- Idempotency: không thêm cơ chế mới — dựa vào guard status-flip sẵn có của
+  `resolve_confirmation` (đã ghi rõ trong plan, giống mọi confirm flow khác từ Phase 0).

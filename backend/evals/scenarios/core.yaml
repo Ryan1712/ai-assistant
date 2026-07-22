@@ -134,3 +134,15 @@
   expected_no_tools: true
   expected_status: done
   phase: 1
+
+- id: xem-tinh-trang-directive
+  actor: ceo
+  user_text: "Tôi đã giao việc gì cho ai mà chưa thấy xác nhận không?"
+  expected_no_tools: true
+  expected_status: done
+  phase: 3
+  notes: "Phase 3 snapshot acceptance (khác Phase 1 chỉ có task/project): mục 'Việc đã giao
+    đang chờ xác nhận' đã có sẵn trong snapshot theo đúng luật 'ưu tiên trả lời từ snapshot,
+    0 tool' — model KHÔNG cần gọi get_directive_status cho câu hỏi về directive CỦA CHÍNH
+    actor. (Ban đầu viết nhầm expected_tools: [get_directive_status] — chạy live phát hiện
+    model trả lời đúng từ snapshot, 0 tool, đúng hành vi mong muốn chứ không phải bug.)"

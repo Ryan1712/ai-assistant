@@ -2,7 +2,7 @@
 
 > **Last verified:** 2026-07-22
 > **Branch:** main
-> **Verified against commit:** 369f4206b1467749ccfd02fbf2ff84a96dc95a5c
+> **Verified against commit:** f11e91558072dccc0c8d43dd94ca7bd7b4756a35
 
 Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
 
@@ -46,7 +46,7 @@ backend/app/
   config.py       Settings (env vars) + các cờ *_mock
   security.py     JWT + bcrypt
   deps.py         get_current_user (JWT bearer)
-alembic/versions/ 17 migration (xem mục 9)
+alembic/versions/ 18 migration (xem mục 9)
 backend/tests/    ~102 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
 
 frontend/app/
@@ -80,6 +80,7 @@ Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer
 | `reports` | GET "" (list), GET /{id}/download (xlsx) | CEO-only; tạo report chỉ qua agent tool `generate_report` hoặc `ReportSchedule` cron, không có POST tạo qua REST |
 | `report_schedules` | POST, GET, DELETE | CEO + Advanced; cron `check_report_schedules` (arq, mỗi phút) tự sinh report tới hạn |
 | `notifications` | GET (?unread_only), POST /{id}/read, POST /read-all | mỗi user chỉ thấy thông báo của chính mình |
+| `directives` (Phase 3) | POST "" (tạo), GET "" (list theo phạm vi actor), POST /{id}/ack, /question, /renegotiate | tạo: CEO hoặc manager cho direct report (`can_assign_directive`, KHÁC `require_ceo`); ack/question/renegotiate: chỉ recipient (404 nếu không phải) |
 | `audit` | GET /audit-events (?date_from, ?date_to) | CEO-only, gộp 5 nguồn (task update, login, khóa/mở, đổi instruction/skill, account event) |
 | `search` | GET ?q= | gộp task/note/voice_note/user/skill, tôn trọng quyền từng loại |
 | `dashboard` | GET /today | task quá hạn/đến hạn/đang làm + cập nhật 24h + note hôm nay, theo phạm vi quyền actor |
@@ -125,7 +126,8 @@ FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích s
 - **Proposal nhiều action (Phase 2 `propose_actions`) báo rõ kết quả từng phần**: `_resolve_proposal()` trả `outcome` (`completed`/`partially_completed`/`failed`) + `succeeded`/`failed` (danh sách `display_text`) trong tool_result — system prompt bắt buộc model liệt kê rõ việc nào xong/lỗi khi `outcome != completed`, không được nói chung chung "đã xong".
 - **Dừng/hủy**: `POST stop-all` set các request `queued` → `cancelled`, request `running` được đánh dấu qua Redis key `cancel:{id}` (loop tự kiểm tra `is_cancelled` giữa các bước).
 - **Mất mạng / "tiếp tục công việc"**: socket cuối cùng đóng → `continuity.hold_queue_if_pending` set `Conversation.queue_held=True`, worker thấy cờ này thì **không tự chạy tiếp**; chỉ khi user gửi đúng cụm `RESUME_PHRASE` ("tiếp tục công việc") thì `send_message` clear cờ và enqueue lại.
-- **Tool registry**: `app/agent/tools.py`, **54 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 54 tool này thành 7 nhóm cho Router động — hiện CHỈ dữ liệu, CHƯA wiring lọc (chờ Router Phase 4).
+- **Tool registry**: `app/agent/tools.py`, **56 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`) + 2 tool Phase 3 (`create_directive`, `get_directive_status`). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 56 tool này thành 7 nhóm cho Router động — hiện CHỈ dữ liệu, CHƯA wiring lọc (chờ Router Phase 4).
+- **Directive (Phase 3)**: `app/models.py::Directive`/`DirectiveStatus` (state machine sent→acked/question/renegotiate, mirror `ChatRequestStatus`), `app/services/directive_service.py`, REST `app/api/directives.py`, quyền `permissions.py::can_assign_directive` (CEO → ai cũng được; manager → chỉ direct report — logic MỚI, tách biệt hoàn toàn khỏi `work_service`'s `require_ceo`). `create_directive` KHÔNG `sensitive=True` (bắt buộc để lồng được trong `propose_actions` cùng `update_task`). Email V1 vẫn qua `email_service.send_email` nội bộ (mock) — chưa có provider thật/public ack-link không cần login (xem `evals/BASELINE.md` Phase 3 lý do chi tiết).
 - **Luật hành xử 3 mức (Phase 2, system prompt tĩnh)**: (1) tường minh + đảo ngược được → gọi tool ngay; (2) phải SUY LUẬN đối tượng (đoán người/task/deadline) → gọi `propose_actions` để user duyệt bản nháp trước khi thực thi (dùng lại hạ tầng `awaiting_confirmation`, `pending_action.kind` phân biệt `"tool"` | `"proposal"`); (3) nhạy cảm → vẫn gọi 1 trong 6 tool sensitive trực tiếp như cũ. `resolve_person`/`resolve_task` tra cứu mờ (fuzzy, thuần Python — không dùng `pg_trgm` vì test suite chạy SQLite) trong phạm vi `visible_user_ids`/`visible_task_ids`; trả `ambiguous` kèm candidates khi >1 kết quả — AI PHẢI hỏi lại đúng 1 câu, không tự chọn.
 - **Report định kỳ**: `arq.cron` chạy `check_report_schedules` mỗi phút (không qua LLM), độc lập với vòng lặp chat.
 
@@ -155,7 +157,7 @@ Cờ trong `app/config.py`, tất cả **mặc định `True` (mock)** — bật
 
 ## 9. Database & migrations
 
-Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **17 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` (Phase 0 tracing + hardening trước Phase 3). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
+Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **18 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` (Phase 0 tracing + hardening + Phase 3 Directive). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
 
 28 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
 
@@ -165,7 +167,7 @@ Chạy trong `backend/` (venv `.venv`):
 ```
 docker compose up -d postgres redis         # 5435/6380
 alembic upgrade head
-pytest tests/ -v                            # ~529 test hiện tại, toàn bộ pass trên nhánh này
+pytest tests/ -v                            # ~587 test hiện tại, toàn bộ pass trên nhánh này
 uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
 arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
 python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
@@ -219,5 +221,30 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   pytest 529 pass, `tsc --noEmit` 0 lỗi. **Live eval `--phase 2` không lấy được số liệu sạch**
   — gateway dev (beeknoee) degrade nặng hôm verify (cả scenario cũ lẫn mới đều timeout/trả
   completion rỗng khi cô lập từng cái) — đã xác nhận đây KHÔNG phải regression Phase 2 qua
-  query trực tiếp DB (chi tiết + việc cần làm khi retry: backend/evals/BASELINE.md). Tiếp theo
-  Phase 3+ theo docs/superpowers/specs/2026-07-19-ai-intelligence-upgrade.md.
+  query trực tiếp DB (chi tiết + việc cần làm khi retry: backend/evals/BASELINE.md).
+- 2026-07-22: **Hardening trước Phase 3** (1 commit) — chốt sau khi đối chiếu roadmap "AI
+  Platform" 9-stage của ChatGPT với code thật, phát hiện premise sai (Phase 2 lúc đó đã xong)
+  + 2 gap thật. Đã làm: `_resolve_proposal` trả `outcome`
+  (completed/partially_completed/failed) + system prompt bắt buộc báo rõ từng phần;
+  `resolve_confirmation()` ghi `AgentTrace(route="confirm")` cho tool đã duyệt (trước đây bỏ
+  sót, backlog Phase 0); guardrail `MAX_TOOL_CALLS`/`MAX_DURATION_SECONDS`/`MAX_TOTAL_TOKENS`
+  cạnh `MAX_ITERATIONS`; `UsageLog` thêm `user_id/feature/status/latency_ms/tool_call_count/
+  iteration/estimated_cost` (ước lượng nội bộ, không tính hóa đơn thật).
+- 2026-07-22: **Phase 3 AI upgrade xong** — `Directive` (state machine sent→acked/question/
+  renegotiate, mirror `ChatRequestStatus`), quyền `can_assign_directive` MỚI (CEO/manager→
+  direct report, tách biệt hoàn toàn khỏi `work_service`'s CEO-only vì spec giả định sai có
+  ma trận có sẵn — đã kiểm chứng bằng code, không có), tool `create_directive` (không
+  sensitive, lồng được trong `propose_actions`)/`get_directive_status`, REST
+  `app/api/directives.py`, snapshot section "Việc đã giao đang chờ xác nhận" (lọc theo
+  `created_by`, khác các section khác lọc theo `visible_task_ids`), cron
+  `check_directive_escalations` (24h nhắc/48h escalate). FE: `notifications.tsx` thêm dòng
+  `directive_assigned` có 3 nút hành động (Nhận việc/Hỏi lại/Xin dời hạn) — lần đầu tiên 1
+  loại thông báo có hành động thay vì chỉ tap-to-navigate. 56 tool tổng cộng. Full pytest 587
+  pass, `tsc --noEmit` 0 lỗi. **Đã verify e2e THẬT** qua script REST trực tiếp (không qua
+  LLM) trên stack local thật: CEO/manager tạo directive → nhân viên nhận notification +
+  "email" nội bộ → nhân viên ack → người giao thấy trạng thái + notification ngược — 9 bước
+  pass sạch. Quyết định lệch spec quan trọng nhất: **email thật + public ack-link không cần
+  login bị lược khỏi V1** (giữ `email_mock=True`, người nhận xác nhận qua card trong
+  Notification Center — quyết định của user, xem lý do đầy đủ ở `backend/evals/BASELINE.md`).
+  Tiếp theo Phase 4 (Router + đường sâu async) theo
+  docs/superpowers/specs/2026-07-19-ai-intelligence-upgrade.md.
