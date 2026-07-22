@@ -1,5 +1,6 @@
 import { API_URL } from "./client";
 import { getTokens } from "../auth/tokenStore";
+import type { ProposedAction } from "./chat";
 
 export type WsEvent =
   | { type: "token"; chat_request_id: string; text: string }
@@ -8,9 +9,17 @@ export type WsEvent =
   | { type: "request_failed"; chat_request_id: string; error: string }
   | {
       type: "confirmation_required";
+      kind: "tool";
       chat_request_id: string;
       tool_name: string;
       tool_input: unknown;
+    }
+  | {
+      type: "confirmation_required";
+      kind: "proposal";
+      chat_request_id: string;
+      actions: ProposedAction[];
+      reasoning: string;
     }
   | { type: "tool_running"; chat_request_id: string; tool_name: string };
 
