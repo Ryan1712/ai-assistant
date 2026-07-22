@@ -74,6 +74,20 @@ class EvalClient:
                               headers=self._h("ceo"),
                               json={"user_id": self.user_ids["Nam Nguyễn"]}), "assign Nam")
 
+        # 3 task status=todo (mặc định, KHÔNG update lên in_progress) cho Nam Trần —
+        # nằm ngoài mục "đang làm" của snapshot (chỉ hiện in_progress, xem
+        # snapshot_service.py) để scenario resolve_task-nhầm-lẫn phải thật sự gọi
+        # tool mới thấy nhập nhằng, không đọc thẳng từ snapshot ra được.
+        nam_tran = self.user_ids["Nam Trần"]
+        for title in ("Soạn slide họp khách hàng", "Kiểm tra kho vật tư",
+                      "Cập nhật bảng giá quý 3"):
+            t = _check(self.http.post("/api/v1/tasks", headers=self._h("ceo"), json={
+                "project_id": project["id"], "title": title, "description": ""}),
+                f"tạo task {title}")
+            _check(self.http.post(f"/api/v1/tasks/{t['id']}/assignees",
+                                  headers=self._h("ceo"), json={"user_id": nam_tran}),
+                   f"assign Nam Trần {title}")
+
     def _join(self, role: str, manager_id: str | None, full_name: str, run_id: str) -> str:
         inv = _check(self.http.post("/api/v1/invites", headers=self._h("ceo"),
                                     json={"role": role, "manager_id": manager_id}),
@@ -97,11 +111,11 @@ class EvalClient:
         req = _check(self.http.post(f"/api/v1/conversations/{conv['id']}/messages",
                                     headers=self._h(actor),
                                     json={"content": sc["user_text"]}), "gửi tin")
-        status, pending_tool = self._poll(conv["id"], req["id"], actor)
+        status, pending_tool, pending_kind = self._poll(conv["id"], req["id"], actor)
         called = self._called_tools(req["id"])
-        result = grade(sc, called, status, pending_tool)
+        result = grade(sc, called, status, pending_tool, pending_kind)
         result.update({"id": sc["id"], "status": status, "called": called,
-                       "pending": pending_tool})
+                       "pending": pending_tool, "pending_kind": pending_kind})
         if status == "awaiting_confirmation":
             try:
                 # từ chối để không thực sự khóa acc/gửi email trong lúc eval; rồi CHỜ
@@ -114,12 +128,12 @@ class EvalClient:
                         break
                     self.http.post(f"/api/v1/chat-requests/{req['id']}/confirm",
                                    headers=self._h(actor), json={"approved": False})
-                    deny_status, _pending = self._poll(conv["id"], req["id"], actor)
+                    deny_status, _pending, _kind = self._poll(conv["id"], req["id"], actor)
             except Exception:
                 pass  # dọn dẹp best-effort — kết quả chấm đã chốt ở trên
         return result
 
-    def _poll(self, conv_id: str, req_id: str, actor: str) -> tuple[str, str | None]:
+    def _poll(self, conv_id: str, req_id: str, actor: str) -> tuple[str, str | None, str | None]:
         deadline = time.monotonic() + POLL_TIMEOUT_S
         while time.monotonic() < deadline:
             reqs = _check(self.http.get(f"/api/v1/conversations/{conv_id}/requests",
@@ -129,10 +143,10 @@ class EvalClient:
                 time.sleep(POLL_INTERVAL_S)
                 continue
             if me["status"] in TERMINAL:
-                pending = (me.get("pending_action") or {}).get("tool_name")
-                return me["status"], pending
+                action = me.get("pending_action") or {}
+                return me["status"], action.get("tool_name"), action.get("kind")
             time.sleep(POLL_INTERVAL_S)
-        return "timeout", None
+        return "timeout", None, None
 
     def _called_tools(self, req_id: str) -> list[str]:
         for attempt in range(2):
@@ -152,8 +166,8 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8000")
-    ap.add_argument("--phase", type=int, default=1,
-                    help="chạy scenario có phase <= giá trị này (default 1 = phase hiện tại của code)")
+    ap.add_argument("--phase", type=int, default=2,
+                    help="chạy scenario có phase <= giá trị này (default 2 = phase hiện tại của code)")
     ap.add_argument("--only", default=None, help="chỉ chạy scenario có id này")
     args = ap.parse_args()
 
@@ -186,7 +200,7 @@ def main() -> int:
         else:
             failed += 1
             print(f"  FAIL  {r['id']}  status={r['status']} tools={r['called']} "
-                  f"pending={r['pending']}")
+                  f"pending={r['pending']} pending_kind={r['pending_kind']}")
             for f_ in r["failures"]:
                 print(f"        - {f_}")
     print(f"\nKết quả: {passed} pass / {failed} fail / {skipped} skip "

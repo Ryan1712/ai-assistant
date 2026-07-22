@@ -47,3 +47,12 @@ def test_expected_no_tools():
     bad = grade(s, ["list_tasks"], "done")
     assert bad["passed"] is False
     assert "list_tasks" in bad["failures"][0]
+
+
+def test_expected_pending_kind_proposal_pass_and_fail():
+    s = {"expected_status": "awaiting_confirmation", "expected_pending_kind": "proposal"}
+    ok = grade(s, [], "awaiting_confirmation", pending_kind="proposal")
+    assert ok["passed"] is True
+    bad = grade(s, [], "awaiting_confirmation", pending_kind="tool")
+    assert bad["passed"] is False
+    assert any("pending_kind" in f for f in bad["failures"])

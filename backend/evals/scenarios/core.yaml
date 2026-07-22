@@ -97,10 +97,21 @@
 - id: bao-duy-deadline-directive
   actor: ceo
   user_text: "bảo Duy sáng thứ 2 tuần sau xong deadline nhé"
-  expected_tools: [propose_actions]
   expected_status: awaiting_confirmation
+  expected_pending_kind: proposal
   phase: 2
-  notes: "Chờ Phase 2/3 (propose_actions + directive) — runner skip khi phase > 0."
+  notes: "propose_actions pause TRƯỚC khi vào tools_called (chặn ngay batch, y hệt
+    sensitive tool) — chấm bằng expected_pending_kind, không phải expected_tools."
+
+- id: nam-tran-nhieu-task-hoi-lai
+  actor: ceo
+  user_text: "Cập nhật task của Nam Trần lên 50% nhé"
+  forbidden_tools: [propose_actions]
+  expected_status: done
+  phase: 2
+  notes: "Nam Trần có 3 task todo (ngoài snapshot 'đang làm' chỉ hiện in_progress) —
+    resolve_task trả ambiguous, AI phải hỏi lại đúng 1 câu bằng lời, không tự chọn/
+    không propose_actions với 1 task đoán bừa."
 
 - id: snapshot-tinh-hinh-du-an
   actor: ceo

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 
 def grade(scenario: dict, called_tools: list[str], final_status: str,
-          pending_tool: str | None = None) -> dict:
+          pending_tool: str | None = None, pending_kind: str | None = None) -> dict:
     """So khớp hành vi thực tế với kỳ vọng của scenario.
 
     - expected_tools: các tool PHẢI được gọi, khớp subsequence đúng thứ tự
@@ -16,6 +16,9 @@ def grade(scenario: dict, called_tools: list[str], final_status: str,
     - forbidden_tools: tuyệt đối không xuất hiện (kể cả đang chờ confirm).
     - expected_status: trạng thái ChatRequest cuối (done/awaiting_confirmation/...).
     - expected_pending_tool: tool đang nằm trong pending_action chờ confirm.
+    - expected_pending_kind: "tool" | "proposal" — propose_actions không bao giờ
+      vào called_tools khi pause (chặn trước khi thực thi), nên scenario dùng
+      propose_actions phải chấm bằng kind, không phải expected_tools/expected_pending_tool.
     """
     failures: list[str] = []
 
@@ -40,5 +43,9 @@ def grade(scenario: dict, called_tools: list[str], final_status: str,
     want_pending = scenario.get("expected_pending_tool")
     if want_pending and pending_tool != want_pending:
         failures.append(f"pending_tool '{pending_tool}' != kỳ vọng '{want_pending}'")
+
+    want_pending_kind = scenario.get("expected_pending_kind")
+    if want_pending_kind and pending_kind != want_pending_kind:
+        failures.append(f"pending_kind '{pending_kind}' != kỳ vọng '{want_pending_kind}'")
 
     return {"passed": not failures, "failures": failures}
