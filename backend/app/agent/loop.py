@@ -311,6 +311,10 @@ async def run_agent_loop(
                                          "text": cut_note})
 
             assistant_content: list[dict] = []
+            # Block "thinking" (Phase 4, model_smart + extended thinking) PHẢI đứng
+            # ĐẦU content, nguyên văn kèm signature không sửa — hợp đồng thinking+
+            # tool-use của Anthropic, thiếu/sai thứ tự sẽ bị từ chối ở lượt tool tiếp theo.
+            assistant_content.extend(done.thinking_blocks)
             if text_parts:
                 assistant_content.append({"type": "text", "text": "".join(text_parts)})
             for tu in done.tool_uses:
