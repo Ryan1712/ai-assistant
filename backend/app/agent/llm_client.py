@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import AsyncIterator, Union
 
@@ -26,6 +26,11 @@ class StreamDone:
     output_tokens: int
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # Phase 4 (đường sâu, model_smart + extended thinking): block "thinking" phải
+    # được chèn NGUYÊN VĂN (kèm signature) vào đầu content của lượt sau khi dựng
+    # lại assistant turn cho tool-result round trip — bắt buộc theo hợp đồng
+    # thinking+tool-use của Anthropic, thiếu sẽ bị từ chối ở lượt gọi tool tiếp theo.
+    thinking_blocks: list[dict] = field(default_factory=list)
 
 
 StreamEvent = Union[TextDelta, StreamDone]
@@ -67,10 +72,14 @@ class AnthropicLLMClient(LLMClient):
     message_start MỚI NHẤT nên chạy đúng với cả API chính thức lẫn gateway.
     """
 
-    def __init__(self, client, model: str, max_tokens: int = 8192):
+    def __init__(self, client, model: str, max_tokens: int = 8192,
+                thinking_budget: int | None = None):
         self._client = client
         self.model = model
-        self._max_tokens = max_tokens
+        self._thinking_budget = thinking_budget
+        # Anthropic yêu cầu max_tokens > thinking budget — khi bật thinking, tự
+        # tính lại thay vì dùng max_tokens mặc định của đường thường.
+        self._max_tokens = (thinking_budget + 4096) if thinking_budget else max_tokens
 
     async def stream(self, *, system: str | list[dict], messages: list[dict],
                      tools: list[dict]) -> AsyncIterator[StreamEvent]:
@@ -105,12 +114,16 @@ class AnthropicLLMClient(LLMClient):
                 messages_payload[-1] = {**last, "content": content[:-1] + [
                     {**content[-1], "cache_control": {"type": "ephemeral"}}]}
 
-        resp = await self._client.messages.create(
+        create_kwargs = dict(
             model=self.model, max_tokens=self._max_tokens,
             system=system_payload, messages=messages_payload, tools=tools_payload,
             tool_choice={"type": "auto", "disable_parallel_tool_use": True},
             stream=True,
         )
+        if self._thinking_budget:
+            create_kwargs["thinking"] = {"type": "enabled",
+                                        "budget_tokens": self._thinking_budget}
+        resp = await self._client.messages.create(**create_kwargs)
         blocks: dict[int, dict] = {}
         stop_reason: str = "end_turn"
         input_tokens = output_tokens = cache_read = cache_write = 0
@@ -127,6 +140,8 @@ class AnthropicLLMClient(LLMClient):
                 if cb.type == "tool_use":
                     blocks[ev.index] = {"type": "tool_use", "id": cb.id, "name": cb.name,
                                         "json": "", "start_input": getattr(cb, "input", None)}
+                elif cb.type == "thinking":
+                    blocks[ev.index] = {"type": "thinking", "thinking": "", "signature": ""}
                 else:
                     blocks[ev.index] = {"type": cb.type}
             elif etype == "content_block_delta":
@@ -138,6 +153,14 @@ class AnthropicLLMClient(LLMClient):
                     b = blocks.get(ev.index)
                     if b is not None and b["type"] == "tool_use":
                         b["json"] += d.partial_json
+                elif dtype == "thinking_delta":
+                    b = blocks.get(ev.index)
+                    if b is not None and b["type"] == "thinking":
+                        b["thinking"] += d.thinking
+                elif dtype == "signature_delta":
+                    b = blocks.get(ev.index)
+                    if b is not None and b["type"] == "thinking":
+                        b["signature"] += d.signature
             elif etype == "message_delta":
                 if getattr(ev.delta, "stop_reason", None):
                     stop_reason = ev.delta.stop_reason
@@ -146,21 +169,29 @@ class AnthropicLLMClient(LLMClient):
                     output_tokens = u.output_tokens
 
         tool_uses = []
+        thinking_blocks = []
         for _idx, b in sorted(blocks.items()):
-            if b["type"] != "tool_use":
-                continue
-            raw = b["json"].strip()
-            tool_input = json.loads(raw) if raw else (b["start_input"] or {})
-            tool_uses.append(ToolUseBlock(id=b["id"], name=b["name"], input=tool_input))
+            if b["type"] == "tool_use":
+                raw = b["json"].strip()
+                tool_input = json.loads(raw) if raw else (b["start_input"] or {})
+                tool_uses.append(ToolUseBlock(id=b["id"], name=b["name"], input=tool_input))
+            elif b["type"] == "thinking":
+                thinking_blocks.append({"type": "thinking", "thinking": b["thinking"],
+                                        "signature": b["signature"]})
         yield StreamDone(
             tool_uses=tool_uses, stop_reason=stop_reason,
             input_tokens=input_tokens, output_tokens=output_tokens,
             cache_read_tokens=cache_read, cache_write_tokens=cache_write,
+            thinking_blocks=thinking_blocks,
         )
 
 
 @lru_cache
-def get_llm_client(model: str | None = None) -> LLMClient:
+def get_llm_client(model: str | None = None, thinking_budget: int | None = None) -> LLMClient:
+    """Không tham số = client model_fast mặc định (fast path, hành vi cũ không
+    đổi). Truyền (settings.model_smart, budget) tạo 1 singleton THỨ 2 riêng cho
+    đường sâu (Phase 4 §8.2) — lru_cache khóa theo (model, thinking_budget) nên 2
+    lời gọi khác tham số ra 2 client riêng, không đụng nhau."""
     import anthropic
 
     from app.config import get_settings
@@ -170,4 +201,5 @@ def get_llm_client(model: str | None = None) -> LLMClient:
         api_key=settings.anthropic_api_key,
         base_url=settings.anthropic_base_url or None,  # None = api.anthropic.com
     )
-    return AnthropicLLMClient(client, model=model or settings.model_fast)
+    return AnthropicLLMClient(client, model=model or settings.model_fast,
+                              thinking_budget=thinking_budget)

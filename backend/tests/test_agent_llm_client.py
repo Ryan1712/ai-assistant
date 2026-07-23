@@ -156,3 +156,82 @@ async def test_anthropic_llm_client_disables_parallel_tool_use():
         "type": "auto",
         "disable_parallel_tool_use": True,
     }
+
+
+def _thinking_stream_events():
+    """Chuỗi event có 1 block "thinking" (Phase 4 đường sâu, model_smart +
+    extended thinking) trước block text thường."""
+    return [
+        _Obj(type="message_start", message=_Obj(usage=_usage(input_tokens=50))),
+        _Obj(type="content_block_start", index=0,
+             content_block=_Obj(type="thinking", thinking="", signature="")),
+        _Obj(type="content_block_delta", index=0,
+             delta=_Obj(type="thinking_delta", thinking="Xem xet du lieu du an...")),
+        _Obj(type="content_block_delta", index=0,
+             delta=_Obj(type="signature_delta", signature="sig123abc")),
+        _Obj(type="content_block_stop", index=0),
+        _Obj(type="content_block_start", index=1, content_block=_Obj(type="text", text="")),
+        _Obj(type="content_block_delta", index=1,
+             delta=_Obj(type="text_delta", text="Ket qua: on")),
+        _Obj(type="content_block_stop", index=1),
+        _Obj(type="message_delta", delta=_Obj(type=None, stop_reason="end_turn"),
+             usage=_Obj(output_tokens=30)),
+        _Obj(type="message_stop"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_llm_client_accumulates_thinking_block():
+    from app.agent.llm_client import AnthropicLLMClient
+
+    sdk_client = _FakeAnthropicSDKClient(_thinking_stream_events())
+    client = AnthropicLLMClient(sdk_client, model="claude-sonnet-4-6", thinking_budget=8000)
+    events = [e async for e in client.stream(
+        system="sys", messages=[{"role": "user", "content": "hi"}], tools=[])]
+
+    done = events[-1]
+    assert done.thinking_blocks == [
+        {"type": "thinking", "thinking": "Xem xet du lieu du an...", "signature": "sig123abc"}]
+    assert [e.text for e in events[:-1]] == ["Ket qua: on"]
+    assert sdk_client.messages.last_kwargs["thinking"] == {
+        "type": "enabled", "budget_tokens": 8000}
+    assert sdk_client.messages.last_kwargs["max_tokens"] == 8000 + 4096
+
+
+@pytest.mark.asyncio
+async def test_anthropic_llm_client_no_thinking_budget_omits_thinking_param():
+    from app.agent.llm_client import AnthropicLLMClient
+
+    sdk_client = _FakeAnthropicSDKClient(_official_stream_events())
+    client = AnthropicLLMClient(sdk_client, model="claude-haiku-4-5")
+    events = [e async for e in client.stream(
+        system="sys", messages=[{"role": "user", "content": "hi"}], tools=[])]
+
+    assert "thinking" not in sdk_client.messages.last_kwargs
+    assert sdk_client.messages.last_kwargs["max_tokens"] == 8192
+    assert events[-1].thinking_blocks == []
+
+
+def test_get_llm_client_default_still_returns_fast_singleton():
+    from app.agent.llm_client import get_llm_client
+
+    get_llm_client.cache_clear()
+    c1 = get_llm_client()
+    c2 = get_llm_client()
+    assert c1 is c2
+
+
+def test_get_llm_client_smart_thinking_is_distinct_singleton_with_thinking_budget():
+    from app.agent.llm_client import get_llm_client
+    from app.config import get_settings
+
+    get_llm_client.cache_clear()
+    settings = get_settings()
+    fast = get_llm_client()
+    smart = get_llm_client(settings.model_smart, 8000)
+
+    assert fast is not smart
+    assert smart.model == settings.model_smart
+    assert smart._thinking_budget == 8000
+    assert smart._max_tokens == 8000 + 4096
+    assert fast._thinking_budget is None
