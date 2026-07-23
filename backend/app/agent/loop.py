@@ -423,6 +423,76 @@ async def run_agent_loop(
         await _write_trace("error")
 
 
+_ACK_SYSTEM_PROMPT = (
+    "Bạn vừa nhận 1 yêu cầu cần phân tích sâu, sẽ được xử lý ở lượt sau bằng "
+    "model mạnh hơn. Nhiệm vụ DUY NHẤT của bạn ngay bây giờ: viết đúng 1-2 câu "
+    "ngắn bằng tiếng Việt xác nhận đã nhận yêu cầu, nhắc sẽ mất khoảng 30 giây, "
+    "và sẽ báo khi xong. TUYỆT ĐỐI KHÔNG trả lời nội dung câu hỏi, không bàn "
+    "luận thêm."
+)
+_ACK_FALLBACK_TEXT = "Đang phân tích, khoảng 30 giây — tôi sẽ báo khi xong."
+
+
+async def run_deep_ack_turn(
+    db: AsyncSession, req: ChatRequest, llm_fast: LLMClient, publisher: EventPublisher,
+    is_cancelled: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
+) -> None:
+    """Đường sâu (Phase 4 §8.2), lượt đầu: model_fast KHÔNG tool, chỉ tạo 1 ack
+    message ngắn rồi chuyển request sang `deep_running` (CHƯA done thật) — job
+    phân tích nền (`run_deep_analysis`, worker.py) do tầng gọi tự enqueue sau khi
+    hàm này trả về thành công. Lỗi lúc gọi ack LLM dùng lại `_mark_failed`, giống
+    `run_agent_loop`."""
+    check_cancelled = is_cancelled or _never_cancelled
+    if await check_cancelled(req.id):
+        req.status = ChatRequestStatus.cancelled
+        req.finished_at = datetime.now(timezone.utc)
+        await db.commit()
+        await publisher.publish(req.conversation_id,
+                                {"type": "status_update", "chat_request_id": str(req.id),
+                                 "status": "cancelled"})
+        return
+
+    req.status = ChatRequestStatus.running
+    req.started_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    loop_started = time.monotonic()
+    text_parts: list[str] = []
+    try:
+        async for event in llm_fast.stream(
+            system=_ACK_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": [{"type": "text", "text": req.content}]}],
+            tools=[],
+        ):
+            if isinstance(event, TextDelta):
+                text_parts.append(event.text)
+                await publisher.publish(req.conversation_id,
+                                        {"type": "token", "chat_request_id": str(req.id),
+                                         "text": event.text})
+    except Exception as exc:
+        await _mark_failed(db, req, publisher, str(exc))
+        return
+
+    ack_text = "".join(text_parts).strip() or _ACK_FALLBACK_TEXT
+    db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
+                   chat_request_id=req.id, role=MessageRole.assistant,
+                   content=[{"type": "text", "text": ack_text}]))
+    req.status = ChatRequestStatus.deep_running
+    await db.commit()
+    await publisher.publish(req.conversation_id,
+                            {"type": "deep_analysis_started", "chat_request_id": str(req.id)})
+    try:
+        db.add(AgentTrace(
+            workspace_id=req.workspace_id, chat_request_id=req.id,
+            route="deep", model=getattr(llm_fast, "model", ""),
+            iterations=1, stop_reason="ack_sent", tools_called=[],
+            total_latency_ms=int((time.monotonic() - loop_started) * 1000)))
+        await db.commit()
+    except Exception:
+        logger.exception("ghi agent trace fail cho request %s (ack)", req.id)
+        await db.rollback()
+
+
 async def _resolve_proposal(db: AsyncSession, actor: User, action: dict, approved: bool,
                             workspace_id: uuid.UUID, trace_tools: list[dict]) -> dict:
     """Duyệt bản nháp propose_actions: chạy tuần tự từng action qua call_tool() (đã
