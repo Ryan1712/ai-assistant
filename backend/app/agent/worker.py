@@ -5,17 +5,27 @@ import uuid
 
 from arq.connections import RedisSettings
 from arq.cron import cron
+from arq.worker import func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.agent.llm_client import get_llm_client
 from app.agent.loop import run_agent_loop
 from app.agent.publisher import get_event_publisher
+from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
 from app.services import directive_service, report_schedule_service, voice_service, work_service
 
 logger = logging.getLogger(__name__)
+
+# Phase 4 §8.2 (đường sâu): model_smart + extended thinking chạy nhiều vòng/tốn
+# token hơn hẳn Haiku fast path -> trần cao hơn hẳn MAX_ITERATIONS=25/
+# MAX_DURATION_SECONDS=240 (loop.py). 800s < timeout=900 job (đăng ký bên dưới),
+# giữ đúng tỉ lệ an toàn "loop tự dừng trước khi arq giết job" như fast path.
+DEEP_MAX_ITERATIONS = 40
+DEEP_MAX_DURATION_SECONDS = 800
+DEEP_THINKING_BUDGET = 8000
 
 
 async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
@@ -69,6 +79,26 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
             await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled)
 
 
+async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
+    """arq job (Phase 4 §8.2 Task 7): phân tích nền cho 1 chat_request đã qua lượt
+    ack (`run_deep_ack_turn`, status=deep_running) — model_smart + extended
+    thinking, toolset insight (+core). Guard: chỉ chạy nếu request VẪN đang
+    deep_running (tránh reset nhầm request đã bị hủy/xử lý xong bởi luồng khác
+    trước khi job này tới lượt)."""
+    async with ctx["session_factory"]() as db:
+        req = await db.get(ChatRequest, chat_request_id)
+        if req is None or req.status != ChatRequestStatus.deep_running:
+            return
+        tool_names = set(TOOL_GROUPS["core"]) | set(TOOL_GROUPS["insight"])
+        await run_agent_loop(
+            db, req, ctx["llm_client_smart"], ctx["event_publisher"],
+            is_cancelled=ctx["is_cancelled"],
+            route="deep", tool_names=tool_names,
+            max_iterations=DEEP_MAX_ITERATIONS,
+            max_duration_seconds=DEEP_MAX_DURATION_SECONDS,
+        )
+
+
 async def enqueue_conversation(arq_pool, conversation_id: uuid.UUID):
     return await arq_pool.enqueue_job("process_conversation", conversation_id,
                                       _job_id=f"conv:{conversation_id}")
@@ -112,6 +142,7 @@ async def _startup(ctx: dict) -> None:
     ctx["engine"] = engine
     ctx["session_factory"] = async_sessionmaker(engine, expire_on_commit=False)
     ctx["llm_client"] = get_llm_client()
+    ctx["llm_client_smart"] = get_llm_client(settings.model_smart, DEEP_THINKING_BUDGET)
     ctx["event_publisher"] = get_event_publisher()
     import redis.asyncio as redis_asyncio
     ctx["redis"] = redis_asyncio.from_url(settings.redis_url)
@@ -124,7 +155,8 @@ async def _shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [process_conversation, transcribe_voice_note]
+    functions = [process_conversation, transcribe_voice_note,
+                func(run_deep_analysis, timeout=900)]
     cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0),
                 cron(check_directive_escalations, second=0)]
     on_startup = _startup
