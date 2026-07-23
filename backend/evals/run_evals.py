@@ -89,15 +89,17 @@ class EvalClient:
                    f"assign Nam Trần {title}")
 
     def _join(self, role: str, manager_id: str | None, full_name: str, run_id: str) -> str:
-        inv = _check(self.http.post("/api/v1/invites", headers=self._h("ceo"),
-                                    json={"role": role, "manager_id": manager_id}),
-                     f"invite {full_name}")
+        # CEO tạo tài khoản trực tiếp (create_employee) rồi kích hoạt bằng
+        # activation_code — không còn luồng signup-invite tự đăng ký cũ (đã xóa,
+        # xem plan "feedback fast-track": không có màn hình FE nào redeem token đó).
         slug = full_name.lower().replace(" ", "-").encode("ascii", "ignore").decode() or "nv"
-        joined = _check(self.http.post("/api/v1/auth/signup-invite", json={
-            "token": inv["token"], "email": f"{slug}-{uuid.uuid4().hex[:6]}@smokeco.vn",
-            "password": "pw123456", "full_name": full_name,
+        created = _check(self.http.post("/api/v1/invites", headers=self._h("ceo"), json={
+            "email": f"{slug}-{uuid.uuid4().hex[:6]}@smokeco.vn", "full_name": full_name,
+            "role": role, "manager_id": manager_id}), f"create employee {full_name}")
+        joined = _check(self.http.post("/api/v1/auth/activate", json={
+            "code": created["activation_code"], "password": "pw123456",
             "device_uuid": f"d-{uuid.uuid4().hex[:6]}", "device_name": "eval"}),
-            f"join {full_name}")
+            f"activate {full_name}")
         self.user_ids[full_name] = joined["user"]["id"]
         # actor "employee" trong scenario = Duy Phạm
         if full_name == "Duy Phạm":

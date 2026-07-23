@@ -1,8 +1,8 @@
 # PROJECT_CONTEXT.md
 
-> **Last verified:** 2026-07-22
+> **Last verified:** 2026-07-23
 > **Branch:** main
-> **Verified against commit:** f11e91558072dccc0c8d43dd94ca7bd7b4756a35
+> **Verified against commit:** c878f9f
 
 Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
 
@@ -64,9 +64,9 @@ Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer
 
 | Domain (router) | Endpoint chính | Ghi chú quyền |
 |---|---|---|
-| `auth` | signup-workspace, signup-invite, signup-code, login, refresh, logout, unlock-request | signup-code = tự đăng ký bằng mã mời chung workspace |
+| `auth` | signup-workspace, activate, signup-code, login, refresh, logout, unlock-request | signup-code = tự đăng ký bằng mã mời chung workspace; activate = kích hoạt tài khoản do CEO tạo sẵn (xem `invites` bên dưới) |
 | `users` | GET /me, GET "" (danh sách theo quyền thấy), GET /{id}/devices, POST /{id}/lock, /unlock, /offboard, /change-role | devices + lock/unlock/offboard/change-role: CEO-only |
-| `invites` | POST "" (tạo lời mời kèm role+manager_id) | CEO-only; REST endpoint này chưa có màn hình FE nào gọi trực tiếp, nhưng cùng logic (`auth_service.create_invite`) được expose qua agent tool `create_invite` nên vẫn dùng được qua chat. Flow tự đăng ký phổ biến hiện tại là mã mời chung workspace (`workspace.invite_code`), không phải route này. |
+| `invites` | POST "" (`create_employee`: CEO tạo tài khoản nhân viên/quản lý TRỰC TIẾP — email/tên/role/manager cho sẵn, `User` tạo ngay ở trạng thái `pending`, trả về `activation_code` 8 ký tự) | CEO-only; CEO tự đưa `activation_code` cho người đó (Zalo/nói trực tiếp), người đó vào FE màn hình `(auth)/activate.tsx` nhập mã + tự đặt mật khẩu (`POST /auth/activate`) — không còn bước "chấp nhận lời mời" tự đăng ký kiểu cũ (route `signup-invite` đã xóa hẳn, chưa từng có màn hình FE redeem). Cũng gọi được qua chat (agent tool `create_employee`). |
 | `workspace` | GET/POST /invite-code (rotate) | CEO-only |
 | `projects` | POST, GET, PATCH | create/patch CEO-only; list theo `visible_project_ids`; **không có DELETE** |
 | `tasks` | POST, GET, GET/{id}, PATCH, POST/DELETE assignees, POST/GET updates, POST/GET comments | create CEO-only; list/get theo `visible_task_ids`; **không có DELETE task** |
@@ -126,7 +126,7 @@ FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích s
 - **Proposal nhiều action (Phase 2 `propose_actions`) báo rõ kết quả từng phần**: `_resolve_proposal()` trả `outcome` (`completed`/`partially_completed`/`failed`) + `succeeded`/`failed` (danh sách `display_text`) trong tool_result — system prompt bắt buộc model liệt kê rõ việc nào xong/lỗi khi `outcome != completed`, không được nói chung chung "đã xong".
 - **Dừng/hủy**: `POST stop-all` set các request `queued` → `cancelled`, request `running` được đánh dấu qua Redis key `cancel:{id}` (loop tự kiểm tra `is_cancelled` giữa các bước).
 - **Mất mạng / "tiếp tục công việc"**: socket cuối cùng đóng → `continuity.hold_queue_if_pending` set `Conversation.queue_held=True`, worker thấy cờ này thì **không tự chạy tiếp**; chỉ khi user gửi đúng cụm `RESUME_PHRASE` ("tiếp tục công việc") thì `send_message` clear cờ và enqueue lại.
-- **Tool registry**: `app/agent/tools.py`, **56 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`) + 2 tool Phase 3 (`create_directive`, `get_directive_status`). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 56 tool này thành 7 nhóm cho Router động — hiện CHỈ dữ liệu, CHƯA wiring lọc (chờ Router Phase 4).
+- **Tool registry**: `app/agent/tools.py`, **58 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`) + 2 tool Phase 3 (`create_directive`, `get_directive_status`) + 2 tool phân tích (`get_project_health` — soi sâu 1 project: blocked/overdue/stale + risk heuristic; `get_progress_stats` — so sánh tuần/tháng này với kỳ trước, cả 2 đọc-only, `app/services/analytics_service.py`). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 58 tool này thành 7 nhóm cho Router động — hiện CHỈ dữ liệu, CHƯA wiring lọc (chờ Router Phase 4).
 - **Directive (Phase 3)**: `app/models.py::Directive`/`DirectiveStatus` (state machine sent→acked/question/renegotiate, mirror `ChatRequestStatus`), `app/services/directive_service.py`, REST `app/api/directives.py`, quyền `permissions.py::can_assign_directive` (CEO → ai cũng được; manager → chỉ direct report — logic MỚI, tách biệt hoàn toàn khỏi `work_service`'s `require_ceo`). `create_directive` KHÔNG `sensitive=True` (bắt buộc để lồng được trong `propose_actions` cùng `update_task`). Email V1 vẫn qua `email_service.send_email` nội bộ (mock) — chưa có provider thật/public ack-link không cần login (xem `evals/BASELINE.md` Phase 3 lý do chi tiết).
 - **Luật hành xử 3 mức (Phase 2, system prompt tĩnh)**: (1) tường minh + đảo ngược được → gọi tool ngay; (2) phải SUY LUẬN đối tượng (đoán người/task/deadline) → gọi `propose_actions` để user duyệt bản nháp trước khi thực thi (dùng lại hạ tầng `awaiting_confirmation`, `pending_action.kind` phân biệt `"tool"` | `"proposal"`); (3) nhạy cảm → vẫn gọi 1 trong 6 tool sensitive trực tiếp như cũ. `resolve_person`/`resolve_task` tra cứu mờ (fuzzy, thuần Python — không dùng `pg_trgm` vì test suite chạy SQLite) trong phạm vi `visible_user_ids`/`visible_task_ids`; trả `ambiguous` kèm candidates khi >1 kết quả — AI PHẢI hỏi lại đúng 1 câu, không tự chọn.
 - **Report định kỳ**: `arq.cron` chạy `check_report_schedules` mỗi phút (không qua LLM), độc lập với vòng lặp chat.
@@ -167,7 +167,7 @@ Chạy trong `backend/` (venv `.venv`):
 ```
 docker compose up -d postgres redis         # 5435/6380
 alembic upgrade head
-pytest tests/ -v                            # ~587 test hiện tại, toàn bộ pass trên nhánh này
+pytest tests/ -v                            # ~617 test hiện tại, toàn bộ pass trên nhánh này
 uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
 arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
 python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
@@ -178,7 +178,6 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
 
 **Còn thiếu / chưa làm** (không phải "sẽ làm" — liệt kê thực tế, không suy đoán ưu tiên):
 - Không có API xóa Project hoặc Task (chỉ có create/patch).
-- `invites.py` (POST tạo lời mời kèm role+manager cụ thể) chưa có màn hình FE riêng — chỉ dùng được qua chat (tool `create_invite`) hoặc trực tiếp gọi REST. Nếu cần UI mời theo role/manager cụ thể (khác mã mời chung ở Settings) thì phải xây thêm màn hình, backend đã sẵn sàng.
 - Không có UI chọn loại thông báo muốn nhận (functional-plan có nhắc, chưa thấy trong code) — Notification Center hiện tại chỉ liệt kê + đánh dấu đã đọc, không có cấu hình per-type.
 - Skill: chỉ có "cấp quyền xem/dùng" (grant), không có phân biệt view/edit/use ở mức chi tiết hơn.
 - Không có API sửa/xóa comment hoặc note (chỉ thêm mới + liệt kê — cố ý theo tiền lệ, không phải thiếu sót).
