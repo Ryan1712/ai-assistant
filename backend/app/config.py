@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     portal_mock: bool = True
     push_mock: bool = True
     email_mock: bool = True
+    # SMTP (dùng khi email_mock=False). smtp_from rỗng → dùng smtp_user làm người gửi.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
     stt_mock: bool = True
     portal_base_url: str = "https://ceo.9learning.edu.vn"
     # Snapshot workspace (spec AI upgrade §5): TTL fallback khi không có invalidation

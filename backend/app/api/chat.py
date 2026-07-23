@@ -2,7 +2,7 @@ import uuid
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.loop import resolve_confirmation
@@ -10,7 +10,10 @@ from app.agent.worker import enqueue_conversation
 from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole, User
+from app.models import (
+    AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
+    UsageLog, User,
+)
 from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
     ConversationRenameIn, MessageOut, MessageSendIn, ReorderIn,
@@ -70,6 +73,24 @@ async def rename_conversation(conversation_id: uuid.UUID, body: ConversationRena
     conv.title = body.title
     await db.commit()
     return conv
+
+
+@router.delete("/{conversation_id}", status_code=204)
+async def delete_conversation(conversation_id: uuid.UUID,
+                              actor: User = Depends(get_current_user),
+                              db: AsyncSession = Depends(get_db)):
+    conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
+    # Xoá thủ công theo thứ tự FK con → cha (các FK conversation_id / chat_request_id
+    # KHÔNG có ondelete=CASCADE). Nếu thêm bảng con mới tham chiếu chat_requests /
+    # conversations, nhớ bổ sung ở đây.
+    req_ids = select(ChatRequest.id).where(ChatRequest.conversation_id == conversation_id)
+    await db.execute(delete(AgentTrace).where(AgentTrace.chat_request_id.in_(req_ids)))
+    await db.execute(delete(UsageLog).where(UsageLog.chat_request_id.in_(req_ids)))
+    await db.execute(delete(Message).where(Message.conversation_id == conversation_id))
+    await db.execute(delete(ChatRequest).where(ChatRequest.conversation_id == conversation_id))
+    await db.delete(conv)
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/{conversation_id}/messages", response_model=ChatRequestOut, status_code=201)

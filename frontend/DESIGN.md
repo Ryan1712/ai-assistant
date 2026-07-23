@@ -1,8 +1,17 @@
 # Design guideline — FE mobile (Expo / React Native StyleSheet)
 
-Chưng cất từ [ceorkm/mobile-app-ui-design](https://github.com/ceorkm/mobile-app-ui-design) (MIT),
-viết lại cho stack của mình (StyleSheet, không Tailwind/Recharts). Token cụ thể ở
-`src/ui/theme.ts` — **mọi màn hình import từ đó, không hardcode hex/số spacing**.
+> **Hệ design hiện tại (từ 2026-07-21): Grammarly (iOS).** Accent DUY NHẤT = Grammarly
+> Green `#15C39A`; font **Inter**; nút **pill** (radius 999); card bo **16**. Nguồn:
+> awesome-ios-design-md `productivity/grammarly` (bản DESIGN-expo.md). Điều hướng dùng
+> **react-navigation** (native-stack, hiệu ứng iOS slide) — KHÔNG còn expo-router.
+> Token cụ thể ở `src/ui/theme.ts` — **mọi màn hình import từ đó, không hardcode hex/số
+> spacing**. (Lưu ý: `docs/expo-DESIGN.md` là bản scrape trang marketing expo.dev, KHÔNG
+> phải design system của app — đừng dùng.)
+
+Các quy tắc quy trình bên dưới (4 trạng thái bắt buộc, thumb zone, 60/30/10, accessibility)
+vẫn áp dụng nguyên vẹn — chỉ khác bảng token màu/chữ/bo góc (nay theo Grammarly, xem
+`theme.ts`). Phần dưới chưng cất từ [ceorkm/mobile-app-ui-design](https://github.com/ceorkm/mobile-app-ui-design)
+(MIT) là hệ token cũ, giữ để tham chiếu quy trình.
 
 ## Quy trình khi làm màn hình mới (5 bước)
 

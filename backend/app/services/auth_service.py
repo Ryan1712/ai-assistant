@@ -97,6 +97,47 @@ async def login(
     return user, access, refresh
 
 
+_PWRESET_TTL = 900  # 15 phút
+_PWRESET_PREFIX = "pwreset:"
+_RESET_FROM_EMAIL = "no-reply@troly-ai.local"
+
+
+async def forgot_password(db: AsyncSession, redis, *, email: str) -> None:
+    """Sinh mã OTP 6 số, lưu Redis (TTL 15'), gửi qua email. LUÔN im lặng nếu email
+    không tồn tại (chống dò email). Dev email_mock → mã nằm trong mock_email_client.sent."""
+    email = email.strip().lower()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None:
+        return
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    await redis.set(f"{_PWRESET_PREFIX}{email}", code, ex=_PWRESET_TTL)
+    from app.services.email_service import get_email_client
+    await get_email_client().send(
+        from_email=_RESET_FROM_EMAIL, to_email=email,
+        subject="Mã đặt lại mật khẩu",
+        body=(f"Mã đặt lại mật khẩu của bạn là {code}. Mã có hiệu lực 15 phút. "
+              "Nếu bạn không yêu cầu, hãy bỏ qua email này."),
+    )
+
+
+async def reset_password(db: AsyncSession, redis, *, email: str, code: str,
+                         new_password: str) -> None:
+    email = email.strip().lower()
+    if len(new_password) < 8:
+        raise HTTPException(400, "password_too_short")
+    stored = await redis.get(f"{_PWRESET_PREFIX}{email}")
+    if isinstance(stored, bytes):
+        stored = stored.decode()
+    if stored is None or stored != code.strip():
+        raise HTTPException(400, "invalid_or_expired_code")
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(400, "invalid_or_expired_code")
+    user.password_hash = security.hash_password(new_password)
+    await redis.delete(f"{_PWRESET_PREFIX}{email}")
+    await db.commit()
+
+
 async def rotate_refresh(db: AsyncSession, refresh_plain: str) -> tuple[User, str, str]:
     now = datetime.now(timezone.utc)
     hashed = security.hash_refresh_token(refresh_plain)

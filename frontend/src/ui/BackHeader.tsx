@@ -1,19 +1,25 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useRouter } from "expo-router";
-import { colors, spacing } from "./theme";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { colors, fonts, spacing } from "./theme";
 
-/** Header dùng chung cho mọi route ẩn (push từ Cài đặt/màn khác) — các route này
- * không nằm trong tab bar nên không có cách nào khác để quay lại. */
-export function BackHeader({ title, fallback = "/today" }: { title: string; fallback?: string }) {
-  const router = useRouter();
+/** Header dùng chung cho mọi màn phụ (push từ Cài đặt/màn khác). Các màn này không
+ * nằm trong tab bar nên tự render header + nút back. headerShown=false ở stack. */
+export function BackHeader({ title }: { title: string }) {
+  const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.headerBar}>
+    <View style={[styles.headerBar, { paddingTop: insets.top + spacing.sm }]}>
       <TouchableOpacity
-        onPress={() => (router.canGoBack() ? router.back() : router.replace(fallback))}
+        onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate("Drawer"))}
         accessibilityLabel="Quay lại"
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={styles.backBtn}
       >
-        <Text style={{ color: colors.primary, fontWeight: "700" }}>← Quay lại</Text>
+        <Ionicons name="chevron-back" size={22} color={colors.primary} />
+        <Text style={styles.backText}>Quay lại</Text>
       </TouchableOpacity>
       <Text style={styles.title} numberOfLines={1}>
         {title}
@@ -27,13 +33,14 @@ const styles = StyleSheet.create({
   headerBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingBottom: spacing.sm,
     borderBottomWidth: 1,
     borderColor: colors.divider,
     backgroundColor: colors.surface,
   },
-  title: { flex: 1, textAlign: "center", color: colors.text, fontWeight: "700" },
-  spacer: { width: 80 },
+  backBtn: { flexDirection: "row", alignItems: "center", width: 90 },
+  backText: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 16 },
+  title: { flex: 1, textAlign: "center", color: colors.text, fontFamily: fonts.bold, fontSize: 17 },
+  spacer: { width: 90 },
 });

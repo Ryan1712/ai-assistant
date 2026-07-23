@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Text, TouchableOpacity } from "react-native";
-import { spacing } from "../ui/theme";
+import { TouchableOpacity } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { colors } from "../ui/theme";
 
 // Native module (iOS SFSpeechRecognizer / Web Speech API) — thiếu trong Expo Go
 // hoặc trình duyệt không hỗ trợ thì require throw / isRecognitionAvailable false
@@ -59,10 +60,11 @@ export function DictationButton({ onText }: { onText: (text: string) => void }) 
   return (
     <TouchableOpacity
       onPress={listening ? stop : start}
-      style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}
+      style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
       accessibilityLabel={listening ? "Dừng nói" : "Nói với trợ lý"}
+      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
     >
-      <Text style={{ fontSize: 20 }}>{listening ? "🔴" : "🎙️"}</Text>
+      <Ionicons name={listening ? "mic" : "mic-outline"} size={22} color={listening ? colors.danger : colors.textSecondary} />
     </TouchableOpacity>
   );
 }

@@ -24,6 +24,16 @@ class LoginIn(BaseModel):
     device_name: str = ""
 
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     email: str

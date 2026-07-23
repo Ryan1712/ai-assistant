@@ -9,12 +9,14 @@ import {
 } from "react-native";
 import { colors, radius, spacing, type } from "./theme";
 
-export function Field(props: TextInputProps) {
+export function Field({ style, ...props }: TextInputProps) {
+  // Merge style của caller LÊN TRÊN styles.field (trước đây {...props} ghi đè làm mất
+  // border/padding khi caller truyền style — vd ô tìm kiếm bị mất viền).
   return (
     <TextInput
       placeholderTextColor={colors.textMuted}
       autoCapitalize="none"
-      style={styles.field}
+      style={[styles.field, style]}
       {...props}
     />
   );

@@ -88,6 +88,9 @@ export const renameConversation = (conversationId: string, title: string) =>
     body: { title },
   });
 
+export const deleteConversation = (conversationId: string) =>
+  apiFetch<void>(`/api/v1/conversations/${conversationId}`, { method: "DELETE" });
+
 export const listMessages = (conversationId: string) =>
   apiFetch<Message[]>(`/api/v1/conversations/${conversationId}/messages`);
 
