@@ -199,14 +199,29 @@ async def run_agent_loop(
     db: AsyncSession, req: ChatRequest, llm: LLMClient, publisher: EventPublisher,
     is_cancelled: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
     *, route: str = "fast", tool_names: set[str] | None = None,
+    max_iterations: int | None = None, max_tool_calls: int | None = None,
+    max_duration_seconds: int | None = None, max_total_tokens: int | None = None,
 ) -> None:
     """Chạy agent loop cho 1 chat_request tới khi end_turn / awaiting_confirmation /
     cancelled / failed. Không bao giờ raise — mọi lỗi hạ tầng chuyển thành status=failed.
 
     route: ghi vào AgentTrace ("fast" mặc định — Router Phase 4 truyền "deep" khi
     gọi cho job phân tích nền). tool_names: None = full toolset (mặc định/fallback
-    an toàn); có giá trị = chỉ nạp đúng tập tool đó (xem router.tool_names_for_route)."""
+    an toàn); có giá trị = chỉ nạp đúng tập tool đó (xem router.tool_names_for_route).
+
+    max_*: None (mặc định) = dùng đúng hằng số module MAX_ITERATIONS/MAX_TOOL_CALLS/
+    MAX_DURATION_SECONDS/MAX_TOTAL_TOKENS như cũ — cố ý ĐỌC hằng số bên trong hàm
+    (không bind vào default parameter lúc định nghĩa) để monkeypatch trong test vẫn
+    có tác dụng. Job phân tích nền (worker.py::run_deep_analysis) truyền trần cao
+    hơn hẳn: model_smart + extended thinking chạy nhiều vòng/tốn token hơn hẳn
+    Haiku fast path."""
     check_cancelled = is_cancelled or _never_cancelled
+    iterations_limit = max_iterations if max_iterations is not None else MAX_ITERATIONS
+    tool_calls_limit = max_tool_calls if max_tool_calls is not None else MAX_TOOL_CALLS
+    duration_limit = (max_duration_seconds if max_duration_seconds is not None
+                     else MAX_DURATION_SECONDS)
+    total_tokens_limit = (max_total_tokens if max_total_tokens is not None
+                          else MAX_TOTAL_TOKENS)
     req.status = ChatRequestStatus.running
     req.started_at = datetime.now(timezone.utc)
     await db.commit()
@@ -250,19 +265,19 @@ async def run_agent_loop(
                 return
 
             iteration += 1
-            if iteration > MAX_ITERATIONS:
+            if iteration > iterations_limit:
                 await _mark_failed(db, req, publisher, "max_iterations_exceeded")
                 await _write_trace("max_iterations")
                 return
-            if tool_call_count > MAX_TOOL_CALLS:
+            if tool_call_count > tool_calls_limit:
                 await _mark_failed(db, req, publisher, "max_tool_calls_exceeded")
                 await _write_trace("max_tool_calls")
                 return
-            if time.monotonic() - loop_started > MAX_DURATION_SECONDS:
+            if time.monotonic() - loop_started > duration_limit:
                 await _mark_failed(db, req, publisher, "max_duration_exceeded")
                 await _write_trace("max_duration")
                 return
-            if total_tokens > MAX_TOTAL_TOKENS:
+            if total_tokens > total_tokens_limit:
                 await _mark_failed(db, req, publisher, "max_total_tokens_exceeded")
                 await _write_trace("max_total_tokens")
                 return
