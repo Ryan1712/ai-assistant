@@ -346,6 +346,9 @@ class ChatRequestStatus(str, enum.Enum):
     queued = "queued"
     running = "running"
     awaiting_confirmation = "awaiting_confirmation"
+    # Đường sâu (Phase 4 §8.2): đã ghi ack Message + enqueue job phân tích chạy nền
+    # bằng model_smart, CHƯA xong thật — job sẽ tự chuyển sang done khi hoàn tất.
+    deep_running = "deep_running"
     done = "done"
     failed = "failed"
     cancelled = "cancelled"
