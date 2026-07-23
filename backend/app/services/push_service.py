@@ -20,6 +20,7 @@ _TITLES = {
     "task_update": "Task có cập nhật tiến độ",
     "account_locked": "Tài khoản của bạn đã bị khóa",
     "unlock_request": "Có yêu cầu mở khóa tài khoản",
+    "deep_analysis_done": "Phân tích sâu đã xong",
 }
 
 

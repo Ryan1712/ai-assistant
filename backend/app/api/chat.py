@@ -170,7 +170,8 @@ async def stop_all(conversation_id: uuid.UUID, actor: User = Depends(get_current
     conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
     rows = await db.execute(select(ChatRequest).where(
         ChatRequest.conversation_id == conv.id,
-        ChatRequest.status.in_([ChatRequestStatus.queued, ChatRequestStatus.running]),
+        ChatRequest.status.in_([ChatRequestStatus.queued, ChatRequestStatus.running,
+                                ChatRequestStatus.deep_running]),
     ))
     for req in rows.scalars():
         if req.status == ChatRequestStatus.queued:
@@ -218,7 +219,7 @@ async def cancel_request(request_id: uuid.UUID, actor: User = Depends(get_curren
     if req.status == ChatRequestStatus.queued:
         req.status = ChatRequestStatus.cancelled
         await db.commit()
-    elif req.status == ChatRequestStatus.running:
+    elif req.status in (ChatRequestStatus.running, ChatRequestStatus.deep_running):
         await redis.set(f"cancel:{req.id}", "1", ex=_CANCEL_TTL)
     return Response(status_code=204)
 

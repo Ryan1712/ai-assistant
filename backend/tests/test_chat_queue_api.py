@@ -191,6 +191,56 @@ async def test_cancel_running_request_sets_redis_flag(queue_client):
 
 
 @pytest.mark.asyncio
+async def test_cancel_deep_running_request_sets_redis_flag(queue_client):
+    """Phase 4 §8.2 Task 10: request dang chay job nen (deep_running) - CEO bam
+    dung phai co tac dung that (khong duoc coi la queued/khong nhan dien)."""
+    client, fake_pool, fake_redis, maker = queue_client
+    ceo_h = await _ceo_headers(client)
+    me = (await client.get("/api/v1/users/me", headers=ceo_h)).json()
+
+    async with maker() as db:
+        ceo = await db.get(User, uuid.UUID(me["id"]))
+        conv = Conversation(workspace_id=ceo.workspace_id, user_id=ceo.id)
+        db.add(conv)
+        await db.flush()
+        req = ChatRequest(workspace_id=ceo.workspace_id, conversation_id=conv.id,
+                          user_id=ceo.id, content="x", queue_position=1.0,
+                          status=ChatRequestStatus.deep_running)
+        db.add(req)
+        await db.commit()
+        req_id = req.id
+
+    resp = await client.post(f"/api/v1/chat-requests/{req_id}/cancel", headers=ceo_h)
+    assert resp.status_code == 204
+    assert fake_redis.set_calls == [(f"cancel:{req_id}", "1", 600)]
+
+
+@pytest.mark.asyncio
+async def test_stop_all_flags_deep_running_request(queue_client):
+    """Phase 4 §8.2 Task 10: stop-all phai nhan dien deep_running nhu running -
+    dat co huy qua redis, khong bo sot job nen dang chay."""
+    client, fake_pool, fake_redis, maker = queue_client
+    ceo_h = await _ceo_headers(client)
+    me = (await client.get("/api/v1/users/me", headers=ceo_h)).json()
+
+    async with maker() as db:
+        ceo = await db.get(User, uuid.UUID(me["id"]))
+        conv = Conversation(workspace_id=ceo.workspace_id, user_id=ceo.id)
+        db.add(conv)
+        await db.flush()
+        r_deep = ChatRequest(workspace_id=ceo.workspace_id, conversation_id=conv.id,
+                             user_id=ceo.id, content="phan tich sau", queue_position=1.0,
+                             status=ChatRequestStatus.deep_running)
+        db.add(r_deep)
+        await db.commit()
+        conv_id, deep_id = conv.id, r_deep.id
+
+    resp = await client.post(f"/api/v1/conversations/{conv_id}/stop-all", headers=ceo_h)
+    assert resp.status_code == 204
+    assert fake_redis.set_calls == [(f"cancel:{deep_id}", "1", 600)]
+
+
+@pytest.mark.asyncio
 async def test_reorder_to_front_then_before_sibling(queue_client):
     client, *_, maker = queue_client
     ceo_h = await _ceo_headers(client)

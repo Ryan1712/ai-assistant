@@ -10,12 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.agent.llm_client import get_llm_client
-from app.agent.loop import run_agent_loop
+from app.agent.loop import run_agent_loop, run_deep_ack_turn
 from app.agent.publisher import get_event_publisher
+from app.agent.router import classify_route, tool_names_for_route
 from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
 from app.services import directive_service, report_schedule_service, voice_service, work_service
+from app.services.notify import notify
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +78,17 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 except Exception:
                     logger.exception("inject transcript failed for request %s", req.id)
                     await db.rollback()
-            await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled)
+            # Router (Phase 4 §8.1) - chi phan loai 1 lan luc pickup dau tien cua
+            # request nay (status queued -> chuyen ngay khoi queued ben trong
+            # run_deep_ack_turn/run_agent_loop, khong bao gio duoc chon lai o day).
+            group = await classify_route(req.content, llm)
+            if group == "deep":
+                await run_deep_ack_turn(db, req, llm, publisher, is_cancelled=is_cancelled)
+                await ctx["arq_pool"].enqueue_job(
+                    "run_deep_analysis", req.id, _job_id=f"deep:{req.id}")
+            else:
+                await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled,
+                                     tool_names=tool_names_for_route(group))
 
 
 async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
@@ -97,6 +109,15 @@ async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
             max_iterations=DEEP_MAX_ITERATIONS,
             max_duration_seconds=DEEP_MAX_DURATION_SECONDS,
         )
+        if req.status == ChatRequestStatus.done:
+            # Chi bao "da xong" khi THAT SU xong (khong bao cancelled/failed) -
+            # nguoi gui khong ngoi cho 30s-800s, can duoc nhac qua push khi ket
+            # qua san sang.
+            await notify(db, workspace_id=req.workspace_id, recipient_id=req.user_id,
+                        type="deep_analysis_done",
+                        payload={"chat_request_id": str(req.id),
+                                 "conversation_id": str(req.conversation_id)})
+            await db.commit()
 
 
 async def enqueue_conversation(arq_pool, conversation_id: uuid.UUID):
@@ -147,11 +168,16 @@ async def _startup(ctx: dict) -> None:
     import redis.asyncio as redis_asyncio
     ctx["redis"] = redis_asyncio.from_url(settings.redis_url)
     ctx["is_cancelled"] = lambda request_id: _is_cancelled_redis(ctx, request_id)
+    from arq import create_pool
+    # process_conversation can bo pool arq rieng de tu enqueue job run_deep_analysis
+    # (job noi tiep) - khac ctx["redis"] (client thuan, chi dung cho is_cancelled).
+    ctx["arq_pool"] = await create_pool(RedisSettings.from_dsn(settings.redis_url))
 
 
 async def _shutdown(ctx: dict) -> None:
     await ctx["engine"].dispose()
     await ctx["redis"].close()
+    await ctx["arq_pool"].close()
 
 
 class WorkerSettings:

@@ -25,10 +25,12 @@ async def test_process_conversation_runs_queued_requests_in_order_then_stops(eng
     db_session.add_all([conv, other_conv])
     await db_session.flush()
 
+    # Noi dung khop heuristic tier 1 (router.py) ro rang - tranh ton them 1 luot
+    # goi FakeLLMClient cho tier 2 (khong lien quan muc dich test nay).
     req1 = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
-                       content="mot", queue_position=1.0)
+                       content="xem dashboard hom nay", queue_position=1.0)
     req2 = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
-                       content="hai", queue_position=2.0)
+                       content="tao task moi cho du an X", queue_position=2.0)
     other_req = ChatRequest(workspace_id=ws.id, conversation_id=other_conv.id, user_id=ceo.id,
                             content="khac conversation", queue_position=1.0)
     db_session.add_all([req1, req2, other_req])
@@ -159,6 +161,115 @@ async def test_process_conversation_stops_when_queue_held(engine, db_session):
     await db_session.refresh(req)
     assert req.status == ChatRequestStatus.queued  # được ghi nhớ, không chạy
     assert len(llm.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_process_conversation_routes_deep_request_to_ack_then_enqueues_job(engine, db_session):
+    """Task 8: request khop route "deep" (router.py tier 1) phai di qua
+    run_deep_ack_turn - KHONG phai run_agent_loop thuong - roi tu enqueue job
+    run_deep_analysis rieng qua ctx["arq_pool"]. Queue KHONG bi chan cho job nen
+    nay (process_conversation tra ve ngay sau khi enqueue, khong cho job chay)."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="phan tich rui ro du an thang nay", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[
+        [TextDelta(text="Da nhan, dang phan tich sau..."),
+         StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ])
+    pub = FakeEventPublisher()
+
+    class _FakePool:
+        def __init__(self):
+            self.calls = []
+
+        async def enqueue_job(self, name, *args, **kwargs):
+            self.calls.append((name, args, kwargs))
+            return "job-handle"
+
+    pool = _FakePool()
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": pub,
+        "is_cancelled": never_cancelled,
+        "arq_pool": pool,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.deep_running
+    assert len(llm.calls) == 1  # chi 1 luot ack, khong chay tool loop thuong
+    assert pool.calls == [("run_deep_analysis", (req.id,), {"_job_id": f"deep:{req.id}"})]
+    event_types = [event["type"] for _conv_id, event in pub.events]
+    assert "deep_analysis_started" in event_types
+    assert "request_done" not in event_types  # job nen chua xong that
+
+
+@pytest.mark.asyncio
+async def test_process_conversation_filters_toolset_by_classified_route(engine, db_session):
+    """Task 8: request KHONG khop "deep" van chay run_agent_loop nhu cu, nhung
+    toolset da bi loc theo group phan loai duoc (an toan: fallback full toolset
+    neu khong chac - da co san o tool_names_for_route/router.py)."""
+    from app.agent.tools import TOOL_GROUPS
+
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="tao task moi cho du an X", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[
+        [StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ])
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": FakeEventPublisher(),
+        "is_cancelled": never_cancelled,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.done
+    called_tool_names = {t["name"] for t in llm.calls[0]["tools"]}
+    assert called_tool_names == set(TOOL_GROUPS["core"]) | set(TOOL_GROUPS["work"])
 
 
 @pytest.mark.asyncio
