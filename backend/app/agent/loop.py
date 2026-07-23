@@ -130,9 +130,14 @@ MAX_TOTAL_TOKENS = 200_000
 MAX_HISTORY_MESSAGES = 80
 
 
-def _tool_specs_for_api() -> list[dict]:
+def _tool_specs_for_api(tool_names: set[str] | None = None) -> list[dict]:
+    """tool_names=None -> full toolset (mặc định/fallback an toàn khi Router
+    Phase 4 không chắc route). Có tool_names -> chỉ nạp đúng tập đó (core +
+    nhóm theo router.tool_names_for_route)."""
+    items = TOOLS.items() if tool_names is None else (
+        (name, spec) for name, spec in TOOLS.items() if name in tool_names)
     return [{"name": name, "description": spec.description, "input_schema": spec.input_schema}
-           for name, spec in TOOLS.items()]
+           for name, spec in items]
 
 
 async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
@@ -193,9 +198,14 @@ async def _mark_failed(db: AsyncSession, req: ChatRequest, publisher: EventPubli
 async def run_agent_loop(
     db: AsyncSession, req: ChatRequest, llm: LLMClient, publisher: EventPublisher,
     is_cancelled: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
+    *, route: str = "fast", tool_names: set[str] | None = None,
 ) -> None:
     """Chạy agent loop cho 1 chat_request tới khi end_turn / awaiting_confirmation /
-    cancelled / failed. Không bao giờ raise — mọi lỗi hạ tầng chuyển thành status=failed."""
+    cancelled / failed. Không bao giờ raise — mọi lỗi hạ tầng chuyển thành status=failed.
+
+    route: ghi vào AgentTrace ("fast" mặc định — Router Phase 4 truyền "deep" khi
+    gọi cho job phân tích nền). tool_names: None = full toolset (mặc định/fallback
+    an toàn); có giá trị = chỉ nạp đúng tập tool đó (xem router.tool_names_for_route)."""
     check_cancelled = is_cancelled or _never_cancelled
     req.status = ChatRequestStatus.running
     req.started_at = datetime.now(timezone.utc)
@@ -214,7 +224,7 @@ async def run_agent_loop(
         try:
             db.add(AgentTrace(
                 workspace_id=req.workspace_id, chat_request_id=req.id,
-                route="fast",  # "fast" cứng ở Phase 0 — router Phase 4 sẽ truyền route thật
+                route=route,
                 model=getattr(llm, "model", ""),
                 iterations=iteration, stop_reason=stop_reason,
                 tools_called=trace_tools,
@@ -278,7 +288,7 @@ async def run_agent_loop(
             done: StreamDone | None = None
             call_started = time.monotonic()
             async for event in llm.stream(system=system_payload, messages=history,
-                                          tools=_tool_specs_for_api()):
+                                          tools=_tool_specs_for_api(tool_names)):
                 if await check_cancelled(req.id):
                     await _cancel_and_exit()
                     return

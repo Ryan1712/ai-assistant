@@ -98,6 +98,23 @@ async def test_sensitive_tool_ghi_awaiting_confirmation(db_session):
     assert trace.tools_called == []  # tool nhạy cảm CHƯA chạy nên không có entry
 
 
+@pytest.mark.asyncio
+async def test_route_kwarg_ghi_dung_vao_trace(db_session):
+    """Phase 4: route mac dinh van "fast" (test_text_only_ghi_trace_end_turn o
+    tren khong doi), nhung truyen route="deep" phai duoc ghi dung — thay cho
+    hardcode cu."""
+    ws, ceo, conv = await _world(db_session)
+    req = await _request(db_session, ws, conv, ceo)
+    llm = FakeLLMClient(turns=[[
+        TextDelta(text="ket qua phan tich"),
+        StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1),
+    ]])
+    await run_agent_loop(db_session, req, llm, FakeEventPublisher(), route="deep")
+
+    (trace,) = await _traces(db_session, req)
+    assert trace.route == "deep"
+
+
 def test_tool_trace_entry_cat_500_ky_tu():
     entry = _tool_trace_entry("t", {"x": "a" * 2000}, {"y": "b" * 2000}, 7)
     assert entry["name"] == "t"
