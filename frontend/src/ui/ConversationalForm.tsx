@@ -78,16 +78,20 @@ export function ConversationalForm({
     setAnswers(nextAnswers);
     setInput("");
     const nextIndex = stepIndex + 1;
-    const nextRows: Row[] = [{ key: `a-${step.key}`, kind: "user", text: displayText }];
-    if (steps[nextIndex]) {
-      nextRows.push({ key: `q-${steps[nextIndex].key}`, kind: "bot", text: steps[nextIndex].prompt });
-    }
-    setRows((prev) => [...prev, ...nextRows]);
+    // Key theo prev.length (không phải step.key) — 1 step có thể được trả lời lại
+    // nhiều lần sau khi rewindTo() do lỗi, step.key lặp lại sẽ đụng key cũ.
+    setRows((prev) => {
+      const rows: Row[] = [{ key: `a-${prev.length}`, kind: "user", text: displayText }];
+      if (steps[nextIndex]) {
+        rows.push({ key: `q-${prev.length + 1}`, kind: "bot", text: steps[nextIndex].prompt });
+      }
+      return [...prev, ...rows];
+    });
     setStepIndex(nextIndex);
 
     if (nextIndex >= steps.length) {
       setBusy(true);
-      setRows((prev) => [...prev, { key: "submitting", kind: "bot", text: submittingLabel }]);
+      setRows((prev) => [...prev, { key: `submitting-${prev.length}`, kind: "bot", text: submittingLabel }]);
       try {
         await onComplete(nextAnswers);
       } catch (e: any) {
