@@ -30,6 +30,7 @@ type AuthState = {
     password: string;
     full_name: string;
   }) => Promise<void>;
+  activateAccount: (v: { code: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -94,6 +95,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     signupCode: async (v) => {
       const out = await apiFetch<AuthOut>("/api/v1/auth/signup-code", {
+        method: "POST",
+        auth: false,
+        body: { ...v, ...(await deviceFields()) },
+      });
+      await finishAuth(out);
+    },
+    activateAccount: async (v) => {
+      const out = await apiFetch<AuthOut>("/api/v1/auth/activate", {
         method: "POST",
         auth: false,
         body: { ...v, ...(await deviceFields()) },

@@ -18,7 +18,13 @@ export default function Login() {
     try {
       await login(email.trim(), password);
     } catch (e: any) {
-      setError(e?.status === 401 ? "Email hoặc mật khẩu không đúng." : String(e?.message ?? e));
+      if (e?.detail === "account_pending") {
+        setError("Tài khoản chưa kích hoạt — bạn cần nhập mã kích hoạt trước khi đăng nhập.");
+      } else if (e?.status === 401) {
+        setError("Email hoặc mật khẩu không đúng.");
+      } else {
+        setError(String(e?.message ?? e));
+      }
     } finally {
       setBusy(false);
     }
@@ -38,6 +44,9 @@ export default function Login() {
       <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
         <Link href="/(auth)/signup-code" style={{ color: colors.primary }}>
           Nhân viên mới? Đăng ký bằng mã mời công ty
+        </Link>
+        <Link href="/(auth)/activate" style={{ color: colors.primary }}>
+          Đã được thêm vào công ty? Kích hoạt tài khoản
         </Link>
         <Link href="/(auth)/signup-workspace" style={{ color: colors.primary }}>
           Tạo công ty mới (CEO)

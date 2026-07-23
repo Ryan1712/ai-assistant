@@ -85,7 +85,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_skill_grants: "Tra quyền skill",
   revoke_skill_grant: "Thu hồi quyền skill",
   list_users: "Tra danh bạ",
-  create_invite: "Tạo lời mời",
+  create_employee: "Tạo nhân viên mới",
   lock_user: "Khóa tài khoản",
   unlock_user: "Mở khóa tài khoản",
   offboard_user: "Cho nghỉ việc",
