@@ -113,11 +113,12 @@ class EvalClient:
         req = _check(self.http.post(f"/api/v1/conversations/{conv['id']}/messages",
                                     headers=self._h(actor),
                                     json={"content": sc["user_text"]}), "gửi tin")
-        status, pending_tool, pending_kind = self._poll(conv["id"], req["id"], actor)
-        called = self._called_tools(req["id"])
-        result = grade(sc, called, status, pending_tool, pending_kind)
+        timeout_s = sc.get("poll_timeout_s", POLL_TIMEOUT_S)
+        status, pending_tool, pending_kind = self._poll(conv["id"], req["id"], actor, timeout_s)
+        called, route = self._read_traces(req["id"])
+        result = grade(sc, called, status, pending_tool, pending_kind, route)
         result.update({"id": sc["id"], "status": status, "called": called,
-                       "pending": pending_tool, "pending_kind": pending_kind})
+                       "pending": pending_tool, "pending_kind": pending_kind, "route": route})
         if status == "awaiting_confirmation":
             try:
                 # từ chối để không thực sự khóa acc/gửi email trong lúc eval; rồi CHỜ
@@ -130,13 +131,17 @@ class EvalClient:
                         break
                     self.http.post(f"/api/v1/chat-requests/{req['id']}/confirm",
                                    headers=self._h(actor), json={"approved": False})
-                    deny_status, _pending, _kind = self._poll(conv["id"], req["id"], actor)
+                    deny_status, _pending, _kind = self._poll(conv["id"], req["id"], actor, timeout_s)
             except Exception:
                 pass  # dọn dẹp best-effort — kết quả chấm đã chốt ở trên
         return result
 
-    def _poll(self, conv_id: str, req_id: str, actor: str) -> tuple[str, str | None, str | None]:
-        deadline = time.monotonic() + POLL_TIMEOUT_S
+    def _poll(self, conv_id: str, req_id: str, actor: str,
+             timeout_s: float = POLL_TIMEOUT_S) -> tuple[str, str | None, str | None]:
+        # timeout_s riêng cho scenario "deep" (Phase 4 §8.2) - ack xong request
+        # chuyển deep_running (KHÔNG nằm trong TERMINAL nên vòng lặp cứ chờ tiếp),
+        # job nền model_smart+thinking có thể tốn hơn hẳn POLL_TIMEOUT_S mặc định.
+        deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             reqs = _check(self.http.get(f"/api/v1/conversations/{conv_id}/requests",
                                         headers=self._h(actor)), "poll requests")
@@ -150,16 +155,21 @@ class EvalClient:
             time.sleep(POLL_INTERVAL_S)
         return "timeout", None, None
 
-    def _called_tools(self, req_id: str) -> list[str]:
+    def _read_traces(self, req_id: str) -> tuple[list[str], str | None]:
+        """Trả (tool đã gọi xuyên suốt mọi dòng trace, route của dòng CUỐI CÙNG
+        theo created_at). API đã sort created_at asc nên traces[-1] là dòng mới
+        nhất — đường sâu có 2 dòng (ack rồi job), request cần confirm có thể có
+        3 dòng (fast rồi confirm rồi fast lần 2) — không được lấy nhầm dòng giữa."""
         for attempt in range(2):
             traces = _check(self.http.get(f"/api/v1/admin/traces/{req_id}",
                                           headers=self._h("ceo")), "đọc trace")
             names = [t["name"] for tr in traces for t in tr["tools_called"]]
             if names or traces or attempt == 1:
-                return names
+                route = traces[-1]["route"] if traces else None
+                return names, route
             # status terminal đã visible nhưng dòng trace có thể chưa commit xong
             time.sleep(0.5)
-        return []
+        return [], None
 
 
 def main() -> int:
@@ -168,8 +178,8 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8000")
-    ap.add_argument("--phase", type=int, default=3,
-                    help="chạy scenario có phase <= giá trị này (default 3 = phase hiện tại của code)")
+    ap.add_argument("--phase", type=int, default=4,
+                    help="chạy scenario có phase <= giá trị này (default 4 = phase hiện tại của code)")
     ap.add_argument("--only", default=None, help="chỉ chạy scenario có id này")
     args = ap.parse_args()
 
@@ -202,7 +212,7 @@ def main() -> int:
         else:
             failed += 1
             print(f"  FAIL  {r['id']}  status={r['status']} tools={r['called']} "
-                  f"pending={r['pending']} pending_kind={r['pending_kind']}")
+                  f"pending={r['pending']} pending_kind={r['pending_kind']} route={r['route']}")
             for f_ in r["failures"]:
                 print(f"        - {f_}")
     print(f"\nKết quả: {passed} pass / {failed} fail / {skipped} skip "

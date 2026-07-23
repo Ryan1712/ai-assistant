@@ -56,3 +56,19 @@ def test_expected_pending_kind_proposal_pass_and_fail():
     bad = grade(s, [], "awaiting_confirmation", pending_kind="tool")
     assert bad["passed"] is False
     assert any("pending_kind" in f for f in bad["failures"])
+
+
+def test_expected_route_pass_and_fail():
+    """Phase 4 §8: scenario "deep" phải xác nhận Router phân loại đúng, không
+    chỉ đúng tool/status - expected_route so khớp route của dòng AgentTrace
+    cuối cùng (runner đã lo phần lấy đúng dòng, xem run_evals.py)."""
+    s = {"expected_route": "deep"}
+    ok = grade(s, [], "done", route="deep")
+    assert ok["passed"] is True
+    bad = grade(s, [], "done", route="fast")
+    assert bad["passed"] is False
+    assert any("route" in f for f in bad["failures"])
+
+
+def test_expected_route_khong_khai_bao_thi_khong_cham():
+    assert grade({}, [], "done", route="fast")["passed"] is True

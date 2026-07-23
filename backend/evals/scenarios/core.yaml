@@ -10,6 +10,9 @@
   user_text: "Tạo project mới tên Website Redesign, mục tiêu làm lại web công ty"
   expected_tools: [create_project]
   expected_status: done
+  expected_route: fast
+  notes: "Phase 4 Router: câu bình thường (không phân tích/đánh giá) phải giữ nguyên
+    route=fast - xác nhận Router không đổi hành vi ngoài ý muốn cho câu cũ."
 
 - id: giao-task-co-deadline
   actor: ceo
@@ -146,3 +149,18 @@
     0 tool' — model KHÔNG cần gọi get_directive_status cho câu hỏi về directive CỦA CHÍNH
     actor. (Ban đầu viết nhầm expected_tools: [get_directive_status] — chạy live phát hiện
     model trả lời đúng từ snapshot, 0 tool, đúng hành vi mong muốn chứ không phải bug.)"
+
+- id: phan-tich-rui-ro-du-an
+  actor: ceo
+  user_text: "Phân tích rủi ro toàn bộ dự án Marketing Q3 tháng này giúp tôi"
+  expected_route: deep
+  expected_status: done
+  phase: 4
+  poll_timeout_s: 400
+  notes: "Phase 4 Router (§8.1/§8.2): câu 'phân tích'/'rủi ro' phải vào đường sâu -
+    ack nhanh bằng model_fast (status chuyển queued->running->deep_running), rồi
+    job nền model_smart+extended thinking chạy thật (route ghi vào dòng AgentTrace
+    CUỐI CÙNG theo created_at - dòng job, không phải dòng ack, dù cả 2 đều
+    route=deep). poll_timeout_s nâng lên 400s (mặc định 200s có thể không đủ cho
+    model_smart+thinking - deep_running không nằm trong TERMINAL nên vẫn chờ đúng,
+    chỉ cần đủ thời gian)."
