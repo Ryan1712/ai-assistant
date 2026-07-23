@@ -16,11 +16,14 @@ async def _ceo(db):
 
 
 @pytest.mark.asyncio
-async def test_create_invite_tool(db_session):
+async def test_create_employee_tool(db_session):
     ws, ceo = await _ceo(db_session)
-    result = await call_tool(db_session, ceo, "create_invite", {"role": "manager"})
+    result = await call_tool(db_session, ceo, "create_employee", {
+        "email": "m1@a.vn", "full_name": "M1", "role": "manager"})
     assert result["role"] == "manager"
-    assert "token" in result
+    assert result["email"] == "m1@a.vn"
+    assert "activation_code" in result
+    assert result.get("note")
 
 
 @pytest.mark.asyncio
@@ -52,7 +55,7 @@ def test_lock_and_unlock_are_marked_sensitive():
     assert SENSITIVE_TOOLS == {"lock_user", "unlock_user", "delete_instruction", "send_email",
                                "offboard_user", "change_user_role",
                                "delete_task", "delete_project"}
-    assert TOOLS["create_invite"].sensitive is False
+    assert TOOLS["create_employee"].sensitive is False
 
 
 @pytest.mark.asyncio

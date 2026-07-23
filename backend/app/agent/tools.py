@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,10 +16,10 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    attachment_service, audit_service, auth_service, dashboard_service, directive_service,
-    email_service, instruction_service, note_service, notification_service, portal_service,
-    report_schedule_service, report_service, resolver_service, search_service, skill_service,
-    voice_service, work_service,
+    analytics_service, attachment_service, audit_service, auth_service, dashboard_service,
+    directive_service, email_service, instruction_service, note_service, notification_service,
+    portal_service, report_schedule_service, report_service, resolver_service, search_service,
+    skill_service, voice_service, work_service,
 )
 
 
@@ -339,7 +339,9 @@ _register("revoke_skill_grant", "Thu hồi quyền dùng skill của 1 người 
           RevokeSkillGrantToolIn, _revoke_skill_grant)
 
 
-class CreateInviteToolIn(BaseModel):
+class CreateEmployeeToolIn(BaseModel):
+    email: EmailStr
+    full_name: str
     role: Role
     manager_id: uuid.UUID | None = None
 
@@ -364,11 +366,16 @@ async def _list_users(db, actor, body: NoArgsIn) -> dict:
                        "role": u.role.value} for u in rows.scalars()]}
 
 
-async def _create_invite(db, actor, body: CreateInviteToolIn) -> dict:
-    invite = await auth_service.create_invite(db, actor=actor, role=body.role.value,
-                                              manager_id=body.manager_id)
-    return {"token": invite.token, "role": invite.role.value,
-           "expires_at": invite.expires_at.isoformat()}
+async def _create_employee(db, actor, body: CreateEmployeeToolIn) -> dict:
+    user, code, expires_at = await auth_service.create_employee(
+        db, actor=actor, email=body.email, full_name=body.full_name,
+        role=body.role.value, manager_id=body.manager_id)
+    return {"user_id": str(user.id), "email": user.email, "full_name": user.full_name,
+           "role": user.role.value, "activation_code": code,
+           "expires_at": expires_at.isoformat(),
+           "note": f"Đưa mã kích hoạt '{code}' cho {user.full_name} (nói trực tiếp, nhắn "
+                   "Zalo...) — họ mở app, chọn 'Kích hoạt tài khoản', nhập mã này + tự đặt "
+                   "mật khẩu. Không cần họ tự đăng ký gì thêm."}
 
 
 async def _lock_user(db, actor, body: LockUserToolIn) -> dict:
@@ -406,8 +413,12 @@ async def _change_user_role(db, actor, body: ChangeUserRoleToolIn) -> dict:
 _register("list_users", "Danh bạ công ty: liệt kê thành viên (id, tên, email, vai trò). "
           "Dùng để tra user_id theo tên trước khi giao task, gửi email, khóa/mở tài khoản "
           "— đừng bao giờ hỏi người dùng user_id.", NoArgsIn, _list_users)
-_register("create_invite", "Tạo lời mời vào workspace kèm vai trò (chỉ CEO).",
-          CreateInviteToolIn, _create_invite)
+_register("create_employee", "Tạo tài khoản nhân viên/quản lý MỚI trực tiếp (chỉ CEO) — "
+          "KHÔNG cần người đó tự đăng ký/chấp nhận lời mời gì cả. Trả về activation_code — "
+          "CEO tự đưa mã này cho người được thêm (nói trực tiếp, nhắn Zalo...) để họ mở app, "
+          "chọn 'Kích hoạt tài khoản', nhập mã + tự đặt mật khẩu. Dùng khi nghe 'thêm nhân "
+          "viên X', 'mời Y vào làm quản lý', 'nhận Z làm nhân viên của A'.",
+          CreateEmployeeToolIn, _create_employee)
 _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi mọi thiết bị "
           "(chỉ CEO, hành động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).", LockUserToolIn, _lock_user,
           sensitive=True)
@@ -766,6 +777,38 @@ _register("list_notes", "Liệt kê ghi chú cá nhân của chính người dù
           "(on_date) hoặc tag.", ListNotesToolIn, _list_notes)
 
 
+class GetProjectHealthToolIn(BaseModel):
+    project_id: uuid.UUID
+
+
+async def _get_project_health(db, actor, body: GetProjectHealthToolIn) -> dict:
+    return await analytics_service.get_project_health(db, actor, body.project_id)
+
+
+class GetProgressStatsToolIn(BaseModel):
+    period: str = "week"
+    project_id: uuid.UUID | None = None
+
+
+async def _get_progress_stats(db, actor, body: GetProgressStatsToolIn) -> dict:
+    return await analytics_service.get_progress_stats(
+        db, actor, period=body.period, project_id=body.project_id)
+
+
+_register("get_project_health", "Soi sâu 1 project cụ thể: task bị blocked (kèm số ngày bị "
+          "chặn), task quá hạn (kèm số ngày trễ), task im lặng >7 ngày không cập nhật, tiến "
+          "độ trung bình, và 1 mức 'risk' tổng quát (high/medium/low). Dùng khi user hỏi "
+          "'project X đang ổn không', 'project nào đang có rủi ro'. Khác get_today_dashboard "
+          "(tổng quan toàn phạm vi) ở chỗ tool này đào sâu MỘT project.", GetProjectHealthToolIn,
+          _get_project_health)
+_register("get_progress_stats", "So sánh tiến độ kỳ này với kỳ trước (period='week' hoặc "
+          "'month'): số task hoàn thành, số task tạo mới, số task đang quá hạn — kèm chênh "
+          "lệch (change) so với kỳ trước liền kề. Truyền project_id để giới hạn 1 project, "
+          "bỏ trống để tính theo toàn phạm vi actor được thấy. Dùng khi user hỏi 'tuần này "
+          "làm được nhiêu so với tuần trước', 'tháng này tiến độ sao'.", GetProgressStatsToolIn,
+          _get_progress_stats)
+
+
 class SearchToolIn(BaseModel):
     q: str = Field(min_length=1)
 
@@ -917,7 +960,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         "create_directive",
     }),
     "admin": frozenset({
-        "list_users", "create_invite", "lock_user", "unlock_user",
+        "list_users", "create_employee", "lock_user", "unlock_user",
         "offboard_user", "change_user_role", "list_audit_events",
     }),
     "reporting": frozenset({
@@ -936,6 +979,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
     }),
     "insight": frozenset({
         "get_today_dashboard", "get_directive_status",
+        "get_project_health", "get_progress_stats",
     }),
 }
 
@@ -951,5 +995,5 @@ SNAPSHOT_WRITE_TOOLS: frozenset[str] = frozenset({
     "create_project", "update_project", "delete_project",
     "create_task", "update_task", "delete_task",
     "assign_task", "unassign_task", "add_task_update",
-    "offboard_user", "change_user_role", "create_directive",
+    "offboard_user", "change_user_role", "create_directive", "create_employee",
 })

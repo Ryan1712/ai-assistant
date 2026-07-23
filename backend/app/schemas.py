@@ -59,13 +59,19 @@ class TokenPairOut(BaseModel):
     refresh_token: str
 
 
-class InviteCreateIn(BaseModel):
+class CreateEmployeeIn(BaseModel):
+    email: EmailStr
+    full_name: str
     role: Role
     manager_id: uuid.UUID | None = None
 
 
-class InviteOut(BaseModel):
-    token: str
+class CreateEmployeeOut(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    full_name: str
+    role: Role
+    activation_code: str
     expires_at: dt.datetime
 
 
@@ -78,11 +84,9 @@ class SignupCodeIn(BaseModel):
     device_name: str = ""
 
 
-class SignupInviteIn(BaseModel):
-    token: str
-    email: EmailStr
+class ActivateAccountIn(BaseModel):
+    code: str
     password: str
-    full_name: str
     device_uuid: str
     device_name: str = ""
 

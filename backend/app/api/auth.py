@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.schemas import (
-    AuthOut, LoginIn, RefreshIn, SignupCodeIn, SignupInviteIn, SignupWorkspaceIn,
+    ActivateAccountIn, AuthOut, LoginIn, RefreshIn, SignupCodeIn, SignupWorkspaceIn,
     TokenPairOut, UnlockRequestIn,
 )
 from app.services import auth_service
@@ -17,9 +17,9 @@ async def signup_workspace(body: SignupWorkspaceIn, db: AsyncSession = Depends(g
     return AuthOut(access_token=access, refresh_token=refresh, user=user)
 
 
-@router.post("/signup-invite", response_model=AuthOut, status_code=201)
-async def signup_invite(body: SignupInviteIn, db: AsyncSession = Depends(get_db)):
-    user, access, refresh = await auth_service.signup_invite(db, **body.model_dump())
+@router.post("/activate", response_model=AuthOut, status_code=201)
+async def activate(body: ActivateAccountIn, db: AsyncSession = Depends(get_db)):
+    user, access, refresh = await auth_service.activate_account(db, **body.model_dump())
     return AuthOut(access_token=access, refresh_token=refresh, user=user)
 
 

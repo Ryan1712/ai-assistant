@@ -27,6 +27,9 @@ class Role(str, enum.Enum):
 class UserStatus(str, enum.Enum):
     active = "active"
     locked = "locked"
+    # Tao truoc boi CEO (create_employee), chua tu kich hoat/dat mat khau - login
+    # thuong bi chan (giong locked) toi khi activate_account() thanh cong.
+    pending = "pending"
 
 
 class WorkspacePlan(str, enum.Enum):
@@ -110,6 +113,10 @@ class Invite(Base):
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # None = invite kieu cu (khong con duong tao moi, giu de tuong thich du lieu cu neu co).
+    # Co gia tri = "ma kich hoat" cho User da duoc CEO tao truoc qua create_employee - token
+    # nay chi dung de KICH HOAT (dat mat khau), khong tu dang ky thong tin moi.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class RefreshToken(Base):

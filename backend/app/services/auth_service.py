@@ -89,6 +89,8 @@ async def login(
         raise HTTPException(401, "invalid_credentials")
     if user.status == UserStatus.locked:
         raise HTTPException(403, "account_locked")
+    if user.status == UserStatus.pending:
+        raise HTTPException(403, "account_pending")
     await _log_device(db, user, device_uuid, device_name)
     access, refresh = await _issue_tokens(db, user)
     await db.commit()
@@ -128,62 +130,82 @@ async def revoke_refresh(db: AsyncSession, refresh_plain: str) -> None:
         await db.commit()
 
 
-async def create_invite(
-    db: AsyncSession, *, actor: User, role: str, manager_id=None,
-) -> Invite:
+async def create_employee(
+    db: AsyncSession, *, actor: User, email: str, full_name: str, role: str,
+    manager_id=None,
+) -> tuple[User, str, datetime]:
+    """Tạo tài khoản nhân viên/quản lý TRỰC TIẾP (không qua invite tự đăng ký cũ —
+    luồng đó không có màn hình FE nào redeem token, coi như chết). Trả về (user,
+    activation_code, expires_at) — CEO tự đưa activation_code cho người đó (Zalo/nói
+    trực tiếp) để họ tự kích hoạt (activate_account) + đặt mật khẩu, không cần biết
+    trước email/tên vì đã có sẵn."""
+    from app.models import _invite_code as _gen_code
+
     if actor.role != Role.ceo:
         raise HTTPException(403, "forbidden")
     await plans.enforce_limit(db, actor.workspace_id, "members")
     role_enum = Role(role)
+    email = email.strip().lower()
     if role_enum == Role.employee and manager_id is None:
         raise HTTPException(422, "employee_invite_requires_manager")
     if manager_id is not None:
         manager = await db.get(User, manager_id)
         if not manager or manager.role != Role.manager or manager.workspace_id != actor.workspace_id:
             raise HTTPException(422, "invalid_manager")
-    invite = Invite(
-        workspace_id=actor.workspace_id, token=secrets.token_urlsafe(24),
-        role=role_enum, manager_id=manager_id, created_by=actor.id,
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
-    )
-    db.add(invite)
-    await db.commit()
-    return invite
-
-
-async def signup_invite(
-    db: AsyncSession, *, token: str, email: str, password: str,
-    full_name: str, device_uuid: str, device_name: str,
-) -> tuple[User, str, str]:
-    email = email.strip().lower()
-    now = datetime.now(timezone.utc)
-    invite = (await db.execute(select(Invite).where(Invite.token == token))).scalar_one_or_none()
-    if (invite is None or invite.used_at is not None
-            or invite.expires_at.replace(tzinfo=timezone.utc) < now):
-        raise HTTPException(400, "invalid_invite")
     if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
         raise HTTPException(409, "email_taken")
+    user = User(
+        workspace_id=actor.workspace_id, email=email,
+        # password_hash khong nullable o DB - dat gia tri ngau nhien khong ai biet,
+        # se bi ghi de khi activate_account() thanh cong.
+        password_hash=security.hash_password(secrets.token_urlsafe(32)),
+        full_name=full_name, role=role_enum, manager_id=manager_id,
+        status=UserStatus.pending,
+    )
+    db.add(user)
+    await db.flush()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    invite = Invite(
+        workspace_id=actor.workspace_id, token=_gen_code(),
+        role=role_enum, manager_id=manager_id, created_by=actor.id,
+        expires_at=expires_at, user_id=user.id,
+    )
+    db.add(invite)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "email_taken")
+    return user, invite.token, expires_at
+
+
+async def activate_account(
+    db: AsyncSession, *, code: str, password: str, device_uuid: str, device_name: str,
+) -> tuple[User, str, str]:
+    """Kích hoạt tài khoản đã được CEO tạo trước (create_employee) — người dùng tự đặt
+    mật khẩu, không cần nhập lại email/tên vì đã có sẵn. Dùng lại nguyên pattern
+    atomic-claim (chống race dùng 2 lần) đã kiểm chứng ở luồng invite cũ."""
+    now = datetime.now(timezone.utc)
+    invite = (await db.execute(select(Invite).where(Invite.token == code))).scalar_one_or_none()
+    if (invite is None or invite.used_at is not None
+            or invite.expires_at.replace(tzinfo=timezone.utc) < now
+            or invite.user_id is None):
+        raise HTTPException(400, "invalid_code")
     claimed = await db.execute(
         update(Invite)
         .where(Invite.id == invite.id, Invite.used_at.is_(None))
         .values(used_at=now)
     )
     if claimed.rowcount != 1:
-        raise HTTPException(400, "invalid_invite")
-    user = User(
-        workspace_id=invite.workspace_id, email=email,
-        password_hash=security.hash_password(password), full_name=full_name,
-        role=invite.role, manager_id=invite.manager_id,
-    )
-    db.add(user)
-    await db.flush()
+        raise HTTPException(400, "invalid_code")
+    user = await db.get(User, invite.user_id)
+    if user is None or user.status != UserStatus.pending:
+        raise HTTPException(400, "invalid_code")
+    user.password_hash = security.hash_password(password)
+    user.status = UserStatus.active
     await _log_device(db, user, device_uuid, device_name)
     access, refresh = await _issue_tokens(db, user)
-    try:
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(409, "email_taken")
+    await db.commit()
     return user, access, refresh
 
 

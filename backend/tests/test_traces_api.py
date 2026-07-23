@@ -2,6 +2,7 @@
 import uuid
 
 from app.models import AgentTrace, ChatRequest, Conversation, User
+from tests.conftest import _invite_and_join
 
 SIGNUP = {
     "workspace_name": "Cong ty A", "email": "ceo@a.vn", "password": "secret123",
@@ -56,30 +57,13 @@ async def test_request_khong_ton_tai_tra_mang_rong(client):
 
 
 async def test_nhan_vien_bi_403(client, db_session):
-    from sqlalchemy import select
     headers = await _ceo_headers(client)
     req = await _seed_trace(db_session)
 
-    # Create manager
-    mgr_inv = await client.post("/api/v1/invites", headers=headers,
-                                json={"role": "manager", "manager_id": None})
-    assert mgr_inv.status_code == 201, mgr_inv.text
-    mgr_join = await client.post("/api/v1/auth/signup-invite", json={
-        "token": mgr_inv.json()["token"], "email": "mgr@a.vn", "password": "pw123456",
-        "full_name": "MGR", "device_uuid": "d-mgr", "device_name": "",
-    })
-    mgr = await db_session.execute(select(User).where(User.email == "mgr@a.vn"))
-    manager_id = mgr.scalar_one().id
-
-    # Create employee with manager
-    emp_inv = await client.post("/api/v1/invites", headers=headers,
-                                json={"role": "employee", "manager_id": str(manager_id)})
-    assert emp_inv.status_code == 201, emp_inv.text
-    emp_join = await client.post("/api/v1/auth/signup-invite", json={
-        "token": emp_inv.json()["token"], "email": "nv@a.vn", "password": "pw123456",
-        "full_name": "NV", "device_uuid": "d-nv", "device_name": "",
-    })
-    emp_headers = {"Authorization": f"Bearer {emp_join.json()['access_token']}"}
+    mgr = await _invite_and_join(client, headers, "manager", "mgr@a.vn")
+    emp = await _invite_and_join(client, headers, "employee", "nv@a.vn",
+                                 manager_id=mgr["user"]["id"])
+    emp_headers = {"Authorization": f"Bearer {emp['access_token']}"}
     resp = await client.get(f"/api/v1/admin/traces/{req.id}", headers=emp_headers)
     assert resp.status_code == 403
 

@@ -56,12 +56,16 @@ async def _ceo_headers(client):
 
 
 async def _invite_and_join(client, headers, role, email, manager_id=None):
-    inv = await client.post("/api/v1/invites", headers=headers,
-                            json={"role": role, "manager_id": manager_id})
-    assert inv.status_code == 201, inv.text
-    join = await client.post("/api/v1/auth/signup-invite", json={
-        "token": inv.json()["token"], "email": email, "password": "pw123456",
-        "full_name": email, "device_uuid": "d-" + email, "device_name": "",
+    """Tao truc tiep (khong con "invite tu dang ky" kieu cu) + kich hoat ngay bang
+    activation_code tra ve - giu NGUYEN chu ky/kieu tra ve de khong sua lan sang cac
+    file test khac dang dung helper nay (test_traces_api.py, test_agent_tools_account.py)."""
+    created = await client.post("/api/v1/invites", headers=headers,
+                                json={"email": email, "full_name": email, "role": role,
+                                      "manager_id": manager_id})
+    assert created.status_code == 201, created.text
+    join = await client.post("/api/v1/auth/activate", json={
+        "code": created.json()["activation_code"], "password": "pw123456",
+        "device_uuid": "d-" + email, "device_name": "",
     })
     assert join.status_code == 201, join.text
     return join.json()
