@@ -2,6 +2,11 @@ import pytest
 
 from tests.conftest import SIGNUP, _ceo_headers, _invite_and_join
 
+# POST /api/v1/auth/signup-code tắt tạm (comment out ở app/api/auth.py) - product
+# quyết định nhân viên không còn tự đăng nhập vào app (2026-07-23). Test nào gọi
+# thẳng route này skip tạm, không xóa - bật lại route thì bỏ skip là chạy được ngay.
+_SIGNUP_CODE_DISABLED = "POST /auth/signup-code tam tat - nhan vien khong con dang nhap (2026-07-23)"
+
 
 def _h(j):
     return {"Authorization": f"Bearer {j['access_token']}"}
@@ -12,6 +17,7 @@ def _signup_code_body(code, email="nv@a.vn"):
             "full_name": "NV Moi", "device_uuid": "d-" + email, "device_name": "iPhone"}
 
 
+@pytest.mark.skip(reason=_SIGNUP_CODE_DISABLED)
 @pytest.mark.asyncio
 async def test_ceo_reads_code_and_employee_self_signs_up(client):
     ceo_h = await _ceo_headers(client)
@@ -32,6 +38,7 @@ async def test_ceo_reads_code_and_employee_self_signs_up(client):
     assert devices.json()[0]["device_uuid"] == "d-nv@a.vn"
 
 
+@pytest.mark.skip(reason=_SIGNUP_CODE_DISABLED)
 @pytest.mark.asyncio
 async def test_wrong_code_404(client):
     await _ceo_headers(client)
@@ -40,6 +47,7 @@ async def test_wrong_code_404(client):
     assert r.json()["detail"] == "invalid_invite_code"
 
 
+@pytest.mark.skip(reason=_SIGNUP_CODE_DISABLED)
 @pytest.mark.asyncio
 async def test_rotate_kills_old_code(client):
     ceo_h = await _ceo_headers(client)
@@ -63,6 +71,7 @@ async def test_non_ceo_cannot_see_or_rotate_code(client):
                               headers=_h(m1))).status_code == 403
 
 
+@pytest.mark.skip(reason=_SIGNUP_CODE_DISABLED)
 @pytest.mark.asyncio
 async def test_member_limit_applies_to_code_signup(client, monkeypatch):
     from app import plans

@@ -48,12 +48,14 @@ export default function Login() {
         Quên mật khẩu?
       </Text>
       <View style={{ marginTop: spacing.xl, gap: spacing.md }}>
-        <Text
+        {/* Tự đăng ký bằng mã mời chung (nhân viên) tắt tạm - nhân viên không
+            còn đăng nhập vào app (2026-07-23). */}
+        {/* <Text
           style={{ color: colors.primary, fontFamily: fonts.semibold }}
           onPress={() => navigation.navigate("SignupCode")}
         >
           Nhân viên mới? Đăng ký bằng mã mời công ty
-        </Text>
+        </Text> */}
         <Text
           style={{ color: colors.primary, fontFamily: fonts.semibold }}
           onPress={() => navigation.navigate("Activate")}

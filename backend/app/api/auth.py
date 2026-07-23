@@ -32,10 +32,14 @@ async def activate(body: ActivateAccountIn, db: AsyncSession = Depends(get_db)):
     return AuthOut(access_token=access, refresh_token=refresh, user=user)
 
 
-@router.post("/signup-code", response_model=AuthOut, status_code=201)
-async def signup_code(body: SignupCodeIn, db: AsyncSession = Depends(get_db)):
-    user, access, refresh = await auth_service.signup_with_code(db, **body.model_dump())
-    return AuthOut(access_token=access, refresh_token=refresh, user=user)
+# Tự đăng ký bằng mã mời chung workspace (luôn tạo role=employee) tắt tạm -
+# product quyết định nhân viên không còn đăng nhập vào app (2026-07-23). Giữ
+# nguyên auth_service.signup_with_code, chỉ bỏ route để endpoint không còn
+# reachable nữa (FE cũng đã bỏ màn hình signup-code.tsx tương ứng).
+# @router.post("/signup-code", response_model=AuthOut, status_code=201)
+# async def signup_code(body: SignupCodeIn, db: AsyncSession = Depends(get_db)):
+#     user, access, refresh = await auth_service.signup_with_code(db, **body.model_dump())
+#     return AuthOut(access_token=access, refresh_token=refresh, user=user)
 
 
 @router.post("/login", response_model=AuthOut)
