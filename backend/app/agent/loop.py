@@ -157,6 +157,7 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
             Message.conversation_id == conversation_id,
             or_(Message.chat_request_id.is_(None),
                 Message.chat_request_id.not_in(skip_ids)),
+            Message.is_ack.is_(False),
         ).order_by(Message.created_at.asc(), Message.id.asc())
     )
     # Bỏ message content rỗng (dữ liệu cũ trước guard bên dưới) — Anthropic API
@@ -491,7 +492,7 @@ async def run_deep_ack_turn(
     ack_text = "".join(text_parts).strip() or _ACK_FALLBACK_TEXT
     db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
                    chat_request_id=req.id, role=MessageRole.assistant,
-                   content=[{"type": "text", "text": ack_text}]))
+                   content=[{"type": "text", "text": ack_text}], is_ack=True))
     req.status = ChatRequestStatus.deep_running
     await db.commit()
     await publisher.publish(req.conversation_id,

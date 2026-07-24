@@ -105,6 +105,65 @@ async def test_history_bi_cat_truot_qua_tool_result_mo_coi(db_session):
     assert first["content"][0]["text"] == "tin 12"
 
 
+async def test_ack_message_khong_lot_vao_history_dung_request_dang_ack(db_session):
+    """Phat hien qua verify tay Phase 4 (duong sau §8.2): run_deep_ack_turn ghi 1
+    Message role=assistant, is_ack=True GAN VOI CUNG chat_request_id, TRUOC khi
+    run_deep_analysis goi lai run_agent_loop cho DUNG request do. Neu _load_history
+    khong loai no, lich su ket thuc bang message assistant nay, Anthropic tu choi
+    thang ("model does not support assistant message prefill... must end with a
+    user message")."""
+    conv = await _mk_conv(db_session)
+    req = await _mk_req(db_session, conv, "phan tich rui ro du an", 1.0,
+                        status=ChatRequestStatus.deep_running)
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           chat_request_id=req.id, role=MessageRole.assistant,
+                           content=[{"type": "text", "text": "Dang phan tich..."}],
+                           is_ack=True))
+    await db_session.commit()
+
+    history = await _load_history(db_session, conv.id, req.id)
+    assert history[-1]["role"] == "user"
+    assert history[-1]["content"][0]["text"] == "phan tich rui ro du an"
+
+
+async def test_ack_message_bi_loai_ke_ca_khi_nam_giua_lich_su(db_session):
+    """Lan verify dau tien chi cat message assistant O CUOI (trailing) — khong du:
+    tu vong lap 2 tro di, tool_use dau tien cua chinh job duoc ghi NGAY SAU ack,
+    dat no vao GIUA (user goc -> ack -> tool_use), pha luat user/assistant xen ke
+    bat buoc cua Anthropic ("unexpected tool_use_id... must have a corresponding
+    tool_use block in the previous message"). is_ack phai loai no BAT KE VI TRI."""
+    conv = await _mk_conv(db_session)
+    req = ChatRequest(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                      user_id=conv.user_id, content="phan tich rui ro du an",
+                      queue_position=1.0, status=ChatRequestStatus.deep_running)
+    db_session.add(req)
+    await db_session.flush()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           chat_request_id=req.id, role=MessageRole.user,
+                           content=[{"type": "text", "text": "phan tich rui ro du an"}],
+                           created_at=base + timedelta(milliseconds=0)))
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           chat_request_id=req.id, role=MessageRole.assistant,
+                           content=[{"type": "text", "text": "Dang phan tich..."}],
+                           is_ack=True, created_at=base + timedelta(milliseconds=1)))
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           chat_request_id=req.id, role=MessageRole.assistant,
+                           content=[{"type": "tool_use", "id": "t1",
+                                    "name": "get_project_health", "input": {}}],
+                           created_at=base + timedelta(milliseconds=2)))
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           chat_request_id=req.id, role=MessageRole.user,
+                           content=[{"type": "tool_result", "tool_use_id": "t1",
+                                    "content": "{}"}],
+                           created_at=base + timedelta(milliseconds=3)))
+    await db_session.commit()
+
+    history = await _load_history(db_session, conv.id, req.id)
+    roles = [m["role"] for m in history]
+    assert roles == ["user", "assistant", "user"]  # ack (assistant) da bi loai het
+
+
 async def test_history_khong_co_diem_bat_dau_an_toan_tra_ve_rong(db_session):
     """Neu ca cua so 80 message khong co message nao role=user + content text dau
     tien (chi co the xay ra ve sau neu MAX_ITERATIONS tang), tra ve [] thay vi doan

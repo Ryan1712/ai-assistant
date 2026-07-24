@@ -403,6 +403,12 @@ class Message(Base):
         ForeignKey("voice_notes.id", ondelete="SET NULL"), nullable=True)
     role: Mapped[MessageRole] = mapped_column(Enum(MessageRole))
     content: Mapped[list] = mapped_column(JSON)
+    # Phase 4 §8.2: ack message của run_deep_ack_turn — hiển thị cho user bình
+    # thường nhưng KHÔNG BAO GIỜ đưa vào lịch sử gửi lại cho model (xem
+    # _load_history/loop.py) — nó chỉ là câu xác nhận UI, không phải suy luận
+    # thật, và đứng giữa user-text gốc + tool_use lượt sau của CHÍNH request đó
+    # sẽ phá quy tắc user/assistant xen kẽ bắt buộc của Anthropic.
+    is_ack: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
