@@ -19,7 +19,7 @@ from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
     UsageLog, User,
 )
-from app.services import embedding_service, instruction_service, snapshot_service
+from app.services import distiller_service, embedding_service, instruction_service, snapshot_service
 from app.tz import VN_TZ
 
 _VN_WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
@@ -308,6 +308,9 @@ async def run_agent_loop(
                 db, req.workspace_id)
             if instructions_text:
                 dynamic_parts.append("# Chỉ dẫn từ CEO công ty\n" + instructions_text)
+            memories_text = await distiller_service.active_memories_text(db, actor)
+            if memories_text:
+                dynamic_parts.append(memories_text)
             snapshot_text = await snapshot_service.get_snapshot_text(db, actor)
             if snapshot_text:
                 dynamic_parts.append(snapshot_text)

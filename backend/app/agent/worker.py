@@ -18,7 +18,8 @@ from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation, User
 from app.services import (
-    directive_service, embedding_service, report_schedule_service, voice_service, work_service,
+    directive_service, distiller_service, embedding_service, report_schedule_service,
+    voice_service, watcher_service, work_service,
 )
 from app.services.notify import notify
 
@@ -169,6 +170,20 @@ async def check_directive_escalations(ctx: dict) -> None:
         await directive_service.escalate_overdue(db)
 
 
+async def send_morning_briefs(ctx: dict) -> None:
+    """arq cron (mỗi phút, giống các cron khác trên) — watcher_service.send_morning_briefs
+    tự guard chỉ thực sự gửi đúng phút 07:00 giờ VN + dedup theo ngày (Phase 6 §10.2)."""
+    async with ctx["session_factory"]() as db:
+        await watcher_service.send_morning_briefs(db, ctx["llm_client"])
+
+
+async def distill_workspace_memories(ctx: dict) -> None:
+    """arq cron (mỗi phút) — distiller_service.distill_workspace_memories tự guard
+    chỉ thực sự chưng cất đúng phút 02:00 giờ VN (Phase 6 §10.2)."""
+    async with ctx["session_factory"]() as db:
+        await distiller_service.distill_workspace_memories(db, ctx["llm_client"])
+
+
 async def transcribe_voice_note(ctx: dict, voice_note_id: uuid.UUID) -> None:
     """arq job: chạy STT cho 1 voice note (enqueue sau upload hoặc từ POST
     /voice-notes/{id}/transcribe — Task 16)."""
@@ -207,7 +222,8 @@ class WorkerSettings:
     functions = [process_conversation, transcribe_voice_note,
                 func(run_deep_analysis, timeout=900)]
     cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0),
-                cron(check_directive_escalations, second=0)]
+                cron(check_directive_escalations, second=0), cron(send_morning_briefs, second=0),
+                cron(distill_workspace_memories, second=0)]
     on_startup = _startup
     on_shutdown = _shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

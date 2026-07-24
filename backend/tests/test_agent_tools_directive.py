@@ -20,7 +20,7 @@ def test_get_directive_status_registered_insight_group():
 
 
 def test_len_tools_bumped_for_directive():
-    assert len(TOOLS) == 59  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search (Phase 6)
+    assert len(TOOLS) == 61  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search +list_memories +forget_memory (Phase 6)
 
 
 @pytest.mark.asyncio

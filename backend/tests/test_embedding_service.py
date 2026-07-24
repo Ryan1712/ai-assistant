@@ -64,14 +64,14 @@ async def test_mock_embedding_similarity_reflects_shared_words():
     b = await client.embed("Nho goi khach hang ABC thu 3 tuan sau")
     c = await client.embed("Deadline du an Website Redesign thang 8")
 
-    sim_related = embedding_service._cosine(a, b)
-    sim_unrelated = embedding_service._cosine(a, c)
+    sim_related = embedding_service.cosine_similarity(a, b)
+    sim_unrelated = embedding_service.cosine_similarity(a, c)
     assert sim_related > sim_unrelated
 
 
-def test_cosine_handles_zero_vectors():
-    assert embedding_service._cosine([], [1.0]) == 0.0
-    assert embedding_service._cosine([0.0, 0.0], [0.0, 0.0]) == 0.0
+def test_cosine_similarity_handles_zero_vectors():
+    assert embedding_service.cosine_similarity([], [1.0]) == 0.0
+    assert embedding_service.cosine_similarity([0.0, 0.0], [0.0, 0.0]) == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +116,36 @@ async def test_index_content_idempotent_skips_existing(db_session):
 
     rows = (await db_session.execute(select(Embedding))).scalars().all()
     assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_index_content_updates_in_place_when_content_changes(db_session):
+    """voice_transcript có thể retranscribe (KHÁC note/task_update/comment/
+    chat_message bất biến) — content đổi thì update embedding tại chỗ,
+    content GIỐNG hệt thì bỏ qua (khỏi tốn tiền embed lại)."""
+    ws, ceo = await _ceo(db_session)
+    import uuid as uuid_mod
+    source_id = uuid_mod.uuid4()
+
+    await embedding_service.index_content(db_session, ws.id, "voice_transcript",
+                                          source_id, "ban nhap dau tien")
+    rows = (await db_session.execute(select(Embedding))).scalars().all()
+    assert len(rows) == 1
+    first_vector = rows[0].embedding
+
+    # Cùng nội dung -> không tạo thêm row, không re-embed
+    await embedding_service.index_content(db_session, ws.id, "voice_transcript",
+                                          source_id, "ban nhap dau tien")
+    rows = (await db_session.execute(select(Embedding))).scalars().all()
+    assert len(rows) == 1
+
+    # Retranscribe ra nội dung khác -> update TẠI CHỖ (vẫn 1 row, vector đổi)
+    await embedding_service.index_content(db_session, ws.id, "voice_transcript",
+                                          source_id, "ban chinh thuc sau khi STT lai")
+    rows = (await db_session.execute(select(Embedding))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].content == "ban chinh thuc sau khi STT lai"
+    assert rows[0].embedding != first_vector
 
 
 @pytest.mark.asyncio
@@ -278,6 +308,65 @@ async def test_build_rag_context_block_empty_when_no_match(db_session):
     block = await embedding_service.build_rag_context_block(
         db_session, ceo, "xyzabc khong lien quan gi ca 123999")
     assert block == ""
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_voice_transcript_private_and_updates_on_retranscribe(
+        db_session, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app.services import voice_service
+
+    monkeypatch.setattr(get_settings(), "storage_dir", str(tmp_path))
+    ws, ceo = await _ceo(db_session)
+    manager = User(workspace_id=ws.id, email="m@a.vn", password_hash="x", full_name="M",
+                  role=Role.manager)
+    db_session.add(manager)
+    await db_session.commit()
+
+    out = await voice_service.create_voice_note(db_session, ceo, filename="a.m4a", data=b"x")
+
+    class _Stub:
+        async def transcribe(self, data, filename):
+            return "nho hop voi doi tac ABC thu 3", "vi"
+    monkeypatch.setattr(voice_service, "get_transcription_client", lambda: _Stub())
+    import uuid as uuid_mod
+    await voice_service.transcribe_note(db_session, uuid_mod.UUID(out["id"]))
+
+    ceo_results = await embedding_service.semantic_search(
+        db_session, ceo, "hop voi doi tac ABC", source_types=["voice_transcript"])
+    assert ceo_results
+
+    manager_results = await embedding_service.semantic_search(
+        db_session, manager, "hop voi doi tac ABC", source_types=["voice_transcript"])
+    assert manager_results == []  # ghi âm riêng tư như note, không phải người tạo thì không thấy
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_skill_respects_grant(client, db_session):
+    from app.models import SkillKind
+    from app.services import skill_service
+
+    ceo_h = await _ceo_headers(client)
+    m1 = await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")
+    ceo = (await db_session.execute(select(User).where(User.email == "ceo@a.vn"))).scalar_one()
+    manager = (await db_session.execute(select(User).where(User.email == "m1@a.vn"))).scalar_one()
+
+    skill = await skill_service.create_skill(
+        db_session, ceo, name="Quy trinh cham cong", kind=SkillKind.knowledge,
+        content="Huong dan cham cong hang thang cho nhan vien")
+
+    ceo_results = await embedding_service.semantic_search(
+        db_session, ceo, "quy trinh cham cong", source_types=["skill"])
+    assert ceo_results
+
+    manager_results = await embedding_service.semantic_search(
+        db_session, manager, "quy trinh cham cong", source_types=["skill"])
+    assert manager_results == []  # chưa được cấp quyền
+
+    await skill_service.grant_skill(db_session, ceo, skill["id"], manager.id)
+    manager_results_after_grant = await embedding_service.semantic_search(
+        db_session, manager, "quy trinh cham cong", source_types=["skill"])
+    assert manager_results_after_grant
 
 
 @pytest.mark.asyncio

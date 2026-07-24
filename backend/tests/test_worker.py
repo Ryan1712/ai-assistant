@@ -380,6 +380,27 @@ def test_worker_settings_registers_directive_escalation_cron():
     assert job.coroutine is check_directive_escalations
 
 
+def test_worker_settings_registers_morning_brief_cron():
+    """Phase 6 §10.2 watcher: arq cron 07:00 VN, guard giờ nằm trong watcher_service."""
+    from app.agent.worker import send_morning_briefs
+
+    names = [j.name for j in WorkerSettings.cron_jobs]
+    assert "cron:send_morning_briefs" in names
+    job = next(j for j in WorkerSettings.cron_jobs if j.name == "cron:send_morning_briefs")
+    assert job.coroutine is send_morning_briefs
+
+
+def test_worker_settings_registers_distiller_cron():
+    """Phase 6 §10.2 distiller: arq cron 02:00 VN, guard giờ nằm trong distiller_service."""
+    from app.agent.worker import distill_workspace_memories
+
+    names = [j.name for j in WorkerSettings.cron_jobs]
+    assert "cron:distill_workspace_memories" in names
+    job = next(j for j in WorkerSettings.cron_jobs
+              if j.name == "cron:distill_workspace_memories")
+    assert job.coroutine is distill_workspace_memories
+
+
 @pytest.mark.asyncio
 async def test_check_directive_escalations_calls_escalate_overdue(engine, monkeypatch):
     from app.agent import worker as worker_module
@@ -477,7 +498,7 @@ async def test_run_deep_analysis_uses_smart_client_and_insight_toolset(engine, d
     assert called_tool_names == {"get_task", "search", "semantic_search", "resolve_person",
                                  "resolve_task", "propose_actions", "get_today_dashboard",
                                  "get_directive_status", "get_project_health",
-                                 "get_progress_stats"}
+                                 "get_progress_stats", "list_memories"}
 
     from sqlalchemy import select
 

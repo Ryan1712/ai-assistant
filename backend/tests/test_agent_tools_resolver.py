@@ -7,7 +7,7 @@ from tests.conftest import _ceo_headers
 def test_resolver_tools_registered():
     assert "resolve_person" in TOOLS
     assert "resolve_task" in TOOLS
-    assert len(TOOLS) == 59  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search (Phase 6)
+    assert len(TOOLS) == 61  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search +list_memories +forget_memory (Phase 6)
 
 
 @pytest.mark.asyncio

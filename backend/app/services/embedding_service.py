@@ -6,11 +6,15 @@ so khớp bằng cosine similarity thuần Python trên tập ứng viên ĐÃ l
 trước (đủ nhanh ở quy mô 1 workspace ~15-50 người, không cần ANN index) —
 cùng lý do app/services/fuzzy_match.py chọn Jaccard-trigram thay vì pg_trgm.
 
-Nguồn (note/task_update/comment/chat_message) đều bất biến sau khi tạo (không
-có PATCH) nên index_content() chỉ cần insert-nếu-chưa-có, không cần
-update-on-conflict. Quyền KHÔNG kiểm ở bảng embeddings — semantic_search()
-luôn join ngược bảng gốc (đã lọc theo permissions.py) tại thời điểm truy vấn,
-nên record gốc bị xóa/actor mất quyền thì tự động biến mất khỏi kết quả.
+Nguồn note/task_update/comment/chat_message đều bất biến sau khi tạo (không
+có PATCH). voice_transcript là ngoại lệ — có thể retranscribe (nội dung đổi) —
+nên index_content() là upsert thật: content trùng thì bỏ qua (khỏi tốn tiền
+embed lại), content khác thì update TẠI CHỖ (không tạo row mới, tránh trùng
+`uq_embedding_source_chunk`). skill index theo SkillVersion.id (mỗi version
+1 row, bất biến như note). Quyền KHÔNG kiểm ở bảng embeddings —
+semantic_search() luôn join ngược bảng gốc (đã lọc theo permissions.py) tại
+thời điểm truy vấn, nên record gốc bị xóa/actor mất quyền thì tự động biến
+mất khỏi kết quả.
 """
 from __future__ import annotations
 
@@ -24,7 +28,10 @@ from typing import Protocol
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversation, Embedding, Message, Note, Task, TaskComment, TaskUpdate, User
+from app.models import (
+    Conversation, Embedding, Message, Note, Role, Skill, SkillGrant, SkillVersion, Task,
+    TaskComment, TaskUpdate, User, VoiceNote,
+)
 from app.permissions import visible_task_ids
 from app.services.continuity import normalize_vn
 
@@ -32,16 +39,17 @@ logger = logging.getLogger(__name__)
 
 EMBED_DIM = 1024
 SEMANTIC_SEARCH_MIN_SCORE = 0.15
-_MAX_CONTENT_CHARS = 4000
+MAX_CONTENT_CHARS = 4000
 _SNIPPET_CHARS = 300
 DEFAULT_LIMIT = 8
 RAG_PREFETCH_LIMIT = 6
 _RAG_BLOCK_MAX_CHARS = 3000
 _RAG_LABELS = {"note": "ghi chú", "task_update": "cập nhật task",
-              "comment": "bình luận", "chat_message": "hội thoại trước"}
+              "comment": "bình luận", "chat_message": "hội thoại trước",
+              "voice_transcript": "ghi âm", "skill": "skill"}
 
 VALID_SOURCE_TYPES: frozenset[str] = frozenset(
-    {"note", "task_update", "comment", "chat_message"})
+    {"note", "task_update", "comment", "chat_message", "voice_transcript", "skill"})
 
 
 class EmbeddingClient(Protocol):
@@ -98,7 +106,7 @@ def get_embedding_client() -> EmbeddingClient:
     return VoyageEmbeddingClient()
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
+def cosine_similarity(a: list[float], b: list[float]) -> float:
     if not a or not b:
         return 0.0
     dot = sum(x * y for x, y in zip(a, b))
@@ -114,17 +122,28 @@ async def index_content(db: AsyncSession, workspace_id: uuid.UUID, source_type: 
     """Best-effort, KHÔNG BAO GIỜ raise — index lỗi (mạng, provider down...)
     không được phá write chính (cùng pattern notify()/push_service). Gọi SAU
     khi caller đã commit bản ghi gốc — transaction riêng, rollback ở đây chỉ
-    ảnh hưởng chính lần index này."""
+    ảnh hưởng chính lần index này.
+
+    Upsert thật (không chỉ insert-nếu-chưa-có): đa số nguồn bất biến sau khi
+    tạo nên nhánh "content trùng -> bỏ qua" gần như luôn trúng, khỏi tốn tiền
+    embed lại; voice_transcript là ngoại lệ có thể retranscribe ra nội dung
+    khác — nhánh update-tại-chỗ xử lý đúng ca đó mà không tạo row trùng
+    `uq_embedding_source_chunk`."""
     text = (content or "").strip()
     if not text:
         return
     try:
-        existing = await db.execute(select(Embedding.id).where(
+        truncated = text[:MAX_CONTENT_CHARS]
+        existing = (await db.execute(select(Embedding).where(
             Embedding.source_type == source_type, Embedding.source_id == source_id,
-            Embedding.chunk_no == chunk_no))
-        if existing.first() is not None:
-            return  # nguồn bất biến sau khi tạo — đã index rồi thì thôi
-        truncated = text[:_MAX_CONTENT_CHARS]
+            Embedding.chunk_no == chunk_no))).scalar_one_or_none()
+        if existing is not None:
+            if existing.content == truncated:
+                return
+            existing.content = truncated
+            existing.embedding = await get_embedding_client().embed(truncated)
+            await db.commit()
+            return
         vector = await get_embedding_client().embed(truncated)
         db.add(Embedding(workspace_id=workspace_id, source_type=source_type,
                          source_id=source_id, chunk_no=chunk_no, content=truncated,
@@ -192,11 +211,39 @@ async def _candidates_chat_message(db: AsyncSession, actor: User) -> list[tuple[
             e.embedding) for m, e in rows.all()]
 
 
+async def _candidates_voice_transcript(db: AsyncSession, actor: User) -> list[tuple[dict, list[float]]]:
+    rows = await db.execute(
+        select(VoiceNote, Embedding).join(
+            Embedding, and_(Embedding.source_type == "voice_transcript",
+                            Embedding.source_id == VoiceNote.id))
+        .where(VoiceNote.workspace_id == actor.workspace_id, VoiceNote.author_id == actor.id))
+    return [({"source_type": "voice_transcript", "source_id": str(v.id),
+             "content": _snippet(e.content), "created_at": v.created_at.isoformat()},
+            e.embedding) for v, e in rows.all()]
+
+
+async def _candidates_skill(db: AsyncSession, actor: User) -> list[tuple[dict, list[float]]]:
+    query = (select(SkillVersion, Skill.name, Embedding)
+            .join(Skill, SkillVersion.skill_id == Skill.id)
+            .join(Embedding, and_(Embedding.source_type == "skill",
+                                  Embedding.source_id == SkillVersion.id))
+            .where(Skill.workspace_id == actor.workspace_id))
+    if actor.role != Role.ceo:
+        query = query.join(SkillGrant, SkillGrant.skill_id == Skill.id).where(
+            SkillGrant.user_id == actor.id)
+    rows = await db.execute(query)
+    return [({"source_type": "skill", "source_id": str(sv.id), "content": _snippet(e.content),
+             "skill_name": name, "created_at": sv.created_at.isoformat()}, e.embedding)
+            for sv, name, e in rows.all()]
+
+
 _CANDIDATE_FNS = {
     "note": _candidates_note,
     "task_update": _candidates_task_update,
     "comment": _candidates_comment,
     "chat_message": _candidates_chat_message,
+    "voice_transcript": _candidates_voice_transcript,
+    "skill": _candidates_skill,
 }
 
 
@@ -208,12 +255,12 @@ async def semantic_search(db: AsyncSession, actor: User, query: str, *,
     types = [t for t in (source_types or sorted(VALID_SOURCE_TYPES)) if t in VALID_SOURCE_TYPES]
     if not types or not query.strip():
         return []
-    query_vec = await get_embedding_client().embed(query.strip()[:_MAX_CONTENT_CHARS])
+    query_vec = await get_embedding_client().embed(query.strip()[:MAX_CONTENT_CHARS])
 
     scored: list[tuple[float, dict]] = []
     for t in types:
         for meta, vector in await _CANDIDATE_FNS[t](db, actor):
-            score = _cosine(query_vec, vector)
+            score = cosine_similarity(query_vec, vector)
             if score >= SEMANTIC_SEARCH_MIN_SCORE:
                 scored.append((score, {**meta, "score": round(score, 4)}))
 
