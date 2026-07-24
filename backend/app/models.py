@@ -367,6 +367,15 @@ class Conversation(Base):
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # 5.7: mất mạng/đóng app → hold queue; chỉ "tiếp tục công việc" mới clear
     queue_held: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Phase 5 (session model): nén hội thoại cũ + xoay conversation ngầm.
+    # rolling_summary tiêm vào SYSTEM prompt (KHÔNG thành message). summary_through_at
+    # = mốc message đã gộp vào summary (message sau mốc gửi nguyên văn). archived_at
+    # != None = conversation đã bị xoay ra khỏi luồng sống.
+    rolling_summary: Mapped[str] = mapped_column(Text, default="", server_default="")
+    summary_through_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
