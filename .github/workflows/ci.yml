@@ -1,13 +1,21 @@
 name: CI
 
 on:
+  # Only backend changes trigger CI, and only on `push` — `pull_request` was
+  # removed so each update produces exactly one run instead of two.
   push:
     branches-ignore:
       - main   # main push is handled by deploy.yml
-  pull_request:
+    paths:
+      - "backend/**"
 
 permissions:
   contents: read
+
+# A newer push to the same branch cancels the older in-progress CI run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

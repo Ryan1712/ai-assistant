@@ -1,9 +1,14 @@
 name: Deploy
 
 on:
+  # Deploy only when backend code/config actually changes on main.
+  # (Editing this workflow alone won't redeploy — use the manual trigger below.)
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+  workflow_dispatch:   # manual re-deploy from the Actions tab
 
 # Cancel any in-progress deploy on the same branch so only the latest commit deploys.
 concurrency:
