@@ -13,6 +13,7 @@ from app.agent.llm_client import get_llm_client
 from app.agent.loop import run_agent_loop, run_deep_ack_turn
 from app.agent.publisher import get_event_publisher
 from app.agent.router import classify_route, tool_names_for_route
+from app.agent.summarizer import maybe_compress_history
 from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation
@@ -78,6 +79,14 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 except Exception:
                     logger.exception("inject transcript failed for request %s", req.id)
                     await db.rollback()
+            # Phase 5: nén hội thoại cũ trước khi chạy loop (dùng model_fast = llm).
+            # Lỗi nén không được giết job — request vẫn chạy với summary cũ.
+            try:
+                await maybe_compress_history(db, conv, llm)
+            except Exception:
+                logger.exception("nen rolling summary fail cho conversation %s",
+                                 conversation_id)
+                await db.rollback()
             # Router (Phase 4 §8.1) - chi phan loai 1 lan luc pickup dau tien cua
             # request nay (status queued -> chuyen ngay khoi queued ben trong
             # run_deep_ack_turn/run_agent_loop, khong bao gio duoc chon lai o day).
