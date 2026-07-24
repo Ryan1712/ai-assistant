@@ -9,11 +9,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
+      "requireFullScreen": true,
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Chuyển giọng nói của bạn thành văn bản để gửi cho trợ lý AI",
         "NSMicrophoneUsageDescription": "Cho phép dùng micro để nói với trợ lý AI",
+        "NSPhotoLibraryUsageDescription": "Cho phép chọn ảnh từ thư viện để đính kèm vào tin nhắn gửi cho trợ lý AI",
         "ITSAppUsesNonExemptEncryption": false
       },
+      "buildNumber": "3",
       "bundleIdentifier": "com.9learning.ai-assitant"
     },
     "android": {
