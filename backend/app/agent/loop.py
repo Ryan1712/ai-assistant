@@ -209,7 +209,7 @@ async def run_agent_loop(
     db: AsyncSession, req: ChatRequest, llm: LLMClient, publisher: EventPublisher,
     is_cancelled: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
     *, route: str = "fast", tool_names: set[str] | None = None,
-    rag_context: str | None = None,
+    rag_context: str | None = None, example_context: str | None = None,
     max_iterations: int | None = None, max_tool_calls: int | None = None,
     max_duration_seconds: int | None = None, max_total_tokens: int | None = None,
 ) -> None:
@@ -224,6 +224,10 @@ async def run_agent_loop(
     embedding_service.build_rag_context_block) — worker.py tính ĐÚNG MỘT LẦN
     lúc pickup request (giống Router) rồi truyền vào đây, KHÔNG được tự gọi
     semantic_search lại mỗi vòng lặp trong hàm này (tốn embedding API vô ích).
+
+    example_context: block "# Ví dụ xử lý đúng" đã build SẴN (Phase 6 §10.4,
+    xem example_bank_service.build_example_block) — cùng nguyên tắc tính ĐÚNG
+    MỘT LẦN lúc pickup ở worker.py như rag_context, không tự gọi lại ở đây.
 
     max_*: None (mặc định) = dùng đúng hằng số module MAX_ITERATIONS/MAX_TOOL_CALLS/
     MAX_DURATION_SECONDS/MAX_TOTAL_TOKENS như cũ — cố ý ĐỌC hằng số bên trong hàm
@@ -308,6 +312,10 @@ async def run_agent_loop(
                 db, req.workspace_id)
             if instructions_text:
                 dynamic_parts.append("# Chỉ dẫn từ CEO công ty\n" + instructions_text)
+            if example_context:
+                # Phase 6 §10.4: đã build sẵn 1 lần ở worker.py — chỉ nối chuỗi,
+                # không gọi lại build_example_block ở đây.
+                dynamic_parts.append(example_context)
             memories_text = await distiller_service.active_memories_text(db, actor)
             if memories_text:
                 dynamic_parts.append(memories_text)

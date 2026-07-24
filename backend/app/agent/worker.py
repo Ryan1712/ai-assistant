@@ -18,8 +18,8 @@ from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation, User
 from app.services import (
-    directive_service, distiller_service, embedding_service, report_schedule_service,
-    voice_service, watcher_service, work_service,
+    directive_service, distiller_service, embedding_service, example_bank_service,
+    report_schedule_service, voice_service, watcher_service, work_service,
 )
 from app.services.notify import notify
 
@@ -108,9 +108,12 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 actor = await db.get(User, req.user_id)
                 rag_context = await embedding_service.build_rag_context_block(
                     db, actor, req.content)
+                example_context = await example_bank_service.build_example_block(
+                    db, req.workspace_id, req.content)
                 await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled,
                                      tool_names=tool_names_for_route(group),
-                                     rag_context=rag_context)
+                                     rag_context=rag_context,
+                                     example_context=example_context)
 
 
 async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
@@ -126,10 +129,13 @@ async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
         tool_names = set(TOOL_GROUPS["core"]) | set(TOOL_GROUPS["insight"])
         actor = await db.get(User, req.user_id)
         rag_context = await embedding_service.build_rag_context_block(db, actor, req.content)
+        example_context = await example_bank_service.build_example_block(
+            db, req.workspace_id, req.content)
         await run_agent_loop(
             db, req, ctx["llm_client_smart"], ctx["event_publisher"],
             is_cancelled=ctx["is_cancelled"],
             route="deep", tool_names=tool_names, rag_context=rag_context,
+            example_context=example_context,
             max_iterations=DEEP_MAX_ITERATIONS,
             max_duration_seconds=DEEP_MAX_DURATION_SECONDS,
         )
