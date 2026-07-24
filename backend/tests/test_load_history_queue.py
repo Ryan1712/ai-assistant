@@ -183,3 +183,20 @@ async def test_history_khong_co_diem_bat_dau_an_toan_tra_ve_rong(db_session):
 
     history = await _load_history(db_session, conv.id, marker_req.id)
     assert history == []
+
+
+async def test_load_history_since_bo_message_cu(db_session):
+    conv = await _mk_conv(db_session)
+    old = await _mk_req(db_session, conv, "tin cu da nen", 1.0, status=ChatRequestStatus.done)
+    new = await _mk_req(db_session, conv, "tin moi verbatim", 2.0, status=ChatRequestStatus.done)
+    await db_session.commit()
+    await db_session.refresh(old)  # lay created_at cua message cua request cu
+    from app.models import Message
+    from sqlalchemy import select
+    old_msg = (await db_session.execute(select(Message).where(
+        Message.chat_request_id == old.id))).scalar_one()
+
+    history = await _load_history(db_session, conv.id, new.id, since=old_msg.created_at)
+    texts = [b["text"] for m in history for b in m["content"] if b.get("type") == "text"]
+    assert "tin cu da nen" not in texts
+    assert "tin moi verbatim" in texts

@@ -141,7 +141,8 @@ def _tool_specs_for_api(tool_names: set[str] | None = None) -> list[dict]:
 
 
 async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
-                        current_request_id: uuid.UUID) -> list[dict]:
+                        current_request_id: uuid.UUID,
+                        since: datetime | None = None) -> list[dict]:
     """Lịch sử hội thoại CHO 1 request đang chạy: loại message của các request còn
     đang xếp hàng (và cancelled chưa từng chạy) — nếu không, model đang trả lời tin 1
     đã 'nhìn thấy' tin 2, 3... chưa xử lý và trả lời gộp/nhầm; reorder cũng vô nghĩa."""
@@ -152,14 +153,17 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
             and_(ChatRequest.status == ChatRequestStatus.cancelled,
                  ChatRequest.started_at.is_(None))),
     ).scalar_subquery()
-    rows = await db.execute(
-        select(Message).where(
-            Message.conversation_id == conversation_id,
-            or_(Message.chat_request_id.is_(None),
-                Message.chat_request_id.not_in(skip_ids)),
-            Message.is_ack.is_(False),
-        ).order_by(Message.created_at.asc(), Message.id.asc())
+    stmt = select(Message).where(
+        Message.conversation_id == conversation_id,
+        or_(Message.chat_request_id.is_(None),
+            Message.chat_request_id.not_in(skip_ids)),
+        Message.is_ack.is_(False),
     )
+    if since is not None:
+        # Phase 5: message <= mốc summary_through_at đã gộp vào rolling_summary
+        # (tiêm ở system prompt), chỉ nạp đuôi verbatim.
+        stmt = stmt.where(Message.created_at > since)
+    rows = await db.execute(stmt.order_by(Message.created_at.asc(), Message.id.asc()))
     # Bỏ message content rỗng (dữ liệu cũ trước guard bên dưới) — Anthropic API
     # từ chối request có message rỗng.
     msgs = [{"role": m.role.value, "content": m.content} for m in rows.scalars() if m.content]
