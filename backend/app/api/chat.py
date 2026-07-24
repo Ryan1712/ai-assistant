@@ -18,7 +18,7 @@ from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
     ConversationRenameIn, MessageOut, MessageSendIn, ReorderIn,
 )
-from app.services import continuity, voice_service
+from app.services import continuity, session_service, voice_service
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
 chat_requests_router = APIRouter(prefix="/api/v1/chat-requests", tags=["chat"])
@@ -63,6 +63,17 @@ async def list_conversations(actor: User = Depends(get_current_user),
         Conversation.workspace_id == actor.workspace_id, Conversation.user_id == actor.id,
     ).order_by(Conversation.created_at.desc()))
     return list(rows.scalars())
+
+
+@router.get("/active", response_model=ConversationOut)
+async def active_conversation(actor: User = Depends(get_current_user),
+                              db: AsyncSession = Depends(get_db)):
+    from app.agent.llm_client import get_llm_client
+    # llm_factory chỉ được gọi khi thật sự xoay (fold tail) — path không xoay
+    # không dựng client thật, nên test /active không cần ANTHROPIC_API_KEY.
+    conv = await session_service.get_or_rotate_active_conversation(
+        db, actor, get_llm_client)
+    return conv
 
 
 @router.patch("/{conversation_id}", response_model=ConversationOut)

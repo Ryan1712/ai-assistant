@@ -307,7 +307,10 @@ class ConversationOut(BaseModel):
     id: uuid.UUID
     title: str | None
     queue_held: bool = False
+    archived_at: dt.datetime | None = None
     created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
 
 
 class ReportOut(BaseModel):
@@ -399,6 +402,7 @@ class ChatRequestOut(BaseModel):
 
 class MessageOut(BaseModel):
     id: uuid.UUID
+    conversation_id: uuid.UUID | None = None
     role: MessageRole
     content: list
     voice_note_id: uuid.UUID | None = None
