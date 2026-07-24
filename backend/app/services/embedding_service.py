@@ -35,6 +35,10 @@ SEMANTIC_SEARCH_MIN_SCORE = 0.15
 _MAX_CONTENT_CHARS = 4000
 _SNIPPET_CHARS = 300
 DEFAULT_LIMIT = 8
+RAG_PREFETCH_LIMIT = 6
+_RAG_BLOCK_MAX_CHARS = 3000
+_RAG_LABELS = {"note": "ghi chú", "task_update": "cập nhật task",
+              "comment": "bình luận", "chat_message": "hội thoại trước"}
 
 VALID_SOURCE_TYPES: frozenset[str] = frozenset(
     {"note", "task_update", "comment", "chat_message"})
@@ -215,3 +219,35 @@ async def semantic_search(db: AsyncSession, actor: User, query: str, *,
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in scored[:limit]]
+
+
+async def build_rag_context_block(db: AsyncSession, actor: User, query: str) -> str:
+    """RAG auto-prefetch (spec §10.3, fast-follow sau tool semantic_search) —
+    gọi ĐÚNG MỘT LẦN lúc worker pickup request (app/agent/worker.py, cùng thời
+    điểm Router phân loại route) rồi truyền kết quả vào
+    run_agent_loop(rag_context=...) dùng lại suốt các vòng lặp của request đó
+    — KHÔNG được gọi lại mỗi vòng lặp trong loop.py (tốn 1 lần gọi embedding
+    API vô ích mỗi vòng tool).
+
+    Best-effort — KHÔNG BAO GIỜ raise, lỗi/rỗng trả "" (cùng pattern
+    snapshot_service.get_snapshot_text, không được phá chat)."""
+    try:
+        results = await semantic_search(db, actor, query, limit=RAG_PREFETCH_LIMIT)
+        if not results:
+            return ""
+        lines = [
+            "# Dữ liệu liên quan (tìm THEO NGHĨA từ ghi chú/cập nhật/bình luận/hội "
+            "thoại cũ của bạn — có thể không hoàn toàn khớp, chỉ tham khảo thêm, "
+            "đừng coi là chắc chắn như 'Trạng thái công ty')"
+        ]
+        for r in results:
+            extra = f" ({r['task_title']})" if r.get("task_title") else ""
+            lines.append(f"- [{_RAG_LABELS.get(r['source_type'], r['source_type'])}{extra}] "
+                        f"{r['content']}")
+        text = "\n".join(lines)
+        if len(text) > _RAG_BLOCK_MAX_CHARS:
+            text = text[:_RAG_BLOCK_MAX_CHARS] + "\n(… cắt bớt)"
+        return text
+    except Exception:
+        logger.exception("build_rag_context_block fail cho actor %s", actor.id)
+        return ""

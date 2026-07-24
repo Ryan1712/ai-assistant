@@ -253,6 +253,33 @@ async def test_semantic_search_indexes_assistant_message_text(db_session):
     assert "Marketing Q3" in results[0]["content"]
 
 
+# ---------------------------------------------------------------------------
+# build_rag_context_block — prefetch 1 lần lúc worker pickup (worker.py)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_build_rag_context_block_formats_matches(db_session):
+    ws, ceo = await _ceo(db_session)
+    await note_service.create_note(
+        db_session, ceo, content="Nho ky hop dong voi doi tac XYZ truoc thu 6")
+
+    block = await embedding_service.build_rag_context_block(
+        db_session, ceo, "hop dong doi tac XYZ")
+
+    assert block.startswith("# Dữ liệu liên quan")
+    assert "doi tac XYZ" in block or "XYZ" in block
+
+
+@pytest.mark.asyncio
+async def test_build_rag_context_block_empty_when_no_match(db_session):
+    ws, ceo = await _ceo(db_session)
+    await note_service.create_note(db_session, ceo, content="Mot ghi chu hoan toan khac")
+
+    block = await embedding_service.build_rag_context_block(
+        db_session, ceo, "xyzabc khong lien quan gi ca 123999")
+    assert block == ""
+
+
 @pytest.mark.asyncio
 async def test_semantic_search_no_match_returns_empty_list(client, db_session):
     ceo_h = await _ceo_headers(client)

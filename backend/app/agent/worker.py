@@ -16,8 +16,10 @@ from app.agent.router import classify_route, tool_names_for_route
 from app.agent.summarizer import maybe_compress_history
 from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
-from app.models import ChatRequest, ChatRequestStatus, Conversation
-from app.services import directive_service, report_schedule_service, voice_service, work_service
+from app.models import ChatRequest, ChatRequestStatus, Conversation, User
+from app.services import (
+    directive_service, embedding_service, report_schedule_service, voice_service, work_service,
+)
 from app.services.notify import notify
 
 logger = logging.getLogger(__name__)
@@ -99,8 +101,15 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 await ctx["arq_pool"].enqueue_job(
                     "run_deep_analysis", req.id, _job_id=f"deep:{req.id}")
             else:
+                # Phase 6 §10.3: RAG prefetch tính ĐÚNG MỘT LẦN ở đây (cùng thời
+                # điểm Router phân loại) rồi truyền cố định vào run_agent_loop —
+                # loop KHÔNG tự gọi lại semantic_search mỗi vòng lặp.
+                actor = await db.get(User, req.user_id)
+                rag_context = await embedding_service.build_rag_context_block(
+                    db, actor, req.content)
                 await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled,
-                                     tool_names=tool_names_for_route(group))
+                                     tool_names=tool_names_for_route(group),
+                                     rag_context=rag_context)
 
 
 async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
@@ -114,10 +123,12 @@ async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
         if req is None or req.status != ChatRequestStatus.deep_running:
             return
         tool_names = set(TOOL_GROUPS["core"]) | set(TOOL_GROUPS["insight"])
+        actor = await db.get(User, req.user_id)
+        rag_context = await embedding_service.build_rag_context_block(db, actor, req.content)
         await run_agent_loop(
             db, req, ctx["llm_client_smart"], ctx["event_publisher"],
             is_cancelled=ctx["is_cancelled"],
-            route="deep", tool_names=tool_names,
+            route="deep", tool_names=tool_names, rag_context=rag_context,
             max_iterations=DEEP_MAX_ITERATIONS,
             max_duration_seconds=DEEP_MAX_DURATION_SECONDS,
         )

@@ -209,6 +209,7 @@ async def run_agent_loop(
     db: AsyncSession, req: ChatRequest, llm: LLMClient, publisher: EventPublisher,
     is_cancelled: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
     *, route: str = "fast", tool_names: set[str] | None = None,
+    rag_context: str | None = None,
     max_iterations: int | None = None, max_tool_calls: int | None = None,
     max_duration_seconds: int | None = None, max_total_tokens: int | None = None,
 ) -> None:
@@ -218,6 +219,11 @@ async def run_agent_loop(
     route: ghi vào AgentTrace ("fast" mặc định — Router Phase 4 truyền "deep" khi
     gọi cho job phân tích nền). tool_names: None = full toolset (mặc định/fallback
     an toàn); có giá trị = chỉ nạp đúng tập tool đó (xem router.tool_names_for_route).
+
+    rag_context: block "# Dữ liệu liên quan" đã build SẴN (Phase 6 §10.3, xem
+    embedding_service.build_rag_context_block) — worker.py tính ĐÚNG MỘT LẦN
+    lúc pickup request (giống Router) rồi truyền vào đây, KHÔNG được tự gọi
+    semantic_search lại mỗi vòng lặp trong hàm này (tốn embedding API vô ích).
 
     max_*: None (mặc định) = dùng đúng hằng số module MAX_ITERATIONS/MAX_TOOL_CALLS/
     MAX_DURATION_SECONDS/MAX_TOTAL_TOKENS như cũ — cố ý ĐỌC hằng số bên trong hàm
@@ -305,6 +311,10 @@ async def run_agent_loop(
             snapshot_text = await snapshot_service.get_snapshot_text(db, actor)
             if snapshot_text:
                 dynamic_parts.append(snapshot_text)
+            if rag_context:
+                # Phase 6 §10.3: đã build sẵn 1 lần ở worker.py — chỉ nối chuỗi,
+                # không gọi lại semantic_search ở đây.
+                dynamic_parts.append(rag_context)
             if conv is not None and conv.rolling_summary:
                 # Phase 5: tóm tắt hội thoại cũ — block ĐỘNG cuối, gần message nhất.
                 dynamic_parts.append(
