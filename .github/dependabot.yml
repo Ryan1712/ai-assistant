@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Keep GitHub Actions up to date.
+  # appleboy/ssh-action and appleboy/scp-action are SHA-pinned in deploy.yml
+  # because they receive the SSH private key — Dependabot will still open PRs
+  # to update those SHAs when a new tagged version is released, so the pin
+  # stays current without manual tracking.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
