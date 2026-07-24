@@ -16,7 +16,8 @@ from app.agent.tools import (
     SENSITIVE_TOOLS, SNAPSHOT_WRITE_TOOLS, TOOLS, call_tool, validate_proposal_actions,
 )
 from app.models import (
-    AgentTrace, ChatRequest, ChatRequestStatus, Message, MessageRole, UsageLog, User,
+    AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
+    UsageLog, User,
 )
 from app.services import instruction_service, snapshot_service
 from app.tz import VN_TZ
@@ -232,6 +233,7 @@ async def run_agent_loop(
     await db.commit()
 
     actor = await db.get(User, req.user_id)
+    conv = await db.get(Conversation, req.conversation_id)
 
     iteration = 0
     tool_call_count = 0
@@ -287,7 +289,8 @@ async def run_agent_loop(
                 await _write_trace("max_total_tokens")
                 return
 
-            history = await _load_history(db, req.conversation_id, req.id)
+            history = await _load_history(db, req.conversation_id, req.id,
+                                          since=conv.summary_through_at if conv else None)
             system_static = _build_system_prompt(actor)
             dynamic_parts: list[str] = []
             # Instruction + snapshot đọc DB/cache mỗi lượt → cập nhật là nạp lại ngay
@@ -298,6 +301,10 @@ async def run_agent_loop(
             snapshot_text = await snapshot_service.get_snapshot_text(db, actor)
             if snapshot_text:
                 dynamic_parts.append(snapshot_text)
+            if conv is not None and conv.rolling_summary:
+                # Phase 5: tóm tắt hội thoại cũ — block ĐỘNG cuối, gần message nhất.
+                dynamic_parts.append(
+                    "# Tóm tắt hội thoại trước đó\n" + conv.rolling_summary)
             system_payload: str | list[dict] = system_static
             if dynamic_parts:
                 # 2 block: [tĩnh (cache_control ở llm_client), động] — snapshot đổi
