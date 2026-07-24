@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, EmailStr, Field
@@ -17,9 +17,9 @@ from app.schemas import (
 )
 from app.services import (
     analytics_service, attachment_service, audit_service, auth_service, dashboard_service,
-    directive_service, email_service, instruction_service, note_service, notification_service,
-    portal_service, report_schedule_service, report_service, resolver_service, search_service,
-    skill_service, voice_service, work_service,
+    directive_service, email_service, embedding_service, instruction_service, note_service,
+    notification_service, portal_service, report_schedule_service, report_service,
+    resolver_service, search_service, skill_service, voice_service, work_service,
 )
 
 
@@ -825,6 +825,30 @@ _register("search", "Tìm kiếm xuyên suốt theo từ khóa: task, note, ghi 
           SearchToolIn, _search)
 
 
+class SemanticSearchToolIn(BaseModel):
+    query: str = Field(min_length=1)
+    source_types: list[Literal["note", "task_update", "comment", "chat_message"]] | None = Field(
+        None, description="Giới hạn loại nguồn, để trống = tìm cả 4 loại.")
+
+
+async def _semantic_search(db, actor, body: SemanticSearchToolIn) -> dict:
+    results = await embedding_service.semantic_search(
+        db, actor, body.query, source_types=body.source_types)
+    out = {"results": results}
+    if not results:
+        out["note"] = f"Không tìm thấy gì đủ liên quan tới nghĩa của '{body.query}'."
+    return out
+
+
+_register("semantic_search",
+          "Tìm THEO NGỮ NGHĨA (không cần trùng chữ) trong ghi chú, cập nhật tiến độ, "
+          "bình luận task, và lịch sử chat của CHÍNH actor — dùng khi cần nhớ lại điều đã "
+          "nói/ghi trước đây mà 'Trạng thái công ty' hoặc lịch sử hội thoại hiện tại không "
+          "có (vd 'tuần trước tôi dặn gì về hợp đồng X', 'trước đây có ghi chú gì về khách "
+          "hàng Y không'). Khác search (khớp từ khóa đúng chuỗi con) ở chỗ tìm được cả khi "
+          "câu hỏi diễn đạt khác chữ với nội dung gốc.", SemanticSearchToolIn, _semantic_search)
+
+
 class ListNotificationsToolIn(BaseModel):
     unread_only: bool = False
 
@@ -950,7 +974,8 @@ _register("propose_actions",
 # Router chưa xây, wiring sớm hoặc vô nghĩa hoặc âm thầm bỏ sót tool model cần).
 TOOL_GROUPS: dict[str, frozenset[str]] = {
     "core": frozenset({
-        "get_task", "search", "resolve_person", "resolve_task", "propose_actions",
+        "get_task", "search", "semantic_search", "resolve_person", "resolve_task",
+        "propose_actions",
     }),
     "work": frozenset({
         "create_project", "update_project", "list_projects",

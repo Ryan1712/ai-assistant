@@ -423,8 +423,8 @@ async def test_run_deep_analysis_uses_smart_client_and_insight_toolset(engine, d
     assert req.status == ChatRequestStatus.done
     assert len(llm_smart.calls) == 1
     called_tool_names = {t["name"] for t in llm_smart.calls[0]["tools"]}
-    assert called_tool_names == {"get_task", "search", "resolve_person", "resolve_task",
-                                 "propose_actions", "get_today_dashboard",
+    assert called_tool_names == {"get_task", "search", "semantic_search", "resolve_person",
+                                 "resolve_task", "propose_actions", "get_today_dashboard",
                                  "get_directive_status", "get_project_health",
                                  "get_progress_stats"}
 

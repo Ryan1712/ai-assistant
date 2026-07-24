@@ -21,7 +21,7 @@ def test_get_progress_stats_registered_insight_readonly():
 
 
 def test_len_tools_bumped_for_analytics():
-    assert len(TOOLS) == 58  # +get_project_health +get_progress_stats (feedback fast-track)
+    assert len(TOOLS) == 59  # +get_project_health +get_progress_stats (feedback fast-track) +semantic_search (Phase 6)
 
 
 @pytest.mark.asyncio
