@@ -20,13 +20,13 @@ import { uploadVoiceNote, voiceNoteAudioSource } from "../../src/api/voice";
 import { DictationButton } from "../../src/voice/DictationButton";
 import {
   ChatRequest,
-  Conversation,
   Message,
   ProposedAction,
   RESUME_PHRASE,
   cancelRequest,
   confirmRequest,
-  createConversation,
+  getActiveConversation,
+  getTimeline,
   isResumePhrase,
   listConversations,
   listMessages,
@@ -128,6 +128,31 @@ function labelForTool(name: string): string {
   return TOOL_LABELS[name] ?? name.replace(/_/g, " ");
 }
 
+// Dựng Row[] từ Message[] — dùng chung cho cả timeline (LIVE) lẫn history (xem lại).
+// Chèn divider khi đổi conversation_id giữa 2 message liên tiếp (chỉ xảy ra ở timeline
+// xuyên conversation, vì history luôn cùng 1 conversation_id).
+function messagesToRows(msgs: Message[]): Row[] {
+  const out: Row[] = [];
+  let prevConv: string | null | undefined = undefined;
+  for (const m of msgs) {
+    if (prevConv !== undefined && m.conversation_id && m.conversation_id !== prevConv) {
+      out.push({ key: `divider-${m.id}`, kind: "system", text: "— cuộc trò chuyện mới —" });
+    }
+    prevConv = m.conversation_id ?? prevConv;
+    const text = textOfMessage(m);
+    if (text)
+      out.push({ key: m.id, kind: m.role === "user" ? "user" : "assistant", text,
+                 voiceNoteId: m.voice_note_id });
+    // Lượt AI thuần thao tác (tạo task, gán người...) không có text — trước đây
+    // biến mất khỏi lịch sử, người dùng mất dấu "AI đã làm gì".
+    for (const b of m.content) {
+      if (b.type === "tool_use")
+        out.push({ key: `${m.id}-${b.id}`, kind: "system", text: labelForTool(b.name) });
+    }
+  }
+  return out;
+}
+
 const mdStyles = {
   body: { color: colors.text, fontSize: 16, lineHeight: 26, fontFamily: fonts.regular },
   strong: { fontFamily: fonts.bold },
@@ -140,10 +165,6 @@ const mdStyles = {
   table: { borderColor: colors.divider },
   link: { color: colors.primary },
 } as const;
-
-// Cold start (app khởi động lại) → mở Chat với cuộc trò chuyện MỚI. Biến module,
-// tự reset về true mỗi khi app nạp lại bundle (tức khởi động lại).
-let coldStart = true;
 
 export default function Chat() {
   const { id: requestedId } = (useRoute<any>().params ?? {}) as { id?: string };
@@ -165,6 +186,11 @@ export default function Chat() {
   const [held, setHeld] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [archived, setArchived] = useState(false); // conv đang xem đã lưu trữ?
+  const [historyMode, setHistoryMode] = useState(false); // mở theo ?id (xem lại)?
+  const [olderCursor, setOlderCursor] = useState<{ at: string; id: string } | null>(null);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [input, setInput] = useState("");
   type PendingConfirm =
     | { requestId: string; kind: "tool"; toolName: string; toolInput: Record<string, unknown> }
@@ -204,25 +230,6 @@ export default function Chat() {
         });
       }
     }
-  }, []);
-
-  const loadHistory = useCallback(async (cid: string) => {
-    const msgs = await listMessages(cid);
-    const out: Row[] = [];
-    for (const m of msgs) {
-      const text = textOfMessage(m);
-      if (text)
-        out.push({ key: m.id, kind: m.role === "user" ? "user" : "assistant", text,
-                   voiceNoteId: m.voice_note_id });
-      // Lượt AI thuần thao tác (tạo task, gán người...) không có text — trước đây
-      // biến mất khỏi lịch sử, người dùng mất dấu "AI đã làm gì".
-      const toolUses = m.content.filter((b) => b.type === "tool_use");
-      for (const b of toolUses) {
-        if (b.type === "tool_use")
-          out.push({ key: `${m.id}-${b.id}`, kind: "system", text: labelForTool(b.name) });
-      }
-    }
-    setRows(out);
   }, []);
 
   const onWsEvent = useCallback(
@@ -299,28 +306,49 @@ export default function Chat() {
     setQueue([]);
     setHeld(false);
     setConversationTitle(null);
+    setArchived(false);
+    setOlderCursor(null);
+    setHasMoreOlder(false);
     closeWs.current?.();
     (async () => {
       try {
-        const convs = await listConversations();
-        const freshStart = coldStart; // true chỉ ở lần mở app đầu tiên (cold start)
-        coldStart = false;
-        let conv: Conversation | undefined;
+        let convId: string;
         if (requestedId) {
-          conv = convs.find((c) => c.id === requestedId);
+          // History mode: xem lại 1 conversation cụ thể.
+          setHistoryMode(true);
+          const all = await listConversations();
+          const conv = all.find((c) => c.id === requestedId);
           if (!conv) throw new Error("Không tìm thấy cuộc trò chuyện này");
-        } else if (freshStart) {
-          conv = await createConversation("Cuộc trò chuyện mới"); // cold start → new chat
+          convId = conv.id;
+          setConversationTitle(conv.title);
+          setArchived(conv.archived_at != null);
+          setHeld(conv.queue_held);
+          const msgs = await listMessages(convId);
+          if (cancelled) return;
+          setRows(messagesToRows(msgs));
         } else {
-          conv = convs[0] ?? (await createConversation("Cuộc trò chuyện mới"));
+          // LIVE mode: active conversation + timeline xuyên conversation.
+          setHistoryMode(false);
+          const active = await getActiveConversation();
+          convId = active.id;
+          setConversationTitle(active.title);
+          setArchived(false);
+          setHeld(active.queue_held);
+          const LIMIT = 50;
+          const page = await getTimeline({ limit: LIMIT });
+          if (cancelled) return;
+          const chrono = [...page].reverse(); // API newest-first -> hiển thị cũ→mới
+          setRows(messagesToRows(chrono));
+          if (page.length === LIMIT && page.length > 0) {
+            const oldest = page[page.length - 1];
+            setOlderCursor({ at: oldest.created_at, id: oldest.id });
+            setHasMoreOlder(true);
+          }
         }
         if (cancelled) return;
-        setConversationId(conv.id);
-        setConversationTitle(conv.title);
-        setHeld(conv.queue_held);
-        await loadHistory(conv.id);
-        await refreshQueue(conv.id);
-        closeWs.current = await openConversationStream(conv.id, onWsEvent(conv.id));
+        setConversationId(convId);
+        await refreshQueue(convId);
+        closeWs.current = await openConversationStream(convId, onWsEvent(convId));
       } catch (e: any) {
         if (!cancelled) setLoadError(String(e?.message ?? e));
       } finally {
@@ -331,19 +359,31 @@ export default function Chat() {
       cancelled = true;
       closeWs.current?.();
     };
-  }, [requestedId, loadHistory, onWsEvent, refreshQueue]);
+  }, [requestedId, onWsEvent, refreshQueue]);
 
-  const newConversation = async () => {
-    setActionError(null);
+  const loadOlder = async () => {
+    if (!olderCursor || loadingOlder) return;
+    setLoadingOlder(true);
     try {
-      const conv = await createConversation("Cuộc trò chuyện mới");
-      navigation.setParams({ id: conv.id }); // đổi param → effect nạp lại hội thoại mới
+      const LIMIT = 50;
+      const page = await getTimeline({ beforeAt: olderCursor.at, beforeId: olderCursor.id, limit: LIMIT });
+      const chrono = [...page].reverse();
+      setRows((prev) => [...messagesToRows(chrono), ...prev]);
+      if (page.length === LIMIT && page.length > 0) {
+        const oldest = page[page.length - 1];
+        setOlderCursor({ at: oldest.created_at, id: oldest.id });
+      } else {
+        setHasMoreOlder(false);
+      }
     } catch {
-      setActionError("Không tạo được cuộc trò chuyện mới — thử lại.");
+      setActionError("Không tải được đoạn cũ hơn — thử lại.");
+    } finally {
+      setLoadingOlder(false);
     }
   };
 
   const submit = async () => {
+    if (archived) return;
     if (!conversationId) return;
     const content = input.trim() || (attachedAudio ? "Xử lý file ghi âm này giúp tôi" : "");
     if (!content) return;
@@ -408,6 +448,7 @@ export default function Chat() {
   };
 
   const resumeQueue = async () => {
+    if (archived) return;
     if (!conversationId) return;
     try {
       const req = await sendMessage(conversationId, RESUME_PHRASE);
@@ -520,7 +561,7 @@ export default function Chat() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.surface }} behavior="padding">
-      {/* Header tối giản kiểu Claude: lịch sử · tiêu đề · tạo mới */}
+      {/* Header tối giản kiểu Claude: menu · tiêu đề · (history mode: nút về luồng hiện tại) */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
         <TouchableOpacity
           style={styles.headerBtn}
@@ -532,13 +573,17 @@ export default function Chat() {
         <Text style={styles.headerTitle} numberOfLines={1}>
           {conversationTitle || "Trợ lý AI"}
         </Text>
-        <TouchableOpacity
-          style={styles.headerBtn}
-          onPress={newConversation}
-          accessibilityLabel="Cuộc trò chuyện mới"
-        >
-          <Ionicons name="create-outline" size={23} color={colors.text} />
-        </TouchableOpacity>
+        {historyMode ? (
+          <TouchableOpacity
+            style={styles.headerBtn}
+            onPress={() => navigation.navigate("Chat", { id: undefined })}
+            accessibilityLabel="Về luồng hiện tại"
+          >
+            <Ionicons name="arrow-undo-outline" size={22} color={colors.text} />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerBtn} />
+        )}
       </View>
 
       <ErrorText error={loadError} />
@@ -562,6 +607,17 @@ export default function Chat() {
         keyExtractor={(r) => r.key}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        ListHeaderComponent={
+          !historyMode && hasMoreOlder ? (
+            <TouchableOpacity style={styles.loadOlder} onPress={loadOlder} disabled={loadingOlder}>
+              {loadingOlder ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <Text style={styles.loadOlderText}>↑ Tải đoạn hội thoại cũ hơn</Text>
+              )}
+            </TouchableOpacity>
+          ) : null
+        }
         ListEmptyComponent={
           loading ? (
             <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxxl }} />
@@ -636,44 +692,56 @@ export default function Chat() {
       )}
 
       {/* Composer kiểu Claude: card bo tròn, input trên, hàng nút dưới (bỏ chọn model) */}
-      <View style={[styles.composerWrap, { paddingBottom: kbVisible ? spacing.sm : insets.bottom || spacing.sm }]}>
-        <View style={styles.composerCard}>
-          {attachedAudio && (
-            <View style={styles.attachChip}>
-              <Ionicons name="mic" size={16} color={colors.primary} />
-              <Text style={{ flex: 1, color: colors.text, fontFamily: fonts.medium }} numberOfLines={1}>
-                {attachedAudio.name}
-              </Text>
-              <TouchableOpacity onPress={() => setAttachedAudio(null)} accessibilityLabel="Bỏ đính kèm" hitSlop={8}>
-                <Ionicons name="close" size={18} color={colors.textSecondary} />
+      {historyMode && archived ? (
+        <View style={styles.readonlyBar}>
+          <Text style={styles.readonlyText}>Cuộc trò chuyện đã lưu trữ — chỉ xem lại.</Text>
+          <TouchableOpacity
+            style={styles.pillPrimary}
+            onPress={() => navigation.navigate("Chat", { id: undefined })}
+          >
+            <Text style={styles.pillPrimaryText}>Về luồng hiện tại</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={[styles.composerWrap, { paddingBottom: kbVisible ? spacing.sm : insets.bottom || spacing.sm }]}>
+          <View style={styles.composerCard}>
+            {attachedAudio && (
+              <View style={styles.attachChip}>
+                <Ionicons name="mic" size={16} color={colors.primary} />
+                <Text style={{ flex: 1, color: colors.text, fontFamily: fonts.medium }} numberOfLines={1}>
+                  {attachedAudio.name}
+                </Text>
+                <TouchableOpacity onPress={() => setAttachedAudio(null)} accessibilityLabel="Bỏ đính kèm" hitSlop={8}>
+                  <Ionicons name="close" size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
+            <TextInput
+              style={styles.input}
+              placeholder="Nhắn cho trợ lý AI…"
+              placeholderTextColor={colors.textMuted}
+              value={input}
+              onChangeText={setInput}
+              multiline
+            />
+            <View style={styles.composerRow}>
+              <TouchableOpacity style={styles.plusBtn} onPress={pickAudio} accessibilityLabel="Đính kèm file ghi âm">
+                <Ionicons name="add" size={26} color={colors.textSecondary} />
+              </TouchableOpacity>
+              <View style={{ flex: 1 }} />
+              <DictationButton onText={(t) => setInput(t)} />
+              <TouchableOpacity
+                style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
+                onPress={submit}
+                disabled={!canSend}
+                accessibilityLabel="Gửi"
+              >
+                <Ionicons name="arrow-up" size={20} color={canSend ? colors.onPrimary : colors.textMuted} />
               </TouchableOpacity>
             </View>
-          )}
-          <TextInput
-            style={styles.input}
-            placeholder="Nhắn cho trợ lý AI…"
-            placeholderTextColor={colors.textMuted}
-            value={input}
-            onChangeText={setInput}
-            multiline
-          />
-          <View style={styles.composerRow}>
-            <TouchableOpacity style={styles.plusBtn} onPress={pickAudio} accessibilityLabel="Đính kèm file ghi âm">
-              <Ionicons name="add" size={26} color={colors.textSecondary} />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }} />
-            <DictationButton onText={(t) => setInput(t)} />
-            <TouchableOpacity
-              style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
-              onPress={submit}
-              disabled={!canSend}
-              accessibilityLabel="Gửi"
-            >
-              <Ionicons name="arrow-up" size={20} color={canSend ? colors.onPrimary : colors.textMuted} />
-            </TouchableOpacity>
           </View>
         </View>
-      </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -747,6 +815,19 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   heldText: { flex: 1, color: colors.warningText, fontFamily: fonts.medium, fontSize: 13 },
+
+  loadOlder: { alignItems: "center", paddingVertical: spacing.md },
+  loadOlderText: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 14 },
+
+  readonlyBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  readonlyText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13 },
 
   queueBar: {
     flexDirection: "row",
