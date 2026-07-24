@@ -4,6 +4,7 @@ export type Conversation = {
   id: string;
   title: string | null;
   queue_held: boolean;
+  archived_at: string | null;
   created_at: string;
 };
 
@@ -70,6 +71,7 @@ export type ContentBlock =
 
 export type Message = {
   id: string;
+  conversation_id: string | null;
   role: "user" | "assistant";
   content: ContentBlock[];
   voice_note_id: string | null;
@@ -93,6 +95,20 @@ export const deleteConversation = (conversationId: string) =>
 
 export const listMessages = (conversationId: string) =>
   apiFetch<Message[]>(`/api/v1/conversations/${conversationId}/messages`);
+
+export const getActiveConversation = () =>
+  apiFetch<Conversation>("/api/v1/conversations/active");
+
+export const getTimeline = (opts?: { beforeAt?: string; beforeId?: string; limit?: number }) => {
+  const p = new URLSearchParams();
+  if (opts?.limit) p.set("limit", String(opts.limit));
+  if (opts?.beforeAt && opts?.beforeId) {
+    p.set("before_at", opts.beforeAt);
+    p.set("before_id", opts.beforeId);
+  }
+  const qs = p.toString();
+  return apiFetch<Message[]>(`/api/v1/conversations/timeline${qs ? `?${qs}` : ""}`);
+};
 
 export const listRequests = (conversationId: string) =>
   apiFetch<ChatRequest[]>(`/api/v1/conversations/${conversationId}/requests`);
