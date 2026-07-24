@@ -206,6 +206,7 @@ export default function Chat() {
   const contentByRequest = useRef<Map<string, string>>(new Map());
   const listRef = useRef<FlatList>(null);
   const closeWs = useRef<(() => void) | null>(null);
+  const suppressAutoScroll = useRef(false);
 
   const refreshQueue = useCallback(async (cid: string) => {
     const reqs = await listRequests(cid);
@@ -368,6 +369,7 @@ export default function Chat() {
       const LIMIT = 50;
       const page = await getTimeline({ beforeAt: olderCursor.at, beforeId: olderCursor.id, limit: LIMIT });
       const chrono = [...page].reverse();
+      suppressAutoScroll.current = true;
       setRows((prev) => [...messagesToRows(chrono), ...prev]);
       if (page.length === LIMIT && page.length > 0) {
         const oldest = page[page.length - 1];
@@ -631,7 +633,13 @@ export default function Chat() {
           )
         }
         contentContainerStyle={styles.listContent}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        onContentSizeChange={() => {
+          if (suppressAutoScroll.current) {
+            suppressAutoScroll.current = false;
+            return;
+          }
+          listRef.current?.scrollToEnd({ animated: false });
+        }}
         renderItem={renderItem}
       />
 
