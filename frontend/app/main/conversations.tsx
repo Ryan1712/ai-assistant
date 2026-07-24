@@ -13,7 +13,6 @@ import { useNavigation } from "@react-navigation/native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import {
   Conversation,
-  createConversation,
   deleteConversation,
   listConversations,
   renameConversation,
@@ -94,7 +93,6 @@ export default function Conversations() {
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
 
   // Modal sửa tên
   const [editing, setEditing] = useState<Conversation | null>(null);
@@ -107,19 +105,6 @@ export default function Conversations() {
       .then(setConversations)
       .catch((e: any) => setError(String(e?.message ?? e)));
   }, []);
-
-  const handleCreate = async () => {
-    setCreating(true);
-    setError(null);
-    try {
-      const conv = await createConversation();
-      navigation.navigate("Drawer", { screen: "Chat", params: { id: conv.id } });
-    } catch (e: any) {
-      setError(String(e?.message ?? e));
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const openEdit = (c: Conversation) => {
     setDraft(c.title ?? "");
@@ -177,14 +162,6 @@ export default function Conversations() {
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <BackHeader title="Lịch sử trò chuyện" />
       <View style={styles.body}>
-        <TouchableOpacity style={styles.newBtn} onPress={handleCreate} disabled={creating}>
-          {creating ? (
-            <ActivityIndicator color={colors.onPrimary} />
-          ) : (
-            <Text style={styles.newBtnText}>+ Cuộc trò chuyện mới</Text>
-          )}
-        </TouchableOpacity>
-
         <Field
           placeholder="Tìm cuộc trò chuyện theo tên…"
           value={query}
@@ -249,13 +226,6 @@ export default function Conversations() {
 
 const styles = StyleSheet.create({
   body: { flex: 1, padding: spacing.lg, gap: spacing.lg },
-  newBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.pill,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-  },
-  newBtnText: { color: colors.onPrimary, fontFamily: fonts.bold, fontSize: 16 },
 
   card: {
     backgroundColor: colors.surface,
