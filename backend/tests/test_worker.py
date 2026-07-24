@@ -9,7 +9,7 @@ from app.agent.worker import WorkerSettings, enqueue_conversation, process_conve
 from app.models import (
     ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole, Role, User, Workspace,
 )
-from app.services import note_service
+from app.services import example_bank_service, note_service
 
 
 @pytest.mark.asyncio
@@ -324,6 +324,58 @@ async def test_process_conversation_injects_rag_context_once_before_loop(engine,
 
 
 @pytest.mark.asyncio
+async def test_process_conversation_injects_example_context_once_before_loop(engine, db_session):
+    """Phase 6 §10.4: worker tính example_context ĐÚNG MỘT LẦN lúc pickup (cùng
+    thời điểm/nguyên tắc rag_context) rồi truyền vào run_agent_loop."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    await db_session.commit()
+    await example_bank_service.add_example(
+        db_session, ceo, user_text="khoa tai khoan nhan vien Nam",
+        ideal_behavior="gọi lock_user ngay, không hỏi xác nhận bằng lời")
+
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    # "khoa tai khoan" khớp heuristic tier 1 (nhóm admin) -> khỏi tốn 1 lượt LLM
+    # cho classify_route tier 2, llm.calls[0] chắc chắn là lượt run_agent_loop thật
+    # (cùng thủ thuật test_process_conversation_injects_rag_context_once_before_loop).
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="khoa tai khoan cua Nam giup toi", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[
+        [StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ])
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": FakeEventPublisher(),
+        "is_cancelled": never_cancelled,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    system = llm.calls[0]["system"]
+    text = system if isinstance(system, str) else "\n".join(b["text"] for b in system)
+    assert "Ví dụ xử lý đúng" in text
+    assert "lock_user" in text
+
+
+@pytest.mark.asyncio
 async def test_enqueue_conversation_uses_conversation_scoped_job_id():
     class _FakePool:
         def __init__(self):
@@ -553,6 +605,57 @@ async def test_run_deep_analysis_injects_rag_context(engine, db_session):
     text = system if isinstance(system, str) else "\n".join(b["text"] for b in system)
     assert "Dữ liệu liên quan" in text
     assert "XYZ" in text
+
+
+@pytest.mark.asyncio
+async def test_run_deep_analysis_injects_example_context(engine, db_session):
+    from app.agent.worker import run_deep_analysis
+
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    await db_session.commit()
+    await example_bank_service.add_example(
+        db_session, ceo, user_text="khoa tai khoan nhan vien Nam",
+        ideal_behavior="gọi lock_user ngay, không hỏi xác nhận bằng lời")
+
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="khoa acc cua Nam giup toi", queue_position=1.0,
+                      status=ChatRequestStatus.deep_running)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm_smart = FakeLLMClient(turns=[
+        [TextDelta(text="ket qua"),
+         StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ], model="sonnet-smart")
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client_smart": llm_smart,
+        "event_publisher": FakeEventPublisher(),
+        "is_cancelled": never_cancelled,
+    }
+
+    await run_deep_analysis(ctx, req.id)
+
+    system = llm_smart.calls[0]["system"]
+    text = system if isinstance(system, str) else "\n".join(b["text"] for b in system)
+    assert "Ví dụ xử lý đúng" in text
+    assert "lock_user" in text
 
 
 @pytest.mark.asyncio

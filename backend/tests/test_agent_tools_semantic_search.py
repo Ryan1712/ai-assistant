@@ -21,7 +21,7 @@ def test_semantic_search_tool_registered_not_sensitive_and_in_core_group():
     assert "semantic_search" in TOOLS
     assert TOOLS["semantic_search"].sensitive is False
     assert "semantic_search" in TOOL_GROUPS["core"]
-    assert len(TOOLS) == 61  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search +list_memories +forget_memory (Phase 6)
+    assert len(TOOLS) == 62  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search +list_memories +forget_memory (Phase 6) +add_example (Phase 6)
 
 
 @pytest.mark.asyncio

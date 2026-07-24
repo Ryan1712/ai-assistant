@@ -569,6 +569,28 @@ class WorkspaceMemory(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class FewShotExample(Base):
+    """Example bank — "fine-tune bằng context" (Phase 6 §10.4): CEO dạy AI cách
+    xử lý 1 tình huống cụ thể bằng ví dụ (user_text + ideal_behavior), tiêm vào
+    system prompt khi có yêu cầu tương tự ngữ nghĩa (app/services/
+    example_bank_service.py, tái dùng bảng embeddings chung, KHÔNG cột riêng —
+    source_type="few_shot_example").
+
+    workspace_id NULL = ví dụ TOÀN CỤC dùng chung mọi workspace — NGOẠI LỆ có
+    chủ đích với quy ước "mọi bảng có workspace_id" (CLAUDE.md) vì đây là nội
+    dung do dev/ops chọn lọc trước (cách AI nên hành xử chung, không phải dữ
+    liệu khách hàng), CHỈ seed thẳng DB/script — tool add_example (CEO dùng
+    qua chat) KHÔNG BAO GIỜ tạo được ví dụ global, luôn gắn workspace_id của
+    chính actor (xem example_bank_service.add_example)."""
+    __tablename__ = "few_shot_examples"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("workspaces.id"), nullable=True, index=True)
+    user_text: Mapped[str] = mapped_column(Text)
+    ideal_behavior: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class AgentTrace(Base):
     """Trace 1 LẦN CHẠY agent loop của 1 chat_request (Phase 0, spec AI upgrade 4.1).
 

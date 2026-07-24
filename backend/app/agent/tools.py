@@ -17,9 +17,10 @@ from app.schemas import (
 )
 from app.services import (
     analytics_service, attachment_service, audit_service, auth_service, dashboard_service,
-    directive_service, distiller_service, email_service, embedding_service, instruction_service,
-    note_service, notification_service, portal_service, report_schedule_service, report_service,
-    resolver_service, search_service, skill_service, voice_service, work_service,
+    directive_service, distiller_service, email_service, embedding_service, example_bank_service,
+    instruction_service, note_service, notification_service, portal_service,
+    report_schedule_service, report_service, resolver_service, search_service, skill_service,
+    voice_service, work_service,
 )
 
 
@@ -881,6 +882,25 @@ _register("semantic_search",
           "nội dung gốc.", SemanticSearchToolIn, _semantic_search)
 
 
+class AddExampleToolIn(BaseModel):
+    user_text: str = Field(min_length=1, description="Câu/tình huống người dùng có thể nói.")
+    ideal_behavior: str = Field(min_length=1,
+                                description="Cách AI NÊN xử lý tình huống đó (mô tả ngắn gọn).")
+
+
+async def _add_example(db, actor, body: AddExampleToolIn) -> dict:
+    example = await example_bank_service.add_example(
+        db, actor, user_text=body.user_text, ideal_behavior=body.ideal_behavior)
+    return {"id": str(example["id"]), "workspace_id": example["workspace_id"]}
+
+
+_register("add_example", "Dạy AI 1 ví dụ cách xử lý đúng cho 1 tình huống cụ thể (chỉ CEO) — "
+          "vd 'khi ai đó nhắn khóa acc thì gọi lock_user ngay, đừng hỏi lại xác nhận bằng lời'. "
+          "Ví dụ được nhớ và tự động gợi ý lại cho AI khi gặp tình huống TƯƠNG TỰ Ý NGHĨA sau "
+          "này (không cần đúng nguyên văn). Dùng khi CEO nói kiểu 'từ giờ khi X thì mày làm Y', "
+          "'lần sau gặp trường hợp này thì...'.", AddExampleToolIn, _add_example)
+
+
 class ListNotificationsToolIn(BaseModel):
     unread_only: bool = False
 
@@ -1029,6 +1049,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         "create_skill", "add_skill_version", "grant_skill", "list_skills", "use_skill",
         "list_skill_grants", "revoke_skill_grant",
         "create_instruction", "update_instruction", "list_instructions", "delete_instruction",
+        "add_example",
     }),
     "personal": frozenset({
         "list_voice_notes", "get_voice_note", "create_note", "list_notes",
