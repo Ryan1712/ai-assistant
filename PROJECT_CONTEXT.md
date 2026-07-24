@@ -94,7 +94,7 @@ Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer
 
 ## 5. Frontend: màn hình & navigation đã implement
 
-Điều hướng bằng **react-navigation** (KHÔNG Expo Router): `MainDrawer` (mặc định mở màn Chat) có **4 mục chính** — Chat, Dashboard (`today`), Công việc (`tasks`), Cài đặt (`settings`); drawer content liệt kê danh sách conversation "Gần đây" + link "Xem tất cả" sang màn Conversations. **Phase 5: KHÔNG còn nút "New chat" trong drawer** (bỏ khỏi `DrawerContent.tsx`) — xem chi tiết ở dòng `main/chat.tsx` bên dưới và mục 11 (còn 1 đường tạo conversation thủ công khác chưa dọn). Các màn còn lại push chồng qua `MainNavigator` (native-stack), mỗi màn tự render `<BackHeader/>`.
+Điều hướng bằng **react-navigation** (KHÔNG Expo Router): `MainDrawer` (mặc định mở màn Chat) có **4 mục chính** — Chat, Dashboard (`today`), Công việc (`tasks`), Cài đặt (`settings`); drawer content liệt kê danh sách conversation "Gần đây" + link "Xem tất cả" sang màn Conversations. **Phase 5: KHÔNG còn nút "New chat" ở đâu trong FE** (bỏ khỏi `DrawerContent.tsx` + `main/conversations.tsx` + `chat.tsx` header — xem chi tiết ở dòng `main/chat.tsx`/`main/conversations.tsx` bên dưới). Các màn còn lại push chồng qua `MainNavigator` (native-stack), mỗi màn tự render `<BackHeader/>`.
 
 | Route (file) | Vai trò truy cập | Ghi chú |
 |---|---|---|
