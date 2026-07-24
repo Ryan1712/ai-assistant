@@ -1,8 +1,8 @@
 # PROJECT_CONTEXT.md
 
 > **Last verified:** 2026-07-24
-> **Branch:** main
-> **Verified against commit:** 07349dc
+> **Branch:** phase5-session-model (chưa merge vào `main`; `main` hiện dừng ở `1e31fb0` = spec+plan Phase 5 dạng docs, chưa có code Phase 5)
+> **Verified against commit:** `0824d46` (commit code cuối cùng của Phase 5 = cha của chính commit docs này — SHA tự tham chiếu không khả thi vì amend đổi SHA mỗi lần sửa nội dung, nên ghi commit cha thay vì đuổi theo SHA)
 
 Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
 
@@ -31,6 +31,7 @@ graph LR
 - **Frontend**: Expo SDK ~57, React 19.2 / React Native 0.86, **react-navigation** (Drawer + native-stack — Expo Router đã bị gỡ hẳn, không còn là dependency; `index.js` ghi rõ "đã bỏ expo-router"), không Redux/Zustand — state cục bộ bằng `useState`/`Context` (`AuthContext`).
 - **Hạ tầng dev** (`backend/docker-compose.yml`): Postgres 16 (host port 5435), Redis 7 (host port 6380), service `api` (FastAPI) + `worker` (arq, chạy `app.agent.worker.WorkerSettings`) tách biệt — worker mới thực sự gọi Anthropic.
 - Chat không chạy đồng bộ trong request HTTP: `POST .../messages` chỉ tạo `ChatRequest` (status `queued`) rồi `enqueue_job`; **worker** (`arq`) mới thực thi `run_agent_loop` và publish sự kiện qua Redis pub/sub; FE nhận qua WebSocket. Middleware/API không tự chạy agent loop — chạy `uvicorn` mà không có `arq worker` song song thì chat sẽ kẹt ở `queued` mãi.
+- **Session model (Phase 5, `app/services/session_service.py` + `app/agent/summarizer.py`)**: mỗi user có tối đa 1 `Conversation` "sống" (`archived_at IS NULL`) — `GET /conversations/active` resolve/tạo/xoay conversation này lúc FE mount. Lịch sử dài được nén định kỳ vào `Conversation.rolling_summary` thay vì giữ verbatim mãi, và được tiêm vào **system prompt** (không phải message) mỗi lượt gọi model. Chi tiết đầy đủ ở mục 6.
 
 ## 3. Cấu trúc repo (thư mục quan trọng)
 
@@ -46,8 +47,8 @@ backend/app/
   config.py       Settings (env vars) + các cờ *_mock
   security.py     JWT + bcrypt
   deps.py         get_current_user (JWT bearer)
-alembic/versions/ 20 migration (xem mục 9)
-backend/tests/    125 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
+alembic/versions/ 22 migration (xem mục 9)
+backend/tests/    128 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
 
 frontend/app/
   auth/           login, signup-workspace, activate (signup-code.tsx còn file nhưng đã tắt)
@@ -88,20 +89,20 @@ Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer
 | `dashboard` | GET /today | task quá hạn/đến hạn/đang làm + cập nhật 24h + note hôm nay, theo phạm vi quyền actor |
 | `subscription` | GET, PATCH | PATCH = CEO-only, mock chuyển Basic/Advanced không có thanh toán thật |
 | `devices` | PUT /push-token | tự đăng ký device hiện tại, không cần CEO |
-| `chat` (`conversations`, `chat-requests`) | POST/GET/PATCH/**DELETE** conversations, POST/GET messages, GET requests, POST stop-all, POST/PATCH/POST(cancel/confirm/reorder) chat-requests | DELETE conversation xóa cascade thủ công; chi tiết mục 6 |
+| `chat` (`conversations`, `chat-requests`) | POST/GET/PATCH/**DELETE** conversations, **GET /active** (Phase 5), **GET /timeline** (Phase 5), POST/GET messages, GET requests, POST stop-all, POST/PATCH/POST(cancel/confirm/reorder) chat-requests | DELETE conversation xóa cascade thủ công; `GET /active` = resolve/tạo/xoay conversation "sống" của actor (`session_service`, gọi lúc FE mount); `GET /timeline` = message xuyên **mọi** conversation của actor (không chỉ 1 conversation), newest-first, cursor `(before_at, before_id)` — đã review riêng nguy cơ rò rỉ cross-user/cross-workspace, xác nhận an toàn (lọc `workspace_id`+`user_id`); chi tiết mục 6 |
 | `ws` | WebSocket `/ws/conversations/{id}?token=` | stream token/status realtime qua Redis pub/sub |
 
 ## 5. Frontend: màn hình & navigation đã implement
 
-Điều hướng bằng **react-navigation** (KHÔNG Expo Router): `MainDrawer` (mặc định mở màn Chat) có **4 mục chính** — Chat, Dashboard (`today`), Công việc (`tasks`), Cài đặt (`settings`); drawer content còn liệt kê danh sách conversation "Gần đây" + nút New chat. Các màn còn lại push chồng qua `MainNavigator` (native-stack), mỗi màn tự render `<BackHeader/>`.
+Điều hướng bằng **react-navigation** (KHÔNG Expo Router): `MainDrawer` (mặc định mở màn Chat) có **4 mục chính** — Chat, Dashboard (`today`), Công việc (`tasks`), Cài đặt (`settings`); drawer content liệt kê danh sách conversation "Gần đây" + link "Xem tất cả" sang màn Conversations. **Phase 5: KHÔNG còn nút "New chat" trong drawer** (bỏ khỏi `DrawerContent.tsx`) — xem chi tiết ở dòng `main/chat.tsx` bên dưới và mục 11 (còn 1 đường tạo conversation thủ công khác chưa dọn). Các màn còn lại push chồng qua `MainNavigator` (native-stack), mỗi màn tự render `<BackHeader/>`.
 
 | Route (file) | Vai trò truy cập | Ghi chú |
 |---|---|---|
-| `main/chat.tsx` (drawer) | mọi role | streaming qua WebSocket, hàng đợi, dừng/hủy/ưu tiên, xác nhận hành động nhạy cảm + proposal, hold-queue khi mất mạng; đọc chính tả + đính kèm/phát ghi âm |
+| `main/chat.tsx` (drawer) | mọi role | **Phase 5**: mở KHÔNG có `?id=` (mặc định vào drawer) luôn resolve conversation "sống" thật qua `getActiveConversation()` + nạp `getTimeline()` (xuyên MỌI conversation của user, không chỉ 1 row — sau khi server xoay ngầm, người dùng vẫn thấy 1 luồng liền mạch qua phân trang `loadOlder()`, không "mất lịch sử"). Mở có `?id=` cụ thể (từ "Gần đây" hoặc màn Conversations) vào **history mode**: nếu conversation đó `archived_at != null` thì composer bị thay bằng thanh "chỉ xem — chạm để về luồng hiện tại" và `submit`/`resumeQueue` no-op; nếu CHƯA archived (vd đang xem chính conversation sống qua id, hoặc 1 conversation live khác — xem mục 11) thì vẫn gõ/gửi bình thường, không bị khóa. Streaming qua WebSocket, hàng đợi, dừng/hủy/ưu tiên, xác nhận hành động nhạy cảm + proposal, hold-queue khi mất mạng; đọc chính tả + đính kèm/phát ghi âm |
 | `main/today.tsx` (drawer, "Dashboard") | mọi role | counters, ghi âm nhanh (QuickVoiceCard), quá hạn/đến hạn/đang làm, cập nhật 24h, ghi chú; link sang Notifications + Notes |
 | `main/tasks.tsx` (drawer, "Công việc") | mọi role | duyệt/lọc: Của tôi/Tôi quản lý/Quá hạn/Bị chặn/Đã hoàn thành; chỉ đọc — tạo/sửa vẫn qua chat |
 | `main/settings.tsx` (drawer) | mọi role | entry point tới hầu hết route CEO-only bên dưới |
-| `main/conversations.tsx` | mọi role | tạo/tìm/đổi tên conversation (vuốt để sửa tên/xóa) |
+| `main/conversations.tsx` | mọi role | tìm/đổi tên/xóa conversation (vuốt để sửa tên/xóa); mở 1 dòng → `chat.tsx` ở history mode (xem trên). **Phát hiện lúc verify Task 12 (2026-07-24), chưa fix**: màn này VẪN còn nút "+ Cuộc trò chuyện mới" gọi thẳng `POST /conversations` — Phase 5 chỉ bỏ nút tạo mới ở `chat.tsx` header và `DrawerContent.tsx`, KHÔNG đụng màn này; xem mục 11 |
 | `main/projects.tsx` | mọi role (theo `visible_project_ids`) | đọc, expand xem task trong project |
 | `main/tasks/detail.tsx` | theo quyền task | chi tiết, đính kèm, thảo luận (bình luận), xóa task |
 | `main/team.tsx` / `main/team/detail.tsx` | CEO-only | danh sách/chi tiết nhân sự, khóa/mở, nghỉ việc, đổi vai trò, log thiết bị |
@@ -137,6 +138,8 @@ FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích s
 - **Tool registry**: `app/agent/tools.py`, **58 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`) + 2 tool Phase 3 (`create_directive`, `get_directive_status`) + 2 tool phân tích (`get_project_health` — soi sâu 1 project: blocked/overdue/stale + risk heuristic; `get_progress_stats` — so sánh tuần/tháng này với kỳ trước, cả 2 đọc-only, `app/services/analytics_service.py`). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 58 tool này thành 7 nhóm — **đã wiring** vào Router động (Phase 4, xem trên): fast path lọc theo nhóm phân loại được, đường sâu luôn dùng cố định `core+insight`.
 - **Directive (Phase 3)**: `app/models.py::Directive`/`DirectiveStatus` (state machine sent→acked/question/renegotiate, mirror `ChatRequestStatus`), `app/services/directive_service.py`, REST `app/api/directives.py`, quyền `permissions.py::can_assign_directive` (CEO → ai cũng được; manager → chỉ direct report — logic MỚI, tách biệt hoàn toàn khỏi `work_service`'s `require_ceo`). `create_directive` KHÔNG `sensitive=True` (bắt buộc để lồng được trong `propose_actions` cùng `update_task`). Email V1 vẫn qua `email_service.send_email` nội bộ (mock) — chưa có provider thật/public ack-link không cần login (xem `evals/BASELINE.md` Phase 3 lý do chi tiết).
 - **Luật hành xử 3 mức (Phase 2, system prompt tĩnh)**: (1) tường minh + đảo ngược được → gọi tool ngay; (2) phải SUY LUẬN đối tượng (đoán người/task/deadline) → gọi `propose_actions` để user duyệt bản nháp trước khi thực thi (dùng lại hạ tầng `awaiting_confirmation`, `pending_action.kind` phân biệt `"tool"` | `"proposal"`); (3) nhạy cảm → vẫn gọi 1 trong 6 tool sensitive trực tiếp như cũ. `resolve_person`/`resolve_task` tra cứu mờ (fuzzy, thuần Python — không dùng `pg_trgm` vì test suite chạy SQLite) trong phạm vi `visible_user_ids`/`visible_task_ids`; trả `ambiguous` kèm candidates khi >1 kết quả — AI PHẢI hỏi lại đúng 1 câu, không tự chọn.
+- **Rolling summary / nén lịch sử (Phase 5, `app/agent/summarizer.py`)**: `maybe_compress_history(db, conv, llm, *, force=False, keep_recent=SUMMARY_KEEP_RECENT) -> bool` — khi số message "sống" của 1 conversation (không tính `is_ack`, không tính message rỗng) vượt `SUMMARY_TRIGGER=60` (hoặc gọi `force=True`), gấp phần cũ (giữ lại `SUMMARY_KEEP_RECENT=40` message gần nhất) thành văn xuôi qua **1 lượt gọi `model_fast` không tool**, ghi vào `Conversation.rolling_summary` + đẩy `summary_through_at` tới điểm cắt an toàn (không bao giờ để phần giữ lại bắt đầu bằng 1 `tool_result` mồ côi). `process_conversation` (worker) gọi hàm này TRƯỚC khi dispatch mỗi request — lỗi nén được bọc try/except + `db.refresh(req)` sau `rollback()` để không giết job (bug thật tìm thấy lúc code review: `db.rollback()` trần làm expire cả `req`, dòng sau đọc `req.content` ném `MissingGreenlet` không bắt). `_load_history(..., since=conv.summary_through_at)` (`app/agent/loop.py`) chỉ nạp message có `created_at > since` — phần đã nén không gửi lại model dạng verbatim nữa. Khi `conv.rolling_summary` khác rỗng, `run_agent_loop` nối `"# Tóm tắt hội thoại trước đó\n" + rolling_summary` vào **system prompt** (block động, KHÔNG BAO GIỜ thành 1 chat message) — giữ đúng luật xen kẽ user/assistant bắt buộc của Anthropic, cùng bài học đã sinh ra `Message.is_ack` ở Phase 4.
+- **Xoay conversation ngầm (Phase 5, `app/services/session_service.py`)**: bất biến — mỗi user có **≤1 `Conversation` "sống"** (`archived_at IS NULL`). `get_or_rotate_active_conversation(db, actor, llm_factory, *, now=None)` (gọi từ `GET /conversations/active` lúc FE mount): chưa có conversation nào → tạo mới; có rồi → xoay (fold TOÀN BỘ đuôi còn lại vào `rolling_summary` của conversation cũ qua `maybe_compress_history(..., force=True, keep_recent=0)`, set `archived_at`, tạo conversation mới seed sẵn `rolling_summary` đó) khi idle > `ROTATE_IDLE_HOURS=12` giờ HOẶC > `ROTATE_MAX_MESSAGES=150` message sống — TRỪ KHI còn việc dang dở (bất kỳ `ChatRequest` `queued`/`running`/`deep_running`/`awaiting_confirmation`, hoặc `queue_held=True`) thì hoãn xoay. `queue`/`queue_held`/"tiếp tục công việc" (`continuity.py`) KHÔNG bị sửa gì — rotation chỉ ĐỌC các trạng thái đó để quyết định hoãn. FE (mục 5) đọc liên tục qua `GET /conversations/timeline` xuyên nhiều conversation nên việc xoay ở tầng server trong suốt với người dùng bình thường. **Bất biến "≤1 live/user" chỉ được đảm bảo qua đúng đường `get_or_rotate_active_conversation`** — route cũ `POST /conversations` (`create_conversation`) vẫn còn, tạo thẳng 1 `Conversation` mới KHÔNG qua hàm này và KHÔNG archive conversation sống hiện có; FE `main/conversations.tsx` vẫn còn nút gọi thẳng route này (phát hiện lúc verify Task 12, xem mục 5/11 — chưa xử lý).
 - **Report định kỳ**: `arq.cron` chạy `check_report_schedules` mỗi phút (không qua LLM), độc lập với vòng lặp chat.
 
 ## 7. Phân quyền & cách ly đa công ty
@@ -165,7 +168,7 @@ Cờ trong `app/config.py`, tất cả **mặc định `True` (mock)** — bật
 
 ## 9. Database & migrations
 
-Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **21 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `invite_user_id_and_pending_status` → `chat_request_deep_running_status` → `message_is_ack_flag` (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router — `invite_user_id_and_pending_status` thêm `UserStatus 'pending'` + `invites.user_id` FK cho activation code; `chat_request_deep_running_status` = `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`; `message_is_ack_flag` thêm `messages.is_ack` — cả 2 migration Phase 4 đã chạy `alembic upgrade head` sạch trên Postgres dev thật, không chỉ SQLite). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
+Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **22 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `invite_user_id_and_pending_status` → `chat_request_deep_running_status` → `message_is_ack_flag` → **`session_model_rolling_summary`** (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router + Phase 5 session model — `invite_user_id_and_pending_status` thêm `UserStatus 'pending'` + `invites.user_id` FK cho activation code; `chat_request_deep_running_status` = `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`; `message_is_ack_flag` thêm `messages.is_ack`; **`session_model_rolling_summary`** (Phase 5, down_revision = `message_is_ack_flag`) thêm 3 cột cho `conversations`: `rolling_summary TEXT NOT NULL DEFAULT ''`, `summary_through_at TIMESTAMPTZ NULL`, `archived_at TIMESTAMPTZ NULL` — cả migration Phase 4 lẫn Phase 5 đã chạy `alembic upgrade head` sạch trên Postgres dev thật, không chỉ SQLite). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
 
 28 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
 
@@ -175,7 +178,7 @@ Chạy trong `backend/` (venv `.venv`):
 ```
 docker compose up -d postgres redis         # 5435/6380
 alembic upgrade head
-pytest tests/ -v                            # 675 pass + 4 skip (125 file test) hiện tại trên nhánh này
+pytest tests/ -v                            # 695 pass + 4 skip (128 file test) hiện tại trên nhánh này
 uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
 arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
 python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
@@ -193,6 +196,7 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
 - Chưa xác minh UI thật của 4 tab/màn hình mới nhất (Conversations, Tasks/Projects, Notification Center, Report Center) qua Expo dev server — chỉ mới qua `tsc` + review code.
 - Email và STT chưa có implementation thật (chỉ mock, xem mục 8) — cần viết code provider trước khi dùng được, không chỉ đổi cờ.
 - Push và Portal đã có implementation thật trong code nhưng đang chạy ở chế độ mock theo cờ mặc định (xem mục 8) — bật thật chỉ cần đổi cờ + (với Portal) có spec API thật của cổng.
+- **Phase 5 chưa dọn hết đường tạo conversation thủ công** (phát hiện lúc verify Task 12, 2026-07-24, KHÔNG phải regression — chỉ là phạm vi Phase 5 chưa đụng tới): `main/conversations.tsx` còn nút "+ Cuộc trò chuyện mới" gọi thẳng `POST /conversations` (route cũ `create_conversation`, KHÔNG qua `session_service.get_or_rotate_active_conversation`). Phase 5 chỉ bỏ nút tạo mới ở `chat.tsx` header (task 10) và `DrawerContent.tsx` (task 11); route REST cũ và màn hình gọi nó vẫn còn nguyên. Về lý thuyết có thể tạo thêm 1 `Conversation` "sống" song song với conversation đang active, phá bất biến "≤1 live/user" mà `get_or_rotate_active_conversation` giả định (không có DB constraint nào chặn 2 hàng `archived_at IS NULL` cho cùng 1 user). Chưa quyết định xử lý: xóa nút, hay đổi hành vi để nó gọi `GET /active` thay vì tạo mới vô điều kiện.
 
 **Không phải thiếu — cố ý** (đừng nhầm là gap): tạo/sửa Project/Task chỉ qua chat (không có form CRUD ở FE); gửi email chỉ qua chat; report chỉ tạo qua chat hoặc lịch tự động.
 
@@ -304,3 +308,38 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   `project-employee-role-removal-2026-07-23.md`. **Mục 4 (bảng API) đã cập nhật** (2026-07-24,
   đối chiếu commit 07349dc): dòng `auth` phản ánh `signup-code` đã tắt; mục 5 phản ánh
   react-navigation + màn `search` mồ côi + `signup-code.tsx` tắt.
+- 2026-07-24: **Phase 5 (session model) xong** — làm trên nhánh `phase5-session-model` (11
+  task TDD + task 12 verify này; **CHƯA merge vào `main`** — xem header đầu file). `Conversation`
+  thêm 3 cột: `rolling_summary` (TEXT, default rỗng), `summary_through_at`, `archived_at` (cả 2
+  `TIMESTAMPTZ` nullable) qua migration `session_model_rolling_summary` (down
+  `message_is_ack_flag`, đã chạy `alembic upgrade head` sạch trên Postgres dev thật).
+  `app/agent/summarizer.py::maybe_compress_history` gấp phần lịch sử cũ (vượt
+  `SUMMARY_TRIGGER=60` message sống, giữ
+  `SUMMARY_KEEP_RECENT=40`) thành `rolling_summary` qua 1 lượt `model_fast` không tool;
+  `_load_history(..., since=conv.summary_through_at)` bỏ hẳn phần đã nén khỏi lịch sử verbatim
+  gửi model; `run_agent_loop` tiêm `rolling_summary` vào **system prompt** (không phải chat
+  message — cùng bài học `Message.is_ack` ở Phase 4, giữ đúng luật xen kẽ user/assistant bắt
+  buộc của Anthropic). `app/services/session_service.py::get_or_rotate_active_conversation` giữ
+  bất biến "mỗi user ≤1 conversation sống" (`archived_at IS NULL`) — xoay khi idle >
+  `ROTATE_IDLE_HOURS=12`h HOẶC > `ROTATE_MAX_MESSAGES=150` message, hoãn nếu còn việc dang dở
+  (`ChatRequest` busy hoặc `queue_held`); queue/continuity KHÔNG bị đụng. 2 route mới:
+  `GET /conversations/active` (resolve/tạo/xoay, gọi lúc FE mount), `GET /conversations/timeline`
+  (message xuyên MỌI conversation của actor, cursor `(before_at, before_id)` — đã review riêng
+  nguy cơ rò rỉ cross-user, xác nhận an toàn). `openapi.json` regenerate
+  (`ConversationOut.archived_at`, `MessageOut.conversation_id`). FE: `chat.tsx` mở không `?id=`
+  luôn vào conversation "sống" thật + timeline xuyên conversation (xoay ngầm không làm mất
+  lịch sử nhìn thấy được); mở có `?id=` cụ thể vào history mode, read-only nếu
+  `archived_at != null`; `DrawerContent.tsx` bỏ nút "New chat". Bug thật tìm thấy lúc review
+  (KHÔNG qua test mock mà qua đọc code kỹ): `process_conversation` gọi `db.rollback()` trần khi
+  nén lỗi làm expire cả `req`, dòng sau `req.content` ném `MissingGreenlet` — fix bằng
+  `db.refresh(req)` sau rollback. Embeddings/pgvector/semantic search **cố ý** đẩy Phase 6 (spec
+  loại trừ) — "hôm qua nói gì" trả lời bằng rolling summary, không phải vector search. Full
+  pytest 695 pass/4 skip (128 file, tăng từ 675/125), `tsc --noEmit` 0 lỗi.
+  **Phát hiện lúc verify Task 12 (KHÔNG phải regression Phase 5, nhưng ảnh hưởng bất biến Phase
+  5 khẳng định — xem mục về "session model" ở mục 6/11 để biết chi tiết)**:
+  `main/conversations.tsx` (màn "Lịch sử trò chuyện", vào qua Drawer → "Gần đây" → "Xem tất cả") VẪN
+  còn nút "+ Cuộc trò chuyện mới" gọi thẳng `POST /conversations` (route cũ, không qua
+  `get_or_rotate_active_conversation`) — Phase 5 chỉ bỏ nút tạo mới ở `chat.tsx` header (task
+  10) và `DrawerContent.tsx` (task 11), không đụng màn này. Có thể tạo thêm 1 conversation
+  "sống" song song, về lý thuyết phá bất biến ≤1 live/user. Chưa fix — cần quyết định trước khi
+  coi Phase 5 là "đóng gói xong hoàn toàn".
