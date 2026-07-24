@@ -27,7 +27,7 @@ graph LR
   API -->|subscribe| Redis
 ```
 
-- **Backend**: Python, FastAPI 0.115, SQLAlchemy 2.0 (async, asyncpg prod / aiosqlite test), Alembic, Pydantic-settings, PyJWT+bcrypt, `anthropic` SDK 0.39, `arq` (Redis-backed job queue), `openpyxl` (xuất Excel).
+- **Backend**: Python, FastAPI 0.115, SQLAlchemy 2.0 (async, asyncpg prod / aiosqlite test), Alembic, Pydantic-settings, PyJWT+bcrypt, `anthropic` SDK 0.119 (nâng từ 0.39 ở Phase 4 — bản cũ thiếu tham số `thinking`), `arq` (Redis-backed job queue), `openpyxl` (xuất Excel).
 - **Frontend**: Expo SDK ~57, React 19.2 / React Native 0.86, Expo Router (file-based), không Redux/Zustand — state cục bộ bằng `useState`/`Context` (`AuthContext`).
 - **Hạ tầng dev** (`backend/docker-compose.yml`): Postgres 16 (host port 5435), Redis 7 (host port 6380), service `api` (FastAPI) + `worker` (arq, chạy `app.agent.worker.WorkerSettings`) tách biệt — worker mới thực sự gọi Anthropic.
 - Chat không chạy đồng bộ trong request HTTP: `POST .../messages` chỉ tạo `ChatRequest` (status `queued`) rồi `enqueue_job`; **worker** (`arq`) mới thực thi `run_agent_loop` và publish sự kiện qua Redis pub/sub; FE nhận qua WebSocket. Middleware/API không tự chạy agent loop — chạy `uvicorn` mà không có `arq worker` song song thì chat sẽ kẹt ở `queued` mãi.
