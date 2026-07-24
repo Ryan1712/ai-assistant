@@ -97,6 +97,28 @@ async def test_khong_xoay_khi_con_viec_dang_do(db_session):
     assert conv.archived_at is None
 
 
+async def test_rotation_nen_loi_khong_giet_request_tra_ve_conv_cu(db_session, monkeypatch):
+    ws, ceo = await _seed(db_session)
+    old_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, created_at=old_time)
+    db_session.add(conv)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, role=MessageRole.user,
+                           content=[{"type": "text", "text": "hom qua dan viec X"}],
+                           created_at=old_time))
+    await db_session.commit()
+    now = old_time + timedelta(hours=13)  # idle > 12h -> would rotate
+
+    async def _boom(*a, **k):
+        raise RuntimeError("nen loi gia lap")
+    monkeypatch.setattr("app.services.session_service.maybe_compress_history", _boom)
+
+    result = await get_or_rotate_active_conversation(db_session, ceo, lambda: None, now=now)
+    assert result.id == conv.id  # KHONG xoay - tra ve conv cu, khong crash
+    await db_session.refresh(conv)
+    assert conv.archived_at is None  # chua bi archive vi nen that bai
+
+
 async def test_khong_lo_conv_user_khac(db_session):
     ws, ceo = await _seed(db_session)
     other = User(workspace_id=ws.id, email="o@a.vn", password_hash="x", full_name="O",

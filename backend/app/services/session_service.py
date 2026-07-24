@@ -6,6 +6,7 @@ xoay nếu còn việc dang dở (queue). Resolve lúc FE mount qua GET /convers
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.llm_client import LLMClient
 from app.agent.summarizer import maybe_compress_history
 from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, User
+
+logger = logging.getLogger(__name__)
 
 ROTATE_IDLE_HOURS = 12
 ROTATE_MAX_MESSAGES = 150
@@ -70,7 +73,16 @@ async def get_or_rotate_active_conversation(
         return conv
 
     # Xoay: fold toàn bộ đuôi vào summary conv cũ -> seed conv mới -> archive conv cũ.
-    await maybe_compress_history(db, conv, llm_factory(), force=True, keep_recent=0)
+    try:
+        await maybe_compress_history(db, conv, llm_factory(), force=True, keep_recent=0)
+    except Exception:
+        logger.exception("nen loi khi xoay conversation cho user %s - hoan xoay", actor.id)
+        await db.rollback()
+        # rollback() expire moi object trong session (ke ca conv) — reload qua duong
+        # async truoc khi tra ve, tranh MissingGreenlet khi FastAPI serialize response
+        # (dung y het bug da tim thay o Task 5, xem worker.py::process_conversation).
+        await db.refresh(conv)
+        return conv
     conv.archived_at = now
     new = Conversation(workspace_id=actor.workspace_id, user_id=actor.id,
                        rolling_summary=conv.rolling_summary)
