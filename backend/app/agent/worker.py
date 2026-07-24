@@ -87,6 +87,9 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 logger.exception("nen rolling summary fail cho conversation %s",
                                  conversation_id)
                 await db.rollback()
+                # rollback() expire moi object trong session (ke ca req) — reload req
+                # qua duong async truoc khi dung tiep, tranh MissingGreenlet o classify_route.
+                await db.refresh(req)
             # Router (Phase 4 §8.1) - chi phan loai 1 lan luc pickup dau tien cua
             # request nay (status queued -> chuyen ngay khoi queued ben trong
             # run_deep_ack_turn/run_agent_loop, khong bao gio duoc chon lai o day).
