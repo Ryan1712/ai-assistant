@@ -1,0 +1,130 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+# Cancel any in-progress deploy on the same branch so only the latest commit deploys.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal default; each job declares only what it actually needs.
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Test gate ─────────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      - run: pytest tests/ -v
+
+  # ── 2. Build image and push to GHCR ─────────────────────────────────────────
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to GHCR
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          # :latest for convenience; :<sha> for pinned rollback target.
+          tags: |
+            ghcr.io/ryan1712/ai-assistant:latest
+            ghcr.io/ryan1712/ai-assistant:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 3. Deploy to VPS ─────────────────────────────────────────────────────────
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read   # pull from GHCR only — no write needed
+    steps:
+      - uses: actions/checkout@v4
+
+      # Propagate the compose file so VPS always has the latest service definition.
+      # strip_components:1 removes the leading "backend/" so the file lands at
+      # $VPS_APP_DIR/docker-compose.prod.yml.
+      - name: Copy docker-compose.prod.yml to VPS
+        # SHA-pinned: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "backend/docker-compose.prod.yml"
+          target: ${{ secrets.VPS_APP_DIR || '/home/9learning/ai-assistant-backend' }}
+          strip_components: 1
+
+      # Also keep the deploy script itself up to date.
+      # strip_components:2 removes "backend/scripts/" so deploy.sh lands directly
+      # in $VPS_APP_DIR/deploy.sh.
+      - name: Copy deploy script to VPS
+        # SHA-pinned: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "backend/scripts/deploy.sh"
+          target: ${{ secrets.VPS_APP_DIR || '/home/9learning/ai-assistant-backend' }}
+          strip_components: 2
+
+      # Forward the workflow's GITHUB_TOKEN for ephemeral GHCR pull auth.
+      # The token is valid for the lifetime of this workflow run only.
+      # See docs/DEPLOYMENT.md § GHCR Pull Auth for the long-lived PAT fallback.
+      - name: SSH deploy
+        # SHA-pinned: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/ryan1712/ai-assistant:${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          APP_DIR: ${{ secrets.VPS_APP_DIR || '/home/9learning/ai-assistant-backend' }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: GHCR_TOKEN,IMAGE,ACTOR,APP_DIR
+          script: |
+            cd "$APP_DIR"
+            chmod +x deploy.sh
+            bash deploy.sh "$IMAGE"
