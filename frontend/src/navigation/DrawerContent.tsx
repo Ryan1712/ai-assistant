@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import { DrawerContentComponentProps, useDrawerStatus } from "@react-navigation/drawer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Conversation, createConversation, listConversations } from "../api/chat";
+import { Conversation, listConversations } from "../api/chat";
 import { useAuth } from "../auth/AuthContext";
 import { colors, fonts, radius, spacing } from "../ui/theme";
 
@@ -36,15 +36,6 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
   const openChat = (id?: string) => {
     navigation.navigate("Chat", id ? { id } : {});
     navigation.closeDrawer();
-  };
-
-  const newChat = async () => {
-    try {
-      const c = await createConversation("Cuộc trò chuyện mới");
-      openChat(c.id);
-    } catch {
-      openChat();
-    }
   };
 
   const initial = (user?.email ?? "U").slice(0, 1).toUpperCase();
@@ -99,7 +90,7 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Đáy: user + New chat */}
+      {/* Đáy: user */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.sm }]}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{initial}</Text>
@@ -107,10 +98,6 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
         <Text style={styles.userName} numberOfLines={1}>
           {user?.email ?? "Tài khoản"}
         </Text>
-        <TouchableOpacity style={styles.newChatBtn} onPress={newChat}>
-          <Ionicons name="add" size={18} color={colors.onPrimary} />
-          <Text style={styles.newChatText}>New chat</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -163,14 +150,4 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontFamily: fonts.bold, color: colors.text, fontSize: 14 },
   userName: { flex: 1, color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13 },
-  newChatBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: colors.primary,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  newChatText: { color: colors.onPrimary, fontFamily: fonts.bold, fontSize: 14 },
 });
