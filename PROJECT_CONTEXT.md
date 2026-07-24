@@ -2,7 +2,7 @@
 
 > **Last verified:** 2026-07-24
 > **Branch:** main
-> **Verified against commit:** de4e7fe
+> **Verified against commit:** 07349dc
 
 Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
 
@@ -28,7 +28,7 @@ graph LR
 ```
 
 - **Backend**: Python, FastAPI 0.115, SQLAlchemy 2.0 (async, asyncpg prod / aiosqlite test), Alembic, Pydantic-settings, PyJWT+bcrypt, `anthropic` SDK 0.119 (nâng từ 0.39 ở Phase 4 — bản cũ thiếu tham số `thinking`), `arq` (Redis-backed job queue), `openpyxl` (xuất Excel).
-- **Frontend**: Expo SDK ~57, React 19.2 / React Native 0.86, Expo Router (file-based), không Redux/Zustand — state cục bộ bằng `useState`/`Context` (`AuthContext`).
+- **Frontend**: Expo SDK ~57, React 19.2 / React Native 0.86, **react-navigation** (Drawer + native-stack — Expo Router đã bị gỡ hẳn, không còn là dependency; `index.js` ghi rõ "đã bỏ expo-router"), không Redux/Zustand — state cục bộ bằng `useState`/`Context` (`AuthContext`).
 - **Hạ tầng dev** (`backend/docker-compose.yml`): Postgres 16 (host port 5435), Redis 7 (host port 6380), service `api` (FastAPI) + `worker` (arq, chạy `app.agent.worker.WorkerSettings`) tách biệt — worker mới thực sự gọi Anthropic.
 - Chat không chạy đồng bộ trong request HTTP: `POST .../messages` chỉ tạo `ChatRequest` (status `queued`) rồi `enqueue_job`; **worker** (`arq`) mới thực thi `run_agent_loop` và publish sự kiện qua Redis pub/sub; FE nhận qua WebSocket. Middleware/API không tự chạy agent loop — chạy `uvicorn` mà không có `arq worker` song song thì chat sẽ kẹt ở `queued` mãi.
 
@@ -46,15 +46,16 @@ backend/app/
   config.py       Settings (env vars) + các cờ *_mock
   security.py     JWT + bcrypt
   deps.py         get_current_user (JWT bearer)
-alembic/versions/ 19 migration (xem mục 9)
+alembic/versions/ 20 migration (xem mục 9)
 backend/tests/    125 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
 
 frontend/app/
-  (auth)/         login, signup-workspace, signup-code
-  (main)/         _layout.tsx = Tabs (5 tab chính + nhiều route ẩn href:null)
+  auth/           login, signup-workspace, activate (signup-code.tsx còn file nhưng đã tắt)
+  main/           chat, today, tasks, settings + các màn phụ (tasks/detail, team/detail, projects, skills...)
 frontend/src/
+  navigation/     RootNavigator (auth gate) → MainNavigator (Drawer: Chat/Dashboard/Công việc/Cài đặt + native-stack các màn phụ)
   api/            1 file/domain, tất cả gọi qua apiFetch (src/api/client.ts)
-  ui/             theme.ts (design tokens), form.tsx (Field/PrimaryButton/ErrorText)
+  ui/             theme.ts (design tokens), form.tsx, BackHeader.tsx, ConversationalForm.tsx
   auth/           AuthContext (JWT access+refresh trong SecureStore/AsyncStorage)
 ```
 
@@ -64,55 +65,59 @@ Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer
 
 | Domain (router) | Endpoint chính | Ghi chú quyền |
 |---|---|---|
-| `auth` | signup-workspace, activate, signup-code, login, refresh, logout, unlock-request | signup-code = tự đăng ký bằng mã mời chung workspace; activate = kích hoạt tài khoản do CEO tạo sẵn (xem `invites` bên dưới) |
+| `auth` | signup-workspace, activate, login, refresh, logout, unlock-request, forgot-password, reset-password | **`signup-code` đã comment tắt** (route bỏ, `auth_service.signup_with_code` giữ nguyên) — nhân viên không còn tự đăng nhập app (2026-07-23). activate = kích hoạt tài khoản do CEO tạo sẵn (xem `invites` bên dưới); forgot/reset-password = OTP đặt lại mật khẩu |
 | `users` | GET /me, GET "" (danh sách theo quyền thấy), GET /{id}/devices, POST /{id}/lock, /unlock, /offboard, /change-role | devices + lock/unlock/offboard/change-role: CEO-only |
 | `invites` | POST "" (`create_employee`: CEO tạo tài khoản nhân viên/quản lý TRỰC TIẾP — email/tên/role/manager cho sẵn, `User` tạo ngay ở trạng thái `pending`, trả về `activation_code` 8 ký tự) | CEO-only; CEO tự đưa `activation_code` cho người đó (Zalo/nói trực tiếp), người đó vào FE màn hình `(auth)/activate.tsx` nhập mã + tự đặt mật khẩu (`POST /auth/activate`) — không còn bước "chấp nhận lời mời" tự đăng ký kiểu cũ (route `signup-invite` đã xóa hẳn, chưa từng có màn hình FE redeem). Cũng gọi được qua chat (agent tool `create_employee`). |
 | `workspace` | GET/POST /invite-code (rotate) | CEO-only |
-| `projects` | POST, GET, PATCH | create/patch CEO-only; list theo `visible_project_ids`; **không có DELETE** |
-| `tasks` | POST, GET, GET/{id}, PATCH, POST/DELETE assignees, POST/GET updates, POST/GET comments | create CEO-only; list/get theo `visible_task_ids`; **không có DELETE task** |
+| `projects` | POST, GET, PATCH, **DELETE /{id}** | create/patch/delete CEO-only; list theo `visible_project_ids`. DELETE là tool nhạy cảm khi gọi qua chat (xem mục 6) |
+| `tasks` | POST, GET, GET/{id}, PATCH, **DELETE /{id}**, POST/DELETE assignees, POST/GET updates, POST/GET comments | create/delete CEO-only; list/get theo `visible_task_ids`. DELETE task là tool nhạy cảm khi gọi qua chat (xem mục 6) |
 | `attachments` | POST/GET tasks/{id}/attachments, GET /attachments/{id}/file | whitelist đuôi file + giới hạn 20MB, quyền qua task-visibility |
 | `skills` | POST, GET, POST /{id}/versions, POST /{id}/grants, GET /{id}/use | create/version/grant CEO-only; list: CEO thấy hết, người khác chỉ thấy skill được cấp; `use` bypass `visible_task_ids` có chủ đích (xem mục 6) |
 | `instructions` | POST, GET, PATCH, DELETE | toàn bộ CEO-only kể cả list |
 | `notes` | POST, GET (?on_date, ?tag) | ghi chú cá nhân — chỉ tác giả thấy, không ai khác kể cả CEO |
-| `voice_notes` | POST, GET, GET/{id}, GET/{id}/file | STT mock (xem mục 8) |
+| `voice_notes` | POST (upload), POST /{id}/transcribe, GET, GET/{id}, GET/{id}/file, DELETE /{id}, PATCH /{id} (title/tags) | STT mock (xem mục 8) |
 | `emails` | GET ?box=inbox\|sent | **không có POST gửi** — gửi mail chỉ qua chat/agent tool `send_email` |
 | `portal` | GET /reports, GET /reports/{id} | CEO + gói Advanced; mock (mục 8) |
 | `reports` | GET "" (list), GET /{id}/download (xlsx) | CEO-only; tạo report chỉ qua agent tool `generate_report` hoặc `ReportSchedule` cron, không có POST tạo qua REST |
 | `report_schedules` | POST, GET, DELETE | CEO + Advanced; cron `check_report_schedules` (arq, mỗi phút) tự sinh report tới hạn |
-| `notifications` | GET (?unread_only), POST /{id}/read, POST /read-all | mỗi user chỉ thấy thông báo của chính mình |
+| `notifications` | GET (?unread_only), GET /preferences, PATCH /preferences, POST /{id}/read, POST /read-all | mỗi user chỉ thấy thông báo của chính mình; preferences = bật/tắt theo từng loại thông báo |
 | `directives` (Phase 3) | POST "" (tạo), GET "" (list theo phạm vi actor), POST /{id}/ack, /question, /renegotiate | tạo: CEO hoặc manager cho direct report (`can_assign_directive`, KHÁC `require_ceo`); ack/question/renegotiate: chỉ recipient (404 nếu không phải) |
 | `audit` | GET /audit-events (?date_from, ?date_to) | CEO-only, gộp 5 nguồn (task update, login, khóa/mở, đổi instruction/skill, account event) |
+| `traces` (admin) | GET /admin/traces/{chat_request_id} | CEO-only; xem `AgentTrace` của 1 request (observability/debug agent) |
 | `search` | GET ?q= | gộp task/note/voice_note/user/skill, tôn trọng quyền từng loại |
 | `dashboard` | GET /today | task quá hạn/đến hạn/đang làm + cập nhật 24h + note hôm nay, theo phạm vi quyền actor |
 | `subscription` | GET, PATCH | PATCH = CEO-only, mock chuyển Basic/Advanced không có thanh toán thật |
 | `devices` | PUT /push-token | tự đăng ký device hiện tại, không cần CEO |
-| `chat` (`conversations`, `chat-requests`) | POST/GET/PATCH conversations, POST messages, GET requests, POST stop-all, POST/PATCH/POST(cancel/confirm/reorder) chat-requests | chi tiết mục 6 |
+| `chat` (`conversations`, `chat-requests`) | POST/GET/PATCH/**DELETE** conversations, POST/GET messages, GET requests, POST stop-all, POST/PATCH/POST(cancel/confirm/reorder) chat-requests | DELETE conversation xóa cascade thủ công; chi tiết mục 6 |
 | `ws` | WebSocket `/ws/conversations/{id}?token=` | stream token/status realtime qua Redis pub/sub |
 
 ## 5. Frontend: màn hình & navigation đã implement
 
-`(main)/_layout.tsx` là `Tabs` với **5 tab chính**: Hôm nay, Công việc, Trợ lý AI, Tìm kiếm, Cài đặt — cộng nhiều route ẩn (`href: null`) điều hướng bằng `router.push`.
+Điều hướng bằng **react-navigation** (KHÔNG Expo Router): `MainDrawer` (mặc định mở màn Chat) có **4 mục chính** — Chat, Dashboard (`today`), Công việc (`tasks`), Cài đặt (`settings`); drawer content còn liệt kê danh sách conversation "Gần đây" + nút New chat. Các màn còn lại push chồng qua `MainNavigator` (native-stack), mỗi màn tự render `<BackHeader/>`.
 
-| Route | Vai trò truy cập | Ghi chú |
+| Route (file) | Vai trò truy cập | Ghi chú |
 |---|---|---|
-| `today.tsx` (tab) | mọi role | dashboard: counters, ghi âm nhanh, quá hạn/đến hạn/đang làm, cập nhật 24h, ghi chú hôm nay; link sang Notifications + Notes |
-| `tasks.tsx` (tab) | mọi role | duyệt/lọc: Của tôi/Tôi quản lý/Quá hạn/Bị chặn/Đã hoàn thành; chỉ đọc — tạo/sửa vẫn qua chat |
-| `chat.tsx` (tab) | mọi role | streaming qua WebSocket, hàng đợi, dừng/hủy/ưu tiên, xác nhận hành động nhạy cảm, hold-queue khi mất mạng; nhận `?id=` để mở đúng conversation |
-| `search.tsx` (tab) | mọi role | |
-| `settings.tsx` (tab) | mọi role | entry point tới hầu hết route ẩn CEO-only bên dưới |
-| `conversations.tsx` | mọi role | tạo/tìm/đổi tên conversation, mở lại đúng cuộc trò chuyện |
-| `projects.tsx` | mọi role (theo `visible_project_ids`) | đọc, expand xem task trong project |
-| `tasks/[id].tsx` | theo quyền task | chi tiết, đính kèm, thảo luận (bình luận) |
-| `team.tsx` / `team/[id].tsx` | CEO-only | danh sách/chi tiết nhân sự, khóa/mở, nghỉ việc, đổi vai trò, log thiết bị |
-| `notes.tsx` | mọi role | ghi chú cá nhân |
-| `instructions.tsx` | CEO-only | quản lý chỉ dẫn AI |
-| `skills.tsx` | mọi role (CEO thêm quyền tạo/version/cấp quyền) | |
-| `emails.tsx` | mọi role | chỉ đọc |
-| `portal.tsx` | CEO + Advanced | |
-| `notifications.tsx` | mọi role | |
-| `reports.tsx` | CEO-only | tải + chia sẻ file Excel |
-| `report-schedules.tsx` | CEO + Advanced | |
-| `audit-log.tsx` | CEO-only | |
+| `main/chat.tsx` (drawer) | mọi role | streaming qua WebSocket, hàng đợi, dừng/hủy/ưu tiên, xác nhận hành động nhạy cảm + proposal, hold-queue khi mất mạng; đọc chính tả + đính kèm/phát ghi âm |
+| `main/today.tsx` (drawer, "Dashboard") | mọi role | counters, ghi âm nhanh (QuickVoiceCard), quá hạn/đến hạn/đang làm, cập nhật 24h, ghi chú; link sang Notifications + Notes |
+| `main/tasks.tsx` (drawer, "Công việc") | mọi role | duyệt/lọc: Của tôi/Tôi quản lý/Quá hạn/Bị chặn/Đã hoàn thành; chỉ đọc — tạo/sửa vẫn qua chat |
+| `main/settings.tsx` (drawer) | mọi role | entry point tới hầu hết route CEO-only bên dưới |
+| `main/conversations.tsx` | mọi role | tạo/tìm/đổi tên conversation (vuốt để sửa tên/xóa) |
+| `main/projects.tsx` | mọi role (theo `visible_project_ids`) | đọc, expand xem task trong project |
+| `main/tasks/detail.tsx` | theo quyền task | chi tiết, đính kèm, thảo luận (bình luận), xóa task |
+| `main/team.tsx` / `main/team/detail.tsx` | CEO-only | danh sách/chi tiết nhân sự, khóa/mở, nghỉ việc, đổi vai trò, log thiết bị |
+| `main/notes.tsx` | mọi role | ghi chú cá nhân |
+| `main/instructions.tsx` | CEO-only | quản lý chỉ dẫn AI |
+| `main/skills.tsx` | mọi role (CEO thêm quyền tạo/version/cấp quyền) | |
+| `main/voice-notes.tsx` | mọi role | thư viện ghi âm (sửa tiêu đề/tags/xóa) |
+| `main/emails.tsx` | mọi role | chỉ đọc |
+| `main/portal.tsx` | CEO + Advanced | |
+| `main/notifications.tsx` | mọi role | list + preferences bật/tắt từng loại; riêng `directive_assigned` có 3 nút hành động tại chỗ (Nhận việc/Hỏi lại/Xin dời hạn) |
+| `main/reports.tsx` | CEO-only | tải + chia sẻ file Excel |
+| `main/report-schedules.tsx` | CEO + Advanced | |
+| `main/audit-log.tsx` | CEO-only | |
+| `main/search.tsx` | — | **CODE MỒ CÔI**: file màn + `src/api/search.ts` + endpoint BE đều có, nhưng KHÔNG navigator nào trỏ tới (không thể mở từ UI). Cần quyết bỏ hẳn hay nối lại |
+
+Màn auth (`app/auth/`): login, forgot-password, signup-workspace, activate — 3 màn cuối dùng `ConversationalForm` (hỏi từng câu kiểu chat). `signup-code.tsx` còn file nhưng route đã tắt.
 
 FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích sản phẩm — hành động quản trị qua chat).
 
@@ -120,12 +125,12 @@ FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích s
 
 - **Model**: `get_llm_client(model=None, thinking_budget=None)` (`@lru_cache`, keyed theo tham số) — gọi không tham số = singleton `model_fast` (mặc định `"claude-haiku-4-5"`, path thường/ack); gọi `get_llm_client(settings.model_smart, budget)` = singleton THỨ 2 riêng cho đường sâu (`model_smart`, mặc định `"claude-sonnet-4-6"`, + extended thinking). Không hardcode model ID trong code nghiệp vụ. `anthropic_base_url` rỗng = gọi thẳng `api.anthropic.com`; set giá trị khác để qua gateway tương thích Anthropic API.
 - **Router (Phase 4 §8.1, `app/agent/router.py`)**: phân loại ý định câu nói MỘT LẦN lúc `process_conversation` pickup request `queued` đầu tiên (không đánh giá lại giữa các vòng gọi tool). Tier 1 `classify_heuristic` — regex tiếng Việt đã bỏ dấu (0ms, không gọi model), phủ 7 nhóm (`work`/`insight`/`admin`/`reporting`/`skill`/`personal`/`deep`). Không khớp → tier 2 `classify_route` gọi 1 lượt `model_fast` ép ra đúng 1 từ. Cả 2 tầng không chắc → `None` → `tool_names_for_route(None)` trả `None` = **fallback nạp full 58 tool** (an toàn hơn thiếu tool, không tự đoán). `tool_names_for_route(group)` = `TOOL_GROUPS["core"] | TOOL_GROUPS[group]`, lọc vào `_tool_specs_for_api()` trước khi gọi model — Haiku không còn phải nạp cả 58 tool mỗi lượt.
-- **Đường sâu (Phase 4 §8.2)**: route=`"deep"` (câu phân tích/đánh giá/so sánh nặng, vd "đánh giá rủi ro toàn bộ dự án") không chạy `run_agent_loop` thường mà: (1) `run_deep_ack_turn` — gọi `model_fast` KHÔNG tool, sinh 1-2 câu ack ("đang phân tích, ~30s..."), ghi `AgentTrace(route="deep", stop_reason="ack_sent")`, chuyển `ChatRequest.status` `queued→running→deep_running` (state MỚI, KHÔNG phải `done` — hàng đợi tiếp tục xử lý tin nhắn sau, không bị chặn), publish `deep_analysis_started` (KHÔNG phải `request_done`); (2) `process_conversation` tự enqueue job arq riêng `run_deep_analysis` (`_job_id=f"deep:{request_id}"`, đăng ký `arq.worker.func(timeout=900)` — timeout riêng cao hơn `job_timeout=600` global) — job này dùng client `model_smart`+thinking (`ctx["llm_client_smart"]`), toolset `core+insight`, trần riêng `DEEP_MAX_ITERATIONS=40`/`DEEP_MAX_DURATION_SECONDS=800` (cao hơn hẳn fast path, xem bên dưới), guard chỉ chạy nếu request VẪN `deep_running` (tránh reset nhầm nếu đã bị hủy/xử lý xong bởi luồng khác). Job xong thật (`done`) → `notify(type="deep_analysis_done")` báo người gửi qua push (người dùng không ngồi chờ 30s-800s). `AgentTrace` của 1 request đường sâu có ≥2 dòng (ack + job) — mọi chỗ đọc "route của request" phải lấy dòng **cuối cùng theo `created_at`**, không phải dòng đầu (xem `evals/run_evals.py::_read_traces`).
+- **Đường sâu (Phase 4 §8.2)**: route=`"deep"` (câu phân tích/đánh giá/so sánh nặng, vd "đánh giá rủi ro toàn bộ dự án") không chạy `run_agent_loop` thường mà: (1) `run_deep_ack_turn` — gọi `model_fast` KHÔNG tool, sinh 1-2 câu ack ("đang phân tích, ~30s..."), ghi `AgentTrace(route="deep", stop_reason="ack_sent")`, chuyển `ChatRequest.status` `queued→running→deep_running` (state MỚI, KHÔNG phải `done` — hàng đợi tiếp tục xử lý tin nhắn sau, không bị chặn), publish `deep_analysis_started` (KHÔNG phải `request_done`); Message ack này đánh dấu **`is_ack=True`** và bị `_load_history` loại hẳn khỏi lịch sử gửi lại model (kể cả khi `run_deep_analysis` xử lý lại CHÍNH request này) — thiếu cờ này lịch sử sẽ có 1 message assistant "lạc chỗ" phá luật user/assistant xen kẽ bắt buộc của Anthropic, bị model từ chối thẳng (phát hiện qua verify tay end-to-end thật, xem mục 13); (2) `process_conversation` tự enqueue job arq riêng `run_deep_analysis` (`_job_id=f"deep:{request_id}"`, đăng ký `arq.worker.func(timeout=900)` — timeout riêng cao hơn `job_timeout=600` global) — job này dùng client `model_smart`+thinking (`ctx["llm_client_smart"]`), toolset `core+insight`, trần riêng `DEEP_MAX_ITERATIONS=40`/`DEEP_MAX_DURATION_SECONDS=800` (cao hơn hẳn fast path, xem bên dưới), guard chỉ chạy nếu request VẪN `deep_running` (tránh reset nhầm nếu đã bị hủy/xử lý xong bởi luồng khác). Job xong thật (`done`) → `notify(type="deep_analysis_done")` báo người gửi qua push (người dùng không ngồi chờ 30s-800s). `AgentTrace` của 1 request đường sâu có ≥2 dòng (ack + job) — mọi chỗ đọc "route của request" phải lấy dòng **cuối cùng theo `created_at`**, không phải dòng đầu (xem `evals/run_evals.py::_read_traces`).
 - **Extended thinking** (model_smart): `AnthropicLLMClient` khi có `thinking_budget` thì set `max_tokens = thinking_budget + 4096` + truyền `thinking={"type":"enabled","budget_tokens":...}`; SSE accumulator gom `thinking`/`signature` delta vào `StreamDone.thinking_blocks`; `run_agent_loop` chèn nguyên văn thinking block (kèm signature) TRƯỚC text/tool_use khi dựng lại `assistant_content` cho lượt sau — bắt buộc theo hợp đồng thinking+tool-use của Anthropic.
 - **Hàng đợi**: mỗi tin nhắn → 1 `ChatRequest` (`queued`), `enqueue_conversation` gửi job arq `process_conversation` với `_job_id=f"conv:{id}"` (dedup theo conversation). Worker xử lý **tuần tự từng request theo `queue_position`** cho tới khi rỗng hàng đợi của conversation đó (trừ request route="deep" — job phân tích chạy NỀN, không chặn các request `queued` tiếp theo).
 - **Streaming**: `AnthropicLLMClient.stream()` đọc raw SSE event, tự accumulate theo `message_start` mới nhất (không dùng helper `messages.stream()` — có bug thực tế với gateway beeknoee). Mỗi `text_delta` publish `{"type":"token",...}` qua Redis, FE nhận qua WebSocket `/ws/conversations/{id}`.
 - **Vòng lặp** (`run_agent_loop`, `app/agent/loop.py`): mỗi lượt build lại system prompt (nạp `Instruction` mới nhất từ DB — CEO sửa là AI dùng ngay, không cache/restart), gọi model, nếu `stop_reason == tool_use` thì gọi tool tương ứng (`call_tool`) và lưu `tool_result` vào lịch sử, lặp lại. Guardrail (hardening trước Phase 3, kiểm tra đầu mỗi vòng lặp) mặc định: **`MAX_ITERATIONS = 25`**, **`MAX_TOOL_CALLS = 60`**, **`MAX_DURATION_SECONDS = 240`** (< arq `job_timeout` mặc định 600s để dừng sạch trước khi bị kill), **`MAX_TOTAL_TOKENS = 200_000`** — vượt bất kỳ ngưỡng nào thì `_mark_failed` với error code riêng (`max_tool_calls_exceeded`/`max_duration_exceeded`/`max_total_tokens_exceeded`), FE có message thân thiện tương ứng. Cả 4 ngưỡng nhận kwarg override (`max_iterations=`..., đọc hằng số module BÊN TRONG hàm chứ không bind lúc định nghĩa — monkeypatch test vẫn hiệu lực) — job đường sâu (`run_deep_analysis`, Phase 4) truyền trần cao hơn hẳn (`DEEP_MAX_ITERATIONS=40`/`DEEP_MAX_DURATION_SECONDS=800`, worker.py) vì model_smart+thinking chạy nhiều vòng/tốn token hơn Haiku.
-- **Xác nhận hành động nhạy cảm**: 6 tool đánh dấu `sensitive=True` — `lock_user`, `unlock_user`, `offboard_user`, `change_user_role`, `send_email`, `delete_instruction`. Khi model gọi 1 trong 6 tool này, loop dừng ở `awaiting_confirmation`, publish `confirmation_required`, FE hiện nút Đồng ý/Từ chối; `POST /chat-requests/{id}/confirm` mới thực thi tool thật. Tool chạy trong `resolve_confirmation()` (kể cả nhiều action của 1 `propose_actions` đã duyệt) được ghi 1 dòng `AgentTrace` riêng (`route="confirm"`) — trước đây bị bỏ sót (backlog Phase 0), khiến hành động đã duyệt vô hình với observability.
+- **Xác nhận hành động nhạy cảm**: 8 tool đánh dấu `sensitive=True` — `delete_task`, `delete_project`, `lock_user`, `unlock_user`, `offboard_user`, `change_user_role`, `send_email`, `delete_instruction` (`SENSITIVE_TOOLS` được suy ra tự động từ `spec.sensitive`). Khi model gọi 1 trong các tool này, loop dừng ở `awaiting_confirmation`, publish `confirmation_required`, FE hiện nút Đồng ý/Từ chối; `POST /chat-requests/{id}/confirm` mới thực thi tool thật. Tool chạy trong `resolve_confirmation()` (kể cả nhiều action của 1 `propose_actions` đã duyệt) được ghi 1 dòng `AgentTrace` riêng (`route="confirm"`) — trước đây bị bỏ sót (backlog Phase 0), khiến hành động đã duyệt vô hình với observability.
 - **Proposal nhiều action (Phase 2 `propose_actions`) báo rõ kết quả từng phần**: `_resolve_proposal()` trả `outcome` (`completed`/`partially_completed`/`failed`) + `succeeded`/`failed` (danh sách `display_text`) trong tool_result — system prompt bắt buộc model liệt kê rõ việc nào xong/lỗi khi `outcome != completed`, không được nói chung chung "đã xong".
 - **Dừng/hủy**: `POST stop-all` set các request `queued` → `cancelled`, request `running` **hoặc `deep_running`** (Phase 4 — job đường sâu đang chạy nền) được đánh dấu qua Redis key `cancel:{id}` (loop tự kiểm tra `is_cancelled` giữa các bước); `POST /chat-requests/{id}/cancel` tương tự cho 1 request lẻ.
 - **Mất mạng / "tiếp tục công việc"**: socket cuối cùng đóng → `continuity.hold_queue_if_pending` set `Conversation.queue_held=True`, worker thấy cờ này thì **không tự chạy tiếp**; chỉ khi user gửi đúng cụm `RESUME_PHRASE` ("tiếp tục công việc") thì `send_message` clear cờ và enqueue lại.
@@ -160,7 +165,7 @@ Cờ trong `app/config.py`, tất cả **mặc định `True` (mock)** — bật
 
 ## 9. Database & migrations
 
-Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **19 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `chat_request_deep_running_status` (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router — `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`, chưa verify trên Postgres dev thật trong phiên này, chỉ SQLite). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
+Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **21 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `invite_user_id_and_pending_status` → `chat_request_deep_running_status` → `message_is_ack_flag` (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router — `invite_user_id_and_pending_status` thêm `UserStatus 'pending'` + `invites.user_id` FK cho activation code; `chat_request_deep_running_status` = `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`; `message_is_ack_flag` thêm `messages.is_ack` — cả 2 migration Phase 4 đã chạy `alembic upgrade head` sạch trên Postgres dev thật, không chỉ SQLite). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
 
 28 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
 
@@ -170,7 +175,7 @@ Chạy trong `backend/` (venv `.venv`):
 ```
 docker compose up -d postgres redis         # 5435/6380
 alembic upgrade head
-pytest tests/ -v                            # 673 pass + 4 skip (125 file test) hiện tại trên nhánh này
+pytest tests/ -v                            # 675 pass + 4 skip (125 file test) hiện tại trên nhánh này
 uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
 arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
 python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
@@ -180,9 +185,10 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
 ## 11. Hạn chế đã biết, API còn thiếu, việc còn lại
 
 **Còn thiếu / chưa làm** (không phải "sẽ làm" — liệt kê thực tế, không suy đoán ưu tiên):
-- Không có API xóa Project hoặc Task (chỉ có create/patch).
-- Không có UI chọn loại thông báo muốn nhận (functional-plan có nhắc, chưa thấy trong code) — Notification Center hiện tại chỉ liệt kê + đánh dấu đã đọc, không có cấu hình per-type.
+- Xóa Project/Task: ĐÃ CÓ `DELETE /projects/{id}` và `DELETE /tasks/{id}` (CEO-only; qua chat là tool nhạy cảm `delete_project`/`delete_task` cần confirm).
+- ~~Không có UI chọn loại thông báo muốn nhận~~ — ĐÃ CÓ: `GET/PATCH /notifications/preferences` + `PreferencesSection` trong `main/notifications.tsx` cho bật/tắt từng loại.
 - Skill: chỉ có "cấp quyền xem/dùng" (grant), không có phân biệt view/edit/use ở mức chi tiết hơn.
+- **Màn Tìm kiếm mồ côi**: BE có `GET /api/v1/search`, FE có `app/main/search.tsx` + `src/api/search.ts`, nhưng KHÔNG navigator nào đăng ký route này → người dùng không mở được từ UI. Còn treo: bỏ hẳn hay nối vào Drawer/Settings.
 - Không có API sửa/xóa comment hoặc note (chỉ thêm mới + liệt kê — cố ý theo tiền lệ, không phải thiếu sót).
 - Chưa xác minh UI thật của 4 tab/màn hình mới nhất (Conversations, Tasks/Projects, Notification Center, Report Center) qua Expo dev server — chỉ mới qua `tsc` + review code.
 - Email và STT chưa có implementation thật (chỉ mock, xem mục 8) — cần viết code provider trước khi dùng được, không chỉ đổi cờ.
@@ -260,13 +266,32 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   `run_deep_analysis` (`arq.worker.func(timeout=900)`, trần `DEEP_MAX_ITERATIONS=40`/
   `DEEP_MAX_DURATION_SECONDS=800` qua guardrail override mới của `run_agent_loop`) + `notify()`
   khi xong thật; `chat.py` stop-all/cancel nhận diện `deep_running`; eval grader thêm
-  `expected_route` + scenario "phan-tich-rui-ro-du-an". Migration mới: `ALTER TYPE
-  chatrequeststatus ADD VALUE 'deep_running'`. Full pytest 673 pass/4 skip (125 file), `tsc`
-  không chạy lại (phase này backend-only theo bảng §12 spec, không đụng FE).
-  **Chưa verify**: `alembic upgrade head` trên Postgres dev thật (chỉ chạy qua SQLite trong
-  phiên này — Docker Desktop không chạy lúc verify) và verify tay qua chat thật (đo ack <3s,
-  xác nhận kết quả Sonnet đến sau, `AgentTrace` cuối route=deep) — cả 2 cần làm trước khi coi
-  Phase 4 sẵn sàng production.
+  `expected_route` + scenario "phan-tich-rui-ro-du-an". Migration: `ALTER TYPE
+  chatrequeststatus ADD VALUE 'deep_running'` + `messages.is_ack` (xem dưới).
+
+- 2026-07-24 (verify tay end-to-end thật, cùng ngày): chạy full stack thật (Postgres/Redis
+  docker, `uvicorn`, `arq worker`, LLM thật qua gateway platform.beeknoee.com) phát hiện + fix
+  2 lỗi mà unit test (mock) không bắt được:
+  (1) **`anthropic` SDK 0.39 thiếu tham số `thinking`** hoàn toàn (SDK quá cũ, trước khi
+  Anthropic ra extended thinking) — `messages.create(thinking=...)` bay `TypeError` ngay lập
+  tức. Test double mock nguyên cả `.create(**kwargs)` nên không xác thực đúng chữ ký SDK thật.
+  Nâng lên `0.119.*` (mới nhất) — full pytest không đổi sau nâng cấp.
+  (2) **`run_deep_ack_turn` ghi ack message (role=assistant) gây vỡ lịch sử gửi model** —
+  ack gắn `chat_request_id` CÙNG với request mà `run_deep_analysis` xử lý tiếp; `_load_history`
+  nạp lại thấy ack đứng cuối (lần đầu) rồi đứng GIỮA user-text gốc và tool_use lượt đầu của
+  job (sau khi thử fix tạm) — cả 2 đều phá luật user/assistant xen kẽ bắt buộc của Anthropic,
+  bị model từ chối thẳng ("must end with a user message" / "unexpected tool_use_id... must
+  have a corresponding tool_use block in the previous message"). Fix gốc: cột mới
+  `Message.is_ack` (migration `message_is_ack_flag`), `_load_history` loại hẳn message này
+  khỏi lịch sử gửi model bất kể vị trí — ack chỉ là câu xác nhận UI, không phải suy luận thật.
+  Sau 2 fix, verify lại thành công **thật sự end-to-end**: gửi "phân tích rủi ro toàn bộ dự án
+  Marketing Q3" qua chat thật → ack ~16.5s (vượt mục tiêu <3s, nhưng khớp đúng độ trễ dao động
+  mạnh đã biết của gateway dev — xem `evals/BASELINE.md` các phase trước, không phải regression
+  code) → job nền gọi thật `get_project_health` + `search` → trả lời phân tích rủi ro tiếng
+  Việt đầy đủ, đúng chất lượng → `AgentTrace` cuối cùng `route=deep` → `notify()` bắn
+  `deep_analysis_done` đúng payload. `alembic upgrade head` sạch trên Postgres dev thật cho cả
+  2 migration Phase 4. Full pytest 675 pass/4 skip (125 file) sau tất cả các fix.
+  **Phase 4 giờ đã coi là sẵn sàng** (không còn mục nào "chưa verify").
 - 2026-07-23 (song song, KHÔNG thuộc roadmap Phase 0-4 trên): product owner quyết định
   **bỏ đăng nhập của role `employee`** — nhân viên chỉ còn là record để gán task, không tự
   đăng ký/đăng nhập app này nữa (chỉ CEO/manager dùng). Đã tắt (comment out, KHÔNG xóa) luồng
@@ -276,6 +301,6 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   `create_employee` tool, `team/detail.tsx`, và đặc biệt **Directive** (cơ chế ack/hỏi lại/xin
   dời hạn bắt buộc người nhận tự đăng nhập — về logic đã mâu thuẫn với quyết định này nhưng
   user yêu cầu giữ nguyên, chưa sửa). Chi tiết đầy đủ: memory
-  `project-employee-role-removal-2026-07-23.md`. **Mục 4 (bảng API) ở trên CHƯA cập nhật cho
-  thay đổi này** — dòng `auth: signup-code` vẫn mô tả như đang hoạt động, đối chiếu code thật
-  (`app/api/auth.py`) trước khi tin.
+  `project-employee-role-removal-2026-07-23.md`. **Mục 4 (bảng API) đã cập nhật** (2026-07-24,
+  đối chiếu commit 07349dc): dòng `auth` phản ánh `signup-code` đã tắt; mục 5 phản ánh
+  react-navigation + màn `search` mồ côi + `signup-code.tsx` tắt.
