@@ -22,7 +22,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -42,7 +42,7 @@ jobs:
       contents: read
       packages: write   # push to GHCR
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -75,7 +75,7 @@ jobs:
       contents: read
       packages: read   # pull from GHCR only — no write needed
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Propagate the compose file so VPS always has the latest service definition.
       # strip_components:1 removes the leading "backend/" so the file lands at
