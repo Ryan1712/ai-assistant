@@ -105,4 +105,4 @@ async def test_generate_report_tool_unknown_project_not_found(db_session, storag
 def test_generate_report_registered_as_22nd_tool_not_sensitive():
     assert "generate_report" in TOOLS
     assert TOOLS["generate_report"].sensitive is False
-    assert len(TOOLS) == 58  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track)
+    assert len(TOOLS) == 61  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search +list_memories +forget_memory (Phase 6)

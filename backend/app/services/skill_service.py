@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Role, Skill, SkillGrant, SkillUsageLog, SkillVersion, Task, TaskAssignee, TaskUpdate, User
 from app import plans
 from app.permissions import require_ceo
+from app.services import embedding_service
 
 
 async def _latest_version_num(db: AsyncSession, skill_id: uuid.UUID) -> int:
@@ -40,9 +41,12 @@ async def create_skill(db: AsyncSession, actor: User, *, name: str, kind,
                   task_id=task_id, created_by=actor.id)
     db.add(skill)
     await db.flush()
-    db.add(SkillVersion(workspace_id=actor.workspace_id, skill_id=skill.id,
-                        version=1, content=content, created_by=actor.id))
+    sv = SkillVersion(workspace_id=actor.workspace_id, skill_id=skill.id,
+                      version=1, content=content, created_by=actor.id)
+    db.add(sv)
     await db.commit()
+    await embedding_service.index_content(db, actor.workspace_id, "skill", sv.id,
+                                          f"{name}: {content}")
     return await _skill_out(db, skill)
 
 
@@ -51,9 +55,12 @@ async def add_version(db: AsyncSession, actor: User, skill_id: uuid.UUID,
     require_ceo(actor)
     skill = await _get_skill_or_404(db, actor, skill_id)
     version = await _latest_version_num(db, skill.id) + 1
-    db.add(SkillVersion(workspace_id=actor.workspace_id, skill_id=skill.id,
-                        version=version, content=content, created_by=actor.id))
+    sv = SkillVersion(workspace_id=actor.workspace_id, skill_id=skill.id,
+                      version=version, content=content, created_by=actor.id)
+    db.add(sv)
     await db.commit()
+    await embedding_service.index_content(db, actor.workspace_id, "skill", sv.id,
+                                          f"{skill.name}: {content}")
     return version
 
 

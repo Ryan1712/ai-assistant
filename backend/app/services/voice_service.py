@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import User, VoiceNote
 from app.permissions import get_visible_task_or_404, visible_project_ids
+from app.services import embedding_service
 
 _ALLOWED_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".webm"}
 _MAX_FILE_SIZE = 25 * 1024 * 1024  # attachment có trần 20MB; voice cho nhỉnh hơn
@@ -152,6 +153,11 @@ async def transcribe_note(db: AsyncSession, voice_note_id: uuid.UUID) -> None:
     except Exception:
         note.transcript_status = "failed"
     await db.commit()
+    if note.transcript_status == "done" and note.transcript:
+        # Phase 6 §10.3: index_content() là upsert thật cho voice_transcript
+        # (khác note/task_update bất biến) — retranscribe update tại chỗ.
+        await embedding_service.index_content(db, note.workspace_id, "voice_transcript",
+                                              note.id, note.transcript)
 
 
 async def delete_voice_note(db: AsyncSession, actor: User, voice_note_id: uuid.UUID) -> None:

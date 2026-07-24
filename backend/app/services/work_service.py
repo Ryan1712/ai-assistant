@@ -11,6 +11,7 @@ from app.models import (
     Notification, Project, Task, TaskAssignee, TaskComment, TaskStatus, TaskUpdate, User,
 )
 from app.services.notify import notify
+from app.services import embedding_service
 from app.permissions import (
     can_update_progress,
     get_visible_task_or_404,
@@ -259,6 +260,7 @@ async def add_task_update(db: AsyncSession, actor: User, task_id: uuid.UUID, *,
     await _notify_task_update(db, actor, task)
     await _notify_mentions(db, actor, task, content)
     await db.commit()
+    await embedding_service.index_content(db, actor.workspace_id, "task_update", upd.id, content)
     return upd
 
 
@@ -277,6 +279,7 @@ async def add_comment(db: AsyncSession, actor: User, task_id: uuid.UUID,
     db.add(comment)
     await _notify_mentions(db, actor, task, content)
     await db.commit()
+    await embedding_service.index_content(db, actor.workspace_id, "comment", comment.id, content)
     return {"id": comment.id, "task_id": comment.task_id, "author_id": comment.author_id,
             "author_name": actor.full_name, "content": comment.content,
             "created_at": comment.created_at}

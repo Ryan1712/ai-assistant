@@ -25,7 +25,7 @@ async def _ceo(db):
 def test_offboard_user_tool_registered_and_sensitive():
     assert "offboard_user" in TOOLS
     assert TOOLS["offboard_user"].sensitive is True
-    assert len(TOOLS) == 58  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track)
+    assert len(TOOLS) == 61  # +create_directive +get_directive_status (Phase 3) +get_project_health +get_progress_stats (feedback fast-track) +semantic_search +list_memories +forget_memory (Phase 6)
 
 
 @pytest.mark.asyncio

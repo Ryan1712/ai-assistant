@@ -19,7 +19,7 @@ from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
     ConversationRenameIn, MessageOut, MessageSendIn, ReorderIn,
 )
-from app.services import continuity, session_service, voice_service
+from app.services import continuity, embedding_service, session_service, voice_service
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
 chat_requests_router = APIRouter(prefix="/api/v1/chat-requests", tags=["chat"])
@@ -155,15 +155,20 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
                       queue_position=(max_pos or 0.0) + 1.0)
     db.add(req)
     await db.flush()
-    db.add(Message(workspace_id=actor.workspace_id, conversation_id=conv.id,
-                   chat_request_id=req.id, role=MessageRole.user,
-                   voice_note_id=body.voice_note_id,
-                   content=[{"type": "text", "text": body.content + note_line}]))
+    user_msg = Message(workspace_id=actor.workspace_id, conversation_id=conv.id,
+                       chat_request_id=req.id, role=MessageRole.user,
+                       voice_note_id=body.voice_note_id,
+                       content=[{"type": "text", "text": body.content + note_line}])
+    db.add(user_msg)
     if conv.queue_held and continuity.is_resume_phrase(body.content):
         # 5.7: "tiếp tục công việc" → mở lại queue; request này vào cuối hàng
         # nên AI làm nốt việc cũ trước rồi mới trả lời nó.
         conv.queue_held = False
     await db.commit()
+    # Phase 6 §10.3: index nguyên văn (không kèm note_line đính kèm ghi âm) —
+    # "ký ức xuyên session" qua semantic_search, best-effort không chặn gửi tin.
+    await embedding_service.index_content(db, actor.workspace_id, "chat_message",
+                                          user_msg.id, body.content)
     await enqueue_conversation(arq_pool, conv.id)
     return req
 

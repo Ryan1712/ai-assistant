@@ -522,6 +522,53 @@ class ReportSchedule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Embedding(Base):
+    """Index ngữ nghĩa (Phase 6 §10.3) — nguồn: note | task_update | comment |
+    chat_message (mở rộng thêm loại sau chỉ cần thêm string, không đổi bảng).
+
+    embedding lưu JSON list[float] thay vì kiểu Vector của pgvector — test
+    suite chạy SQLite in-memory (xem tests/conftest.py), không có extension
+    Postgres; so khớp bằng cosine similarity thuần Python (app/services/
+    embedding_service.py), cùng lý do fuzzy_match.py chọn Jaccard-trigram
+    thay vì pg_trgm.
+
+    Nguồn (note/task_update/comment/chat_message) đều bất biến sau khi tạo
+    (không có PATCH) nên không cần re-embed; quyền xem KHÔNG kiểm ở bảng này
+    — semantic_search() luôn join ngược bảng gốc + permissions.py tại thời
+    điểm truy vấn."""
+    __tablename__ = "embeddings"
+    __table_args__ = (UniqueConstraint("source_type", "source_id", "chunk_no",
+                                       name="uq_embedding_source_chunk"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    source_type: Mapped[str] = mapped_column(String(32))
+    source_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    chunk_no: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class WorkspaceMemory(Base):
+    """Fact bền do distiller (cron đêm, app/services/distiller_service.py) chưng
+    cất từ hoạt động công ty trong ngày, hoặc CEO tự thêm sau này (Phase 6 §10.2).
+
+    scope: "workspace" (mọi actor trong công ty đều nạp) | "user:<uuid>" (chỉ
+    actor đó — CHƯA dùng ở v1, distiller hiện chỉ sinh scope="workspace" để
+    tránh rủi ro rò rỉ nội dung chat riêng tư của 1 user vào bộ nhớ chung — xem
+    docstring distiller_service.py). archived_at != None = đã "quên" (soft
+    delete qua tool forget_memory, CEO-only)."""
+    __tablename__ = "workspace_memories"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    scope: Mapped[str] = mapped_column(String(64))
+    content: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(32))  # "distiller" | "user_explicit"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AgentTrace(Base):
     """Trace 1 LẦN CHẠY agent loop của 1 chat_request (Phase 0, spec AI upgrade 4.1).
 

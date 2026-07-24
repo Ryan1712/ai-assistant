@@ -1,8 +1,8 @@
 # PROJECT_CONTEXT.md
 
 > **Last verified:** 2026-07-24
-> **Branch:** phase5-session-model (chưa merge vào `main`; `main` hiện dừng ở `1e31fb0` = spec+plan Phase 5 dạng docs, chưa có code Phase 5)
-> **Verified against commit:** `b47a475` (commit code cuối cùng của Phase 5, gồm cả fix nút tạo conversation thủ công phát hiện lúc verify — SHA tự tham chiếu không khả thi vì sửa nội dung đổi SHA mỗi lần, nên ghi commit code cha thay vì đuổi theo SHA của chính commit docs)
+> **Branch:** `main` (Phase 5 đã merge — xác nhận `main` và branch làm việc trùng HEAD ở `c6081d1`, khác ghi chú cũ của bản trước nói "chưa merge")
+> **Verified against commit:** `c6081d1` (commit code cuối cùng của Phase 5) + Phase 6.3 (semantic_search) làm tiếp ngay sau, chưa có SHA riêng lúc viết dòng này
 
 Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
 
@@ -135,7 +135,10 @@ FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích s
 - **Proposal nhiều action (Phase 2 `propose_actions`) báo rõ kết quả từng phần**: `_resolve_proposal()` trả `outcome` (`completed`/`partially_completed`/`failed`) + `succeeded`/`failed` (danh sách `display_text`) trong tool_result — system prompt bắt buộc model liệt kê rõ việc nào xong/lỗi khi `outcome != completed`, không được nói chung chung "đã xong".
 - **Dừng/hủy**: `POST stop-all` set các request `queued` → `cancelled`, request `running` **hoặc `deep_running`** (Phase 4 — job đường sâu đang chạy nền) được đánh dấu qua Redis key `cancel:{id}` (loop tự kiểm tra `is_cancelled` giữa các bước); `POST /chat-requests/{id}/cancel` tương tự cho 1 request lẻ.
 - **Mất mạng / "tiếp tục công việc"**: socket cuối cùng đóng → `continuity.hold_queue_if_pending` set `Conversation.queue_held=True`, worker thấy cờ này thì **không tự chạy tiếp**; chỉ khi user gửi đúng cụm `RESUME_PHRASE` ("tiếp tục công việc") thì `send_message` clear cờ và enqueue lại.
-- **Tool registry**: `app/agent/tools.py`, **58 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`) + 2 tool Phase 3 (`create_directive`, `get_directive_status`) + 2 tool phân tích (`get_project_health` — soi sâu 1 project: blocked/overdue/stale + risk heuristic; `get_progress_stats` — so sánh tuần/tháng này với kỳ trước, cả 2 đọc-only, `app/services/analytics_service.py`). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 58 tool này thành 7 nhóm — **đã wiring** vào Router động (Phase 4, xem trên): fast path lọc theo nhóm phân loại được, đường sâu luôn dùng cố định `core+insight`.
+- **Tool registry**: `app/agent/tools.py`, **61 tool** đăng ký qua `_register(name, description, input_model, handler, sensitive=)`, bao phủ hầu hết domain ở mục 4 (project/task/comment/skill/instruction/user quản trị/report/report-schedule/audit/email/portal/note/voice/attachment/search/dashboard/notification) + 3 tool Phase 2 (`resolve_person`, `resolve_task`, `propose_actions`) + 2 tool Phase 3 (`create_directive`, `get_directive_status`) + 2 tool phân tích (`get_project_health` — soi sâu 1 project: blocked/overdue/stale + risk heuristic; `get_progress_stats` — so sánh tuần/tháng này với kỳ trước, cả 2 đọc-only, `app/services/analytics_service.py`) + 3 tool Phase 6 (`semantic_search` — tìm THEO NGỮ NGHĨA trong note/task_update/comment/chat_message/voice_transcript/skill của actor, `app/services/embedding_service.py`; `list_memories`/`forget_memory` — xem/xóa "ghi nhớ dài hạn" do distiller chưng cất, chỉ CEO, `app/services/distiller_service.py`; xem chi tiết dưới). Quyền kiểm tra lại **trong chính service layer** khi tool gọi xuống — tool không tự ý bỏ qua permission. `TOOL_GROUPS` (Phase 2 §6.4) phân loại 61 tool này thành 7 nhóm — **đã wiring** vào Router động (Phase 4, xem trên): fast path lọc theo nhóm phân loại được, đường sâu luôn dùng cố định `core+insight`.
+- **Semantic search (Phase 6 §10.3, `app/services/embedding_service.py`)**: bảng `embeddings` (`workspace_id, source_type, source_id, chunk_no, content, embedding, created_at`) lưu embedding dạng **JSON list[float]** (KHÔNG dùng kiểu `Vector` của pgvector — test suite chạy SQLite in-memory, không có extension Postgres; so khớp bằng cosine similarity thuần Python qua `embedding_service.cosine_similarity()` (public, dùng chung cả `distiller_service.py`), cùng lý do `fuzzy_match.py` chọn Jaccard-trigram thay vì `pg_trgm`). Nguồn index: `note`, `task_update`, `comment`, `chat_message`, **`voice_transcript`, `skill`** (2 loại sau thêm ngay sau đợt đầu). note/task_update/comment/chat_message bất biến sau khi tạo → `index_content()` insert-nếu-chưa-có; **`voice_transcript` là ngoại lệ retranscribe được** → `index_content()` thực ra là upsert thật (content trùng thì bỏ qua, khác thì update TẠI CHỖ, không tạo row trùng `uq_embedding_source_chunk`); `skill` index theo `SkillVersion.id` (mỗi version 1 row, bất biến), quyền theo đúng `skill_service` (CEO thấy hết, khác thì cần `SkillGrant`). Index luôn gọi đồng bộ best-effort ngay sau khi tạo/transcribe — cùng pattern `notify()`, không dùng arq job nền. `EmbeddingClient`: `MockEmbeddingClient` mặc định (`embedding_mock=True`) dùng hashing bag-of-words qua `continuity.normalize_vn` — có ý nghĩa thật (không rỗng như STT mock) nên dev/test dùng được mà không cần API key; `VoyageEmbeddingClient` (`voyage-3.5`) khi tắt cờ. `semantic_search()` luôn join ngược bảng gốc + `permissions.py` tại thời điểm truy vấn (KHÔNG tin bảng `embeddings`) nên quyền luôn tươi. **RAG auto-prefetch (cùng Phase 6 §10.3)**: `embedding_service.build_rag_context_block(db, actor, query)` gọi `semantic_search` 1 lần + format block `"# Dữ liệu liên quan"`; `app/agent/worker.py` (cả `process_conversation` fast path lẫn `run_deep_analysis` đường sâu) tính block này **ĐÚNG MỘT LẦN lúc pickup request** (cùng thời điểm Router phân loại, KHÔNG phải mỗi vòng lặp) rồi truyền vào `run_agent_loop(rag_context=...)` — chỉ nối chuỗi có sẵn vào `dynamic_parts` mỗi vòng, loop không tự gọi lại embedding API. **Cố ý CHƯA làm**: chunking thật (chỉ truncate ~4000 ký tự), RAG prefetch chạy TUẦN TỰ (chưa song song với `_load_history` như spec gợi ý — tối ưu latency để sau).
+- **Watcher — morning brief (Phase 6 §10.2, `app/services/watcher_service.py`)**: cron `send_morning_briefs` (arq, mỗi phút — guard giờ NẰM TRONG hàm service, không phụ thuộc độ chính xác lịch cron, cùng pattern các cron khác) chỉ thực sự chạy đúng phút **07:00 giờ VN**; với mỗi CEO `active`: gộp `dashboard_service.today_dashboard` + `directive_service.get_directive_status` → 1 lượt `model_fast` KHÔNG tool viết tóm tắt 4-5 câu tiếng Việt → `notify(type="morning_brief")`. Dedup theo NGÀY qua chính bảng `Notification` đã có (`created_at` trong ngày VN hôm nay) — **cố ý không thêm cột/bảng mới** cho việc này. 1 CEO lỗi (dashboard/LLM…) không chặn CEO khác (`db.get()` lại theo id mỗi vòng lặp thay vì giữ object cũ qua rollback — tránh `MissingGreenlet`, cùng bài học `report_schedule_service.run_due_schedules`). `notify()` (`app/services/notify.py`) thêm tham số `created_at` optional để cron test freeze-time được (mặc định vẫn dùng `_now()` thật như trước). FE: `notifications.tsx` thêm case `morning_brief` + loại trong `NOTIFICATION_TYPES` (bật/tắt được).
+- **Distiller — bộ nhớ dài hạn (Phase 6 §10.2, bảng `workspace_memories` mới, `app/services/distiller_service.py`)**: cron `distill_workspace_memories` (arq, mỗi phút, guard giờ tương tự watcher) chỉ chạy đúng phút **02:00 giờ VN**; với mỗi workspace có `TaskUpdate` hôm đó: gộp nội dung update → 1 lượt `model_fast` KHÔNG tool chưng cất **tối đa 3 "sự thật đáng nhớ lâu dài"** (model tự trả `KHÔNG` nếu không có gì) → dedup bằng **cosine similarity qua chính hạ tầng `embedding_service`** (ngưỡng 0.85, KHÔNG bảng riêng — embed fact ứng viên, so với embedding của các memory `scope` cùng loại chưa bị `archived_at`) → ghi `WorkspaceMemory` + `Embedding(source_type="workspace_memory")`. **Quyết định phạm vi hẹp hơn spec cố ý, có lý do ghi trong docstring module**: v1 CHỈ chưng cất từ `TaskUpdate` (dữ liệu công ty vốn chia sẻ theo `visible_task_ids`) và LUÔN ghi `scope="workspace"` — KHÔNG đọc nội dung chat message của user để tránh biến lời nói riêng tư (mỗi user 1 luồng chat của chính mình) thành "sự thật chung" ai cũng thấy; `scope="user:<uuid>"` có sẵn trong schema nhưng chưa dùng. `distiller_service.active_memories_text(db, actor)` nạp memory còn hiệu lực (`archived_at IS NULL`, chưa `expires_at`, `scope="workspace"` hoặc `scope=f"user:{actor.id}"`) vào block `"# Ghi nhớ dài hạn"` trong system prompt (`run_agent_loop`, đặt sau chỉ dẫn CEO, trước snapshot — đúng thứ tự spec §11), cap ~3200 ký tự, best-effort không bao giờ raise (cùng pattern snapshot). Tool `list_memories` (nhóm `insight`)/`forget_memory` (nhóm `admin`, soft-delete qua `archived_at`, KHÔNG sensitive) — cả 2 chỉ CEO (`require_ceo` trong service layer).
 - **Directive (Phase 3)**: `app/models.py::Directive`/`DirectiveStatus` (state machine sent→acked/question/renegotiate, mirror `ChatRequestStatus`), `app/services/directive_service.py`, REST `app/api/directives.py`, quyền `permissions.py::can_assign_directive` (CEO → ai cũng được; manager → chỉ direct report — logic MỚI, tách biệt hoàn toàn khỏi `work_service`'s `require_ceo`). `create_directive` KHÔNG `sensitive=True` (bắt buộc để lồng được trong `propose_actions` cùng `update_task`). Email V1 vẫn qua `email_service.send_email` nội bộ (mock) — chưa có provider thật/public ack-link không cần login (xem `evals/BASELINE.md` Phase 3 lý do chi tiết).
 - **Luật hành xử 3 mức (Phase 2, system prompt tĩnh)**: (1) tường minh + đảo ngược được → gọi tool ngay; (2) phải SUY LUẬN đối tượng (đoán người/task/deadline) → gọi `propose_actions` để user duyệt bản nháp trước khi thực thi (dùng lại hạ tầng `awaiting_confirmation`, `pending_action.kind` phân biệt `"tool"` | `"proposal"`); (3) nhạy cảm → vẫn gọi 1 trong 6 tool sensitive trực tiếp như cũ. `resolve_person`/`resolve_task` tra cứu mờ (fuzzy, thuần Python — không dùng `pg_trgm` vì test suite chạy SQLite) trong phạm vi `visible_user_ids`/`visible_task_ids`; trả `ambiguous` kèm candidates khi >1 kết quả — AI PHẢI hỏi lại đúng 1 câu, không tự chọn.
 - **Rolling summary / nén lịch sử (Phase 5, `app/agent/summarizer.py`)**: `maybe_compress_history(db, conv, llm, *, force=False, keep_recent=SUMMARY_KEEP_RECENT) -> bool` — khi số message "sống" của 1 conversation (không tính `is_ack`, không tính message rỗng) vượt `SUMMARY_TRIGGER=60` (hoặc gọi `force=True`), gấp phần cũ (giữ lại `SUMMARY_KEEP_RECENT=40` message gần nhất) thành văn xuôi qua **1 lượt gọi `model_fast` không tool**, ghi vào `Conversation.rolling_summary` + đẩy `summary_through_at` tới điểm cắt an toàn (không bao giờ để phần giữ lại bắt đầu bằng 1 `tool_result` mồ côi). `process_conversation` (worker) gọi hàm này TRƯỚC khi dispatch mỗi request — lỗi nén được bọc try/except + `db.refresh(req)` sau `rollback()` để không giết job (bug thật tìm thấy lúc code review: `db.rollback()` trần làm expire cả `req`, dòng sau đọc `req.content` ném `MissingGreenlet` không bắt). `_load_history(..., since=conv.summary_through_at)` (`app/agent/loop.py`) chỉ nạp message có `created_at > since` — phần đã nén không gửi lại model dạng verbatim nữa. Khi `conv.rolling_summary` khác rỗng, `run_agent_loop` nối `"# Tóm tắt hội thoại trước đó\n" + rolling_summary` vào **system prompt** (block động, KHÔNG BAO GIỜ thành 1 chat message) — giữ đúng luật xen kẽ user/assistant bắt buộc của Anthropic, cùng bài học đã sinh ra `Message.is_ack` ở Phase 4.
@@ -168,9 +171,9 @@ Cờ trong `app/config.py`, tất cả **mặc định `True` (mock)** — bật
 
 ## 9. Database & migrations
 
-Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **22 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `invite_user_id_and_pending_status` → `chat_request_deep_running_status` → `message_is_ack_flag` → **`session_model_rolling_summary`** (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router + Phase 5 session model — `invite_user_id_and_pending_status` thêm `UserStatus 'pending'` + `invites.user_id` FK cho activation code; `chat_request_deep_running_status` = `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`; `message_is_ack_flag` thêm `messages.is_ack`; **`session_model_rolling_summary`** (Phase 5, down_revision = `message_is_ack_flag`) thêm 3 cột cho `conversations`: `rolling_summary TEXT NOT NULL DEFAULT ''`, `summary_through_at TIMESTAMPTZ NULL`, `archived_at TIMESTAMPTZ NULL` — cả migration Phase 4 lẫn Phase 5 đã chạy `alembic upgrade head` sạch trên Postgres dev thật, không chỉ SQLite). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
+Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **24 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `invite_user_id_and_pending_status` → `chat_request_deep_running_status` → `message_is_ack_flag` → `session_model_rolling_summary` → `embeddings_table` → **`workspace_memories_table`** (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router + Phase 5 session model + Phase 6 semantic_search/distiller — `invite_user_id_and_pending_status` thêm `UserStatus 'pending'` + `invites.user_id` FK cho activation code; `chat_request_deep_running_status` = `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`; `message_is_ack_flag` thêm `messages.is_ack`; `session_model_rolling_summary` (Phase 5) thêm 3 cột cho `conversations`; `embeddings_table` (Phase 6) tạo bảng `embeddings`; **`workspace_memories_table`** (Phase 6, down_revision = `embeddings_table`) tạo bảng `workspace_memories` — cả 2 migration Phase 6 viết tay (không autogenerate được vì môi trường không có Postgres chạy sẵn để so schema), đã xác nhận `alembic heads` chỉ còn 1 head sau mỗi lần thêm). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
 
-28 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
+30 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
 
 ## 10. Test & lệnh verify
 
@@ -178,7 +181,7 @@ Chạy trong `backend/` (venv `.venv`):
 ```
 docker compose up -d postgres redis         # 5435/6380
 alembic upgrade head
-pytest tests/ -v                            # 695 pass + 4 skip (128 file test) hiện tại trên nhánh này
+pytest tests/ -v                            # 739 pass + 4 skip (133 file test) hiện tại trên nhánh này
 uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
 arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
 python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
@@ -343,3 +346,73 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   và có thể tạo thêm 1 conversation "sống" song song phá bất biến ≤1 live/user. Đã bỏ hẳn nút
   (cùng cách tiếp cận task 11 — xóa, không đổi hành vi thành gọi `GET /active`), review riêng,
   approved. Xem mục 5/6/11.
+- 2026-07-24: **Phase 6.3 (semantic_search / embeddings) xong** — mảnh đầu tiên của Phase 6
+  "Lớp dữ liệu thông minh còn lại" (spec §10.3), làm trên `main` ngay sau khi xác nhận Phase 5
+  đã merge (branch header phía trên đã cập nhật). Bảng `embeddings` mới (migration
+  `embeddings_table`, down `session_model_rolling_summary`) + `app/services/embedding_service.py`
+  (`index_content`/`semantic_search`, chi tiết ở mục 6) + tool `semantic_search` (nhóm `core` —
+  cũng nạp vào đường sâu vì đường sâu dùng `core+insight`). **3 quyết định lệch spec §10.3, có
+  lý do ghi trong docstring module**: (1) JSON list[float] thay `Vector` pgvector — test suite
+  SQLite in-memory không có extension Postgres, cùng lý do `fuzzy_match.py` chọn Jaccard-trigram
+  thay `pg_trgm`; (2) KHÔNG làm RAG auto-prefetch mỗi lượt chat (phần "trong worker TRƯỚC agent
+  loop... block 'Dữ liệu liên quan'" của spec) — chỉ ship tool gọi theo yêu cầu model, auto-prefetch
+  cần tính 1 LẦN lúc pickup request (như Router) chứ không phải mỗi vòng lặp, để fast-follow riêng;
+  (3) index đồng bộ best-effort (cùng pattern `notify()`) thay vì arq job nền ("indexer" §10.2) —
+  tránh phải luồn `arq_pool` qua cả service layer lẫn agent tool layer. Index 4 nguồn: note,
+  task_update, comment, chat_message (assistant lẫn user text, bỏ qua ack message `is_ack=True`
+  và lượt thuần tool_use không có text) — cả 4 bất biến sau khi tạo nên `index_content()` chỉ
+  insert-nếu-chưa-có. `semantic_search()` luôn join ngược bảng gốc + `permissions.py` tại thời
+  điểm truy vấn, không tin bảng `embeddings`, nên quyền luôn tươi kể cả khi record gốc bị xóa.
+  `MockEmbeddingClient` (mặc định, `embedding_mock=True`) dùng hashing bag-of-words qua
+  `continuity.normalize_vn` có sẵn — khác `MockTranscriptionClient` trả rỗng, mock này CÓ Ý
+  NGHĨA thật (cosine phản ánh đúng số từ trùng) nên dev/test dùng semantic_search được mà không
+  cần `VOYAGE_API_KEY`. Cố ý CHƯA làm (fast-follow rõ ràng, không phải thiếu sót): RAG
+  auto-prefetch mỗi lượt, index `voice_transcript`/`skill`, chunking thật (chỉ truncate ~4000
+  ký tự, `chunk_no` luôn 0 — schema đã hỗ trợ sẵn), cascade-delete embeddings khi record gốc bị
+  xóa (không cần cho đúng vì join-back luôn re-check, rác tích lũy chấp nhận được ở quy mô hiện
+  tại). Full pytest 711 pass/4 skip (130 file, tăng từ 695/128) — 1 fail còn lại trong môi trường
+  sandbox verify (`test_chat_settings_defaults`) là do biến môi trường `ANTHROPIC_BASE_URL` bị
+  set sẵn trong container, đã xác nhận fail y hệt trên code CHƯA sửa (git stash), không liên quan
+  Phase 6.3. Không đổi API contract REST nào (`semantic_search` chỉ là agent tool) nên không cần
+  chạy lại `export_openapi.py`. Không có phiên FE nào trong đợt này (semantic_search chưa có UI
+  riêng — model tự gọi qua chat, không cần màn hình mới).
+- 2026-07-24: **Phase 6.3 fast-follow — RAG auto-prefetch xong** (mảnh còn lại của spec §10.3,
+  làm ngay tiếp theo cùng ngày). `embedding_service.build_rag_context_block(db, actor, query)`
+  gọi `semantic_search` 1 lần + format block `"# Dữ liệu liên quan"`; `run_agent_loop` (loop.py)
+  thêm tham số `rag_context: str | None` — chỉ nối chuỗi có sẵn vào `dynamic_parts` mỗi vòng lặp,
+  KHÔNG tự gọi embedding API bên trong loop (cùng lý do Router chỉ phân loại 1 lần lúc pickup,
+  không phải mỗi vòng); `app/agent/worker.py` (`process_conversation` fast path VÀ
+  `run_deep_analysis` đường sâu) đều fetch actor + tính block này đúng 1 lần trước khi gọi
+  `run_agent_loop`. Test mới: `test_agent_loop_rag_context.py` (loop nhận + tái dùng rag_context
+  đúng qua nhiều vòng lặp) + 2 test wiring trong `test_worker.py` (fast path và đường sâu đều
+  thấy block trong system prompt gửi lên LLM). **Known trade-off cố ý chưa tối ưu**: prefetch
+  chạy tuần tự (embed câu user rồi mới vào `run_agent_loop`) thay vì song song với
+  `_load_history` như gợi ý trong spec §10.3 — thêm ~1 lần gọi embedding API vào latency mỗi
+  tin nhắn fast path (với `MockEmbeddingClient` gần như free vì tính cục bộ; với Voyage thật sẽ
+  cộng dồn vào ngân sách latency 2-4s của Phase 1 — cần đo lại khi bật `embedding_mock=false`
+  thật, tối ưu song song hóa nếu ảnh hưởng rõ). Full pytest 718 pass/4 skip (131 file, tăng từ
+  711/130), không đổi API contract REST.
+- 2026-07-24: **Phase 6 tiếp tục liên tục (không dừng hỏi lại giữa các mảnh) — 3 việc**:
+  (1) **Mở rộng semantic_search sang `voice_transcript`/`skill`** — `index_content()` đổi
+  thành upsert thật (trước chỉ insert-nếu-chưa-có) để xử lý đúng ca retranscribe (nội dung
+  voice note đổi); `skill` index theo `SkillVersion.id`, quyền theo đúng `skill_service`.
+  Đổi tên `embedding_service._cosine`→`cosine_similarity` và `_MAX_CONTENT_CHARS`→
+  `MAX_CONTENT_CHARS` (bỏ underscore) vì giờ dùng chéo module (`distiller_service.py`) — không
+  còn là chi tiết nội bộ riêng của `embedding_service`.
+  (2) **Watcher — morning brief 07:00 VN** (`app/services/watcher_service.py`, cron mới trong
+  `worker.py`) — phát hiện + fix 1 bug thật lúc viết test (TDD đúng nghĩa): `notify()` chưa
+  nhận `created_at` nên test freeze-time (`now=`) không kiểm dedup-theo-ngày được (Notification
+  luôn ghi giờ THẬT bất kể `now=` giả lập) — thêm tham số optional, không phá chỗ gọi cũ nào.
+  (3) **Distiller — bộ nhớ dài hạn** (bảng `workspace_memories` mới, `app/services/
+  distiller_service.py`, cron 02:00 VN) — phát hiện + fix 1 bug thật khác: vòng lặp per-workspace
+  giữ nguyên object đã fetch trước rồi gọi `db.rollback()` khi 1 workspace lỗi → object các
+  workspace SAU bị expire theo, đọc thuộc tính ném `MissingGreenlet` — sửa theo đúng pattern đã
+  có sẵn `report_schedule_service.run_due_schedules`/`worker.py::process_conversation`: chỉ giữ
+  list id, `db.get()` lại mỗi vòng lặp. Quyết định phạm vi hẹp hơn spec §3 có chủ đích: v1 CHỈ
+  chưng cất từ `TaskUpdate`, LUÔN `scope="workspace"` — không đọc chat message để tránh biến lời
+  riêng tư của 1 user thành "sự thật chung" (chi tiết mục 6). Dedup dùng lại hạ tầng cosine
+  similarity của `embedding_service` — không xây lại. Cả 2 cron mới đều tự guard giờ TRONG hàm
+  service (không phụ thuộc độ chính xác lịch cron arq), cùng phong cách các cron cũ. Full pytest
+  739 pass/4 skip (133 file, tăng từ 718/131), FE: `notifications.tsx` thêm case
+  `morning_brief`. Không đổi API contract REST nào (toàn bộ tính năng Phase 6 tới nay đều là
+  agent tool/cron nội bộ, không route mới).

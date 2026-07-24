@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, EmailStr, Field
@@ -17,9 +17,9 @@ from app.schemas import (
 )
 from app.services import (
     analytics_service, attachment_service, audit_service, auth_service, dashboard_service,
-    directive_service, email_service, instruction_service, note_service, notification_service,
-    portal_service, report_schedule_service, report_service, resolver_service, search_service,
-    skill_service, voice_service, work_service,
+    directive_service, distiller_service, email_service, embedding_service, instruction_service,
+    note_service, notification_service, portal_service, report_schedule_service, report_service,
+    resolver_service, search_service, skill_service, voice_service, work_service,
 )
 
 
@@ -825,6 +825,62 @@ _register("search", "Tìm kiếm xuyên suốt theo từ khóa: task, note, ghi 
           SearchToolIn, _search)
 
 
+class SemanticSearchToolIn(BaseModel):
+    query: str = Field(min_length=1)
+    source_types: list[Literal["note", "task_update", "comment", "chat_message",
+                               "voice_transcript", "skill"]] | None = Field(
+        None, description="Giới hạn loại nguồn, để trống = tìm cả 6 loại.")
+
+
+async def _semantic_search(db, actor, body: SemanticSearchToolIn) -> dict:
+    results = await embedding_service.semantic_search(
+        db, actor, body.query, source_types=body.source_types)
+    out = {"results": results}
+    if not results:
+        out["note"] = f"Không tìm thấy gì đủ liên quan tới nghĩa của '{body.query}'."
+    return out
+
+
+class ForgetMemoryToolIn(BaseModel):
+    memory_id: uuid.UUID
+
+
+async def _list_memories(db, actor, body: NoArgsIn) -> dict:
+    memories = await distiller_service.list_memories(db, actor)
+    result = {"memories": [
+        {"id": str(m["id"]), "scope": m["scope"], "content": m["content"],
+         "source": m["source"], "created_at": m["created_at"].isoformat()}
+        for m in memories
+    ]}
+    if not memories:
+        result["note"] = "Chưa có ghi nhớ dài hạn nào được chưng cất."
+    return result
+
+
+async def _forget_memory(db, actor, body: ForgetMemoryToolIn) -> dict:
+    await distiller_service.forget_memory(db, actor, body.memory_id)
+    return {"memory_id": str(body.memory_id), "forgotten": True}
+
+
+_register("list_memories", "Xem các 'ghi nhớ dài hạn' AI tự chưng cất mỗi đêm từ hoạt động "
+          "công ty (quyết định đã chốt, vấn đề lặp lại...), chỉ CEO xem được. Dùng khi CEO "
+          "hỏi 'AI đang nhớ gì về công ty', hoặc trước khi xóa 1 ghi nhớ sai.", NoArgsIn,
+          _list_memories)
+_register("forget_memory", "Xóa (thu hồi) 1 ghi nhớ dài hạn theo id — dùng khi ghi nhớ đó sai "
+          "hoặc lỗi thời (chỉ CEO).", ForgetMemoryToolIn, _forget_memory)
+
+
+_register("semantic_search",
+          "Tìm THEO NGỮ NGHĨA (không cần trùng chữ) trong ghi chú, cập nhật tiến độ, "
+          "bình luận task, lịch sử chat, transcript ghi âm (của CHÍNH actor), và nội dung "
+          "skill (theo đúng quyền — CEO thấy hết, người khác chỉ skill được cấp) — dùng khi "
+          "cần nhớ lại điều đã nói/ghi trước đây mà 'Trạng thái công ty' hoặc lịch sử hội "
+          "thoại hiện tại không có (vd 'tuần trước tôi dặn gì về hợp đồng X', 'trước đây có "
+          "ghi chú gì về khách hàng Y không', 'skill nào nói về quy trình Z'). Khác search "
+          "(khớp từ khóa đúng chuỗi con) ở chỗ tìm được cả khi câu hỏi diễn đạt khác chữ với "
+          "nội dung gốc.", SemanticSearchToolIn, _semantic_search)
+
+
 class ListNotificationsToolIn(BaseModel):
     unread_only: bool = False
 
@@ -950,7 +1006,8 @@ _register("propose_actions",
 # Router chưa xây, wiring sớm hoặc vô nghĩa hoặc âm thầm bỏ sót tool model cần).
 TOOL_GROUPS: dict[str, frozenset[str]] = {
     "core": frozenset({
-        "get_task", "search", "resolve_person", "resolve_task", "propose_actions",
+        "get_task", "search", "semantic_search", "resolve_person", "resolve_task",
+        "propose_actions",
     }),
     "work": frozenset({
         "create_project", "update_project", "list_projects",
@@ -961,7 +1018,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
     }),
     "admin": frozenset({
         "list_users", "create_employee", "lock_user", "unlock_user",
-        "offboard_user", "change_user_role", "list_audit_events",
+        "offboard_user", "change_user_role", "list_audit_events", "forget_memory",
     }),
     "reporting": frozenset({
         "generate_report", "list_reports", "create_report_schedule",
@@ -979,7 +1036,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
     }),
     "insight": frozenset({
         "get_today_dashboard", "get_directive_status",
-        "get_project_health", "get_progress_stats",
+        "get_project_health", "get_progress_stats", "list_memories",
     }),
 }
 

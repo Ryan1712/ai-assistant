@@ -19,7 +19,7 @@ from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
     UsageLog, User,
 )
-from app.services import instruction_service, snapshot_service
+from app.services import distiller_service, embedding_service, instruction_service, snapshot_service
 from app.tz import VN_TZ
 
 _VN_WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
@@ -105,6 +105,10 @@ def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
         "kết quả resolve_person/resolve_task trả 'ambiguous' kèm nhiều candidates: "
         "TUYỆT ĐỐI không tự chọn đại 1 người/task — hỏi lại người dùng ĐÚNG MỘT câu, "
         "liệt kê rõ các lựa chọn cụ thể (tên/tiêu đề) để họ chọn.\n"
+        "Khi người dùng hỏi nhớ lại điều đã nói/ghi trước đây mà không có trong số liệu "
+        "công ty hay lịch sử hội thoại hiện tại (vd 'tuần trước tôi dặn gì về X', 'trước đây "
+        "có note gì về Y'): dùng semantic_search (tìm theo nghĩa, không cần trùng chữ) thay "
+        "vì nói 'tôi không nhớ'.\n"
         "Khi tool_result của propose_actions có 'outcome' khác 'completed' (tức "
         "'partially_completed' hoặc 'failed' — một số action trong bản nháp đã lỗi): "
         "TUYỆT ĐỐI không nói chung chung 'đã xong' — PHẢI liệt kê rõ việc nào thành "
@@ -205,6 +209,7 @@ async def run_agent_loop(
     db: AsyncSession, req: ChatRequest, llm: LLMClient, publisher: EventPublisher,
     is_cancelled: Callable[[uuid.UUID], Awaitable[bool]] | None = None,
     *, route: str = "fast", tool_names: set[str] | None = None,
+    rag_context: str | None = None,
     max_iterations: int | None = None, max_tool_calls: int | None = None,
     max_duration_seconds: int | None = None, max_total_tokens: int | None = None,
 ) -> None:
@@ -214,6 +219,11 @@ async def run_agent_loop(
     route: ghi vào AgentTrace ("fast" mặc định — Router Phase 4 truyền "deep" khi
     gọi cho job phân tích nền). tool_names: None = full toolset (mặc định/fallback
     an toàn); có giá trị = chỉ nạp đúng tập tool đó (xem router.tool_names_for_route).
+
+    rag_context: block "# Dữ liệu liên quan" đã build SẴN (Phase 6 §10.3, xem
+    embedding_service.build_rag_context_block) — worker.py tính ĐÚNG MỘT LẦN
+    lúc pickup request (giống Router) rồi truyền vào đây, KHÔNG được tự gọi
+    semantic_search lại mỗi vòng lặp trong hàm này (tốn embedding API vô ích).
 
     max_*: None (mặc định) = dùng đúng hằng số module MAX_ITERATIONS/MAX_TOOL_CALLS/
     MAX_DURATION_SECONDS/MAX_TOTAL_TOKENS như cũ — cố ý ĐỌC hằng số bên trong hàm
@@ -298,9 +308,16 @@ async def run_agent_loop(
                 db, req.workspace_id)
             if instructions_text:
                 dynamic_parts.append("# Chỉ dẫn từ CEO công ty\n" + instructions_text)
+            memories_text = await distiller_service.active_memories_text(db, actor)
+            if memories_text:
+                dynamic_parts.append(memories_text)
             snapshot_text = await snapshot_service.get_snapshot_text(db, actor)
             if snapshot_text:
                 dynamic_parts.append(snapshot_text)
+            if rag_context:
+                # Phase 6 §10.3: đã build sẵn 1 lần ở worker.py — chỉ nối chuỗi,
+                # không gọi lại semantic_search ở đây.
+                dynamic_parts.append(rag_context)
             if conv is not None and conv.rolling_summary:
                 # Phase 5: tóm tắt hội thoại cũ — block ĐỘNG cuối, gần message nhất.
                 dynamic_parts.append(
@@ -347,13 +364,15 @@ async def run_agent_loop(
             for tu in done.tool_uses:
                 assistant_content.append({"type": "tool_use", "id": tu.id, "name": tu.name,
                                           "input": tu.input})
+            assistant_msg: Message | None = None
             if assistant_content:
                 # Lượt rỗng (model/gateway trả về không text không tool) mà vẫn lưu
                 # content=[] thì mọi lần gọi API sau của conversation fail 400.
-                db.add(Message(workspace_id=req.workspace_id,
-                               conversation_id=req.conversation_id,
-                               chat_request_id=req.id, role=MessageRole.assistant,
-                               content=assistant_content))
+                assistant_msg = Message(workspace_id=req.workspace_id,
+                                        conversation_id=req.conversation_id,
+                                        chat_request_id=req.id, role=MessageRole.assistant,
+                                        content=assistant_content)
+                db.add(assistant_msg)
             db.add(UsageLog(workspace_id=req.workspace_id, chat_request_id=req.id,
                             user_id=actor.id, feature="chat", status=done.stop_reason,
                             latency_ms=int((time.monotonic() - call_started) * 1000),
@@ -372,6 +391,12 @@ async def run_agent_loop(
                 req.finished_at = datetime.now(timezone.utc)
                 req.result_summary = "".join(text_parts)[:500]
                 await db.commit()
+                if text_parts and assistant_msg is not None:
+                    # Phase 6 §10.3: "ký ức xuyên session" — best-effort, không
+                    # chặn hoàn tất request nếu embedding provider lỗi.
+                    await embedding_service.index_content(
+                        db, req.workspace_id, "chat_message", assistant_msg.id,
+                        "".join(text_parts))
                 await publisher.publish(req.conversation_id,
                                         {"type": "request_done", "chat_request_id": str(req.id),
                                          "result_summary": req.result_summary})
@@ -441,6 +466,12 @@ async def run_agent_loop(
             db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
                            chat_request_id=req.id, role=MessageRole.user, content=tool_results))
             await db.commit()
+            if text_parts and assistant_msg is not None:
+                # Lượt vừa nói vừa gọi tool (vd "Để tôi kiểm tra..." + tool_use) —
+                # vẫn index phần text, cùng lý do ở nhánh done phía trên.
+                await embedding_service.index_content(
+                    db, req.workspace_id, "chat_message", assistant_msg.id,
+                    "".join(text_parts))
 
             if any(tu.name in SNAPSHOT_WRITE_TOOLS for tu in done.tool_uses):
                 # AI vừa đổi dữ liệu → lượt sau phải thấy ngay (không chờ TTL)
