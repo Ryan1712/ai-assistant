@@ -1,8 +1,9 @@
 import uuid
+from datetime import datetime
 from functools import lru_cache
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import delete, func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.loop import resolve_confirmation
@@ -74,6 +75,27 @@ async def active_conversation(actor: User = Depends(get_current_user),
     conv = await session_service.get_or_rotate_active_conversation(
         db, actor, get_llm_client)
     return conv
+
+
+@router.get("/timeline", response_model=list[MessageOut])
+async def timeline(actor: User = Depends(get_current_user),
+                   db: AsyncSession = Depends(get_db),
+                   before_at: datetime | None = Query(None),
+                   before_id: uuid.UUID | None = Query(None),
+                   limit: int = Query(50, ge=1, le=100)):
+    """Một luồng liền mạch xuyên các conversation của actor (Phase 5). Newest-first,
+    cursor = (before_at, before_id) của message cũ nhất trang trước. Chỉ conversation
+    của chính actor."""
+    conv_ids = select(Conversation.id).where(
+        Conversation.workspace_id == actor.workspace_id,
+        Conversation.user_id == actor.id)
+    stmt = select(Message).where(Message.conversation_id.in_(conv_ids))
+    if before_at is not None and before_id is not None:
+        stmt = stmt.where(or_(
+            Message.created_at < before_at,
+            and_(Message.created_at == before_at, Message.id < before_id)))
+    stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc()).limit(limit)
+    return list((await db.execute(stmt)).scalars().all())
 
 
 @router.patch("/{conversation_id}", response_model=ConversationOut)

@@ -3672,6 +3672,121 @@
         ]
       }
     },
+    "/api/v1/conversations/active": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Active Conversation",
+        "operationId": "active_conversation_api_v1_conversations_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/conversations/timeline": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Timeline",
+        "description": "M\u1ed9t lu\u1ed3ng li\u1ec1n m\u1ea1ch xuy\u00ean c\u00e1c conversation c\u1ee7a actor (Phase 5). Newest-first,\ncursor = (before_at, before_id) c\u1ee7a message c\u0169 nh\u1ea5t trang tr\u01b0\u1edbc. Ch\u1ec9 conversation\nc\u1ee7a ch\u00ednh actor.",
+        "operationId": "timeline_api_v1_conversations_timeline_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "before_at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before At"
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MessageOut"
+                  },
+                  "title": "Response Timeline Api V1 Conversations Timeline Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/conversations/{conversation_id}": {
       "patch": {
         "tags": [
@@ -4617,6 +4732,18 @@
             "title": "Queue Held",
             "default": false
           },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5038,6 +5165,18 @@
             "type": "string",
             "format": "uuid",
             "title": "Id"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
           },
           "role": {
             "$ref": "#/components/schemas/MessageRole"
