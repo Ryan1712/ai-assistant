@@ -75,6 +75,7 @@ export type Message = {
   role: "user" | "assistant";
   content: ContentBlock[];
   voice_note_id: string | null;
+  is_seed: boolean;
   created_at: string;
 };
 

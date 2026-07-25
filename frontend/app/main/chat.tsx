@@ -40,7 +40,7 @@ import { ErrorText } from "../../src/ui/form";
 import { colors, fonts, radius, shadow, spacing, type } from "../../src/ui/theme";
 
 type Row =
-  | { key: string; kind: "user" | "assistant"; text: string; voiceNoteId?: string | null }
+  | { key: string; kind: "user" | "assistant"; text: string; voiceNoteId?: string | null; isSeed?: boolean }
   | { key: string; kind: "streaming"; text: string }
   | { key: string; kind: "system"; text: string }
   | { key: string; kind: "failed"; text: string; retryContent: string | null };
@@ -142,7 +142,7 @@ function messagesToRows(msgs: Message[]): Row[] {
     const text = textOfMessage(m);
     if (text)
       out.push({ key: m.id, kind: m.role === "user" ? "user" : "assistant", text,
-                 voiceNoteId: m.voice_note_id });
+                 voiceNoteId: m.voice_note_id, isSeed: m.is_seed });
     // Lượt AI thuần thao tác (tạo task, gán người...) không có text — trước đây
     // biến mất khỏi lịch sử, người dùng mất dấu "AI đã làm gì".
     for (const b of m.content) {
@@ -165,6 +165,8 @@ const mdStyles = {
   table: { borderColor: colors.divider },
   link: { color: colors.primary },
 } as const;
+
+const ONBOARDING_CHIPS = ["Tạo project", "Xem công việc", "Xem thử làm được gì"];
 
 export default function Chat() {
   const { id: requestedId } = (useRoute<any>().params ?? {}) as { id?: string };
@@ -384,10 +386,11 @@ export default function Chat() {
     }
   };
 
-  const submit = async () => {
+  const submit = async (overrideText?: string) => {
     if (archived) return;
     if (!conversationId) return;
-    const content = input.trim() || (attachedAudio ? "Xử lý file ghi âm này giúp tôi" : "");
+    const content = (overrideText ?? input).trim()
+      || (attachedAudio ? "Xử lý file ghi âm này giúp tôi" : "");
     if (!content) return;
     setInput("");
     Keyboard.dismiss(); // ẩn bàn phím ngay khi gửi
@@ -643,6 +646,20 @@ export default function Chat() {
         renderItem={renderItem}
       />
 
+      {!historyMode && rows.length === 1 && rows[0].kind === "assistant" && rows[0].isSeed && (
+        <View style={styles.onboardingChipsRow}>
+          {ONBOARDING_CHIPS.map((label) => (
+            <TouchableOpacity
+              key={label}
+              style={styles.onboardingChip}
+              onPress={() => submit(label)}
+            >
+              <Text style={styles.onboardingChipText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       {runningTool && !pendingConfirm && (
         <View style={styles.working}>
           <ActivityIndicator color={colors.primary} size="small" />
@@ -740,7 +757,7 @@ export default function Chat() {
               <DictationButton onText={(t) => setInput(t)} />
               <TouchableOpacity
                 style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
-                onPress={submit}
+                onPress={() => submit()}
                 disabled={!canSend}
                 accessibilityLabel="Gửi"
               >
@@ -826,6 +843,16 @@ const styles = StyleSheet.create({
 
   loadOlder: { alignItems: "center", paddingVertical: spacing.md },
   loadOlderText: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 14 },
+
+  onboardingChipsRow: {
+    flexDirection: "row", flexWrap: "wrap", gap: spacing.sm,
+    paddingHorizontal: spacing.lg, paddingBottom: spacing.sm,
+  },
+  onboardingChip: {
+    backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.borderStrong,
+    borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+  },
+  onboardingChipText: { color: colors.text, fontFamily: fonts.semibold, fontSize: 13 },
 
   readonlyBar: {
     flexDirection: "row",
