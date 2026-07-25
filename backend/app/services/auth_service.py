@@ -10,13 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import plans, security
 from app.config import get_settings
 from app.models import (
-    AccountEvent, Device, Invite, LoginEvent, Notification, Project, RefreshToken, Role,
-    TaskAssignee, User, UserStatus, Workspace,
+    AccountEvent, Conversation, Device, Invite, LoginEvent, Message, MessageRole,
+    Notification, Project, RefreshToken, Role, TaskAssignee, User, UserStatus, Workspace,
 )
 from app.permissions import require_ceo
 from app.services.notify import notify
 
 _DUMMY_HASH = security.hash_password("dummy-timing-equalizer")
+
+_SEED_MESSAGE_TEXT = (
+    "Chào anh! Tôi là trợ lý điều hành — nhắn cho tôi để giao việc, tạo project, "
+    "hỏi tiến độ... Anh có thể bắt đầu bằng 1 trong các gợi ý dưới đây, hoặc gõ "
+    "thẳng điều anh cần."
+)
 
 
 async def _issue_tokens(db: AsyncSession, user: User) -> tuple[str, str]:
@@ -68,6 +74,11 @@ async def signup_workspace(
     db.add(user)
     await db.flush()
     await _log_device(db, user, device_uuid, device_name)
+    conv = Conversation(workspace_id=ws.id, user_id=user.id)
+    db.add(conv)
+    await db.flush()
+    db.add(Message(workspace_id=ws.id, conversation_id=conv.id, role=MessageRole.assistant,
+                   content=[{"type": "text", "text": _SEED_MESSAGE_TEXT}], is_seed=True))
     access, refresh = await _issue_tokens(db, user)
     try:
         await db.commit()
