@@ -17,9 +17,9 @@ from app.agent.tools import (
 )
 from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
-    UsageLog, User,
+    Role, UsageLog, User,
 )
-from app.services import instruction_service, snapshot_service
+from app.services import instruction_service, onboarding_service, snapshot_service
 from app.tz import VN_TZ
 
 _VN_WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
@@ -109,7 +109,13 @@ def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
         "'partially_completed' hoặc 'failed' — một số action trong bản nháp đã lỗi): "
         "TUYỆT ĐỐI không nói chung chung 'đã xong' — PHẢI liệt kê rõ việc nào thành "
         "công ('succeeded'), việc nào thất bại kèm lý do ('failed'), để người dùng "
-        "biết chính xác cái gì cần làm lại."
+        "biết chính xác cái gì cần làm lại.\n"
+        "Khi người dùng dán 1 đoạn text dài liệt kê nhiều công việc (copy từ Excel/"
+        "Word/ghi chú), tự nhận diện project + danh sách task + người phụ trách "
+        "(nếu có nêu tên) từ nội dung đó, rồi gọi propose_actions MỘT LẦN gồm đủ "
+        "create_project + N create_task + assign_task tương ứng — không hỏi lại "
+        "từng dòng một, chỉ hỏi nếu tên người nhắc tới bị nhập nhằng "
+        "(resolve_person)."
     )
 
 # Chặn vòng lặp agent chạy vô hạn nếu model cứ gọi tool không nhạy cảm mà không bao
@@ -301,6 +307,13 @@ async def run_agent_loop(
             snapshot_text = await snapshot_service.get_snapshot_text(db, actor)
             if snapshot_text:
                 dynamic_parts.append(snapshot_text)
+            if actor.role == Role.ceo:
+                # Phase 6 (onboarding): gợi ý dẫn dắt — chỉ CEO có quyền tạo
+                # project/mời người nên gợi ý này vô nghĩa với manager/employee.
+                coach_flags = await onboarding_service.get_coach_flags(db, req.workspace_id)
+                coach_block = onboarding_service.render_coach_block(coach_flags)
+                if coach_block:
+                    dynamic_parts.append(coach_block)
             if conv is not None and conv.rolling_summary:
                 # Phase 5: tóm tắt hội thoại cũ — block ĐỘNG cuối, gần message nhất.
                 dynamic_parts.append(
