@@ -94,7 +94,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           source: "backend/docker-compose.prod.yml"
-          target: ${{ secrets.VPS_APP_DIR || '/home/dlm/9learning' }}
+          target: ${{ secrets.VPS_APP_DIR || '/home/dlm/9learning/ai-assistant-backend' }}
           strip_components: 1
 
       # Also keep the deploy script itself up to date.
@@ -109,7 +109,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           source: "backend/scripts/deploy.sh"
-          target: ${{ secrets.VPS_APP_DIR || '/home/dlm/9learning' }}
+          target: ${{ secrets.VPS_APP_DIR || '/home/dlm/9learning/ai-assistant-backend' }}
           strip_components: 2
 
       # Forward the workflow's GITHUB_TOKEN for ephemeral GHCR pull auth.
@@ -122,7 +122,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ghcr.io/ryan1712/ai-assistant:${{ github.sha }}
           ACTOR: ${{ github.actor }}
-          APP_DIR: ${{ secrets.VPS_APP_DIR || '/home/dlm/9learning' }}
+          APP_DIR: ${{ secrets.VPS_APP_DIR || '/home/dlm/9learning/ai-assistant-backend' }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
