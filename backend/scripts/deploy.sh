@@ -60,16 +60,24 @@ echo "[4/6] Starting / updating services..."
 docker compose -f "$COMPOSE_FILE" up -d
 
 # ── 5. Health-check gate ───────────────────────────────────────────────────────
-# Poll the API health endpoint for up to ~30 s (10 retries × 3 s delay).
-# If the api container fails to come up, print recent logs and fail the deploy.
+# Poll the API health endpoint until it returns 2xx (up to ~60s = 20 × 3s).
+# A bash loop instead of `curl --retry` so we retry on ANY failure — including
+# "connection reset by peer" (curl exit 56) while uvicorn is still booting, which
+# `--retry`/`--retry-connrefused` do NOT cover — and stay portable across curl
+# versions (curl < 7.71 has no --retry-all-errors).
 echo "[5/6] Waiting for API health check..."
-if curl --fail --silent --show-error \
-        --retry 10 --retry-delay 3 --retry-connrefused \
-        "$HEALTH_URL"; then
-  echo ""
+healthy=0
+for attempt in $(seq 1 20); do
+  if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null 2>&1; then
+    healthy=1
+    break
+  fi
+  echo "  attempt $attempt/20: API not ready yet, retrying in 3s..."
+  sleep 3
+done
+if [ "$healthy" = 1 ]; then
   echo "API is healthy."
 else
-  echo ""
   echo "ERROR: API did not become healthy in time. Last 50 log lines:" >&2
   docker compose -f "$COMPOSE_FILE" logs --tail=50 api >&2
   exit 1
