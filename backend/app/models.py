@@ -418,6 +418,11 @@ class Message(Base):
     # thật, và đứng giữa user-text gốc + tool_use lượt sau của CHÍNH request đó
     # sẽ phá quy tắc user/assistant xen kẽ bắt buộc của Anthropic.
     is_ack: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Phase 6 (onboarding): câu chào viết sẵn lúc signup_workspace — KHÔNG gọi LLM.
+    # Khác is_ack: message này VẪN vào lịch sử gửi model bình thường (ngữ cảnh hợp
+    # lệ, không đứng giữa cặp tool_use/tool_result nào). Chỉ dùng để FE quyết định
+    # có hiện dải chip gợi ý hay không (xem chat.tsx).
+    is_seed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
