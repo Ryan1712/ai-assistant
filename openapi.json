@@ -5198,6 +5198,11 @@
             ],
             "title": "Voice Note Id"
           },
+          "is_seed": {
+            "type": "boolean",
+            "title": "Is Seed",
+            "default": false
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",

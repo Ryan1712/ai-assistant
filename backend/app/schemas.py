@@ -406,6 +406,7 @@ class MessageOut(BaseModel):
     role: MessageRole
     content: list
     voice_note_id: uuid.UUID | None = None
+    is_seed: bool = False
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}

@@ -40,3 +40,22 @@ async def test_signup_workspace_seed_conversation_va_message(db_session):
     assert seed.chat_request_id is None
     assert seed.content[0]["type"] == "text"
     assert len(seed.content[0]["text"]) > 0
+
+
+SIGNUP_API = {
+    "workspace_name": "Cong ty E", "email": "ceo-e@a.vn", "password": "secret123",
+    "full_name": "Sep E", "device_uuid": "dev-onb-2", "device_name": "",
+}
+
+
+async def test_seed_message_co_is_seed_true_qua_api(client):
+    resp = await client.post("/api/v1/auth/signup-workspace", json=SIGNUP_API)
+    assert resp.status_code == 201, resp.text
+    headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    active = await client.get("/api/v1/conversations/active", headers=headers)
+    conv_id = active.json()["id"]
+    msgs = await client.get(f"/api/v1/conversations/{conv_id}/messages", headers=headers)
+    assert msgs.status_code == 200
+    body = msgs.json()
+    assert len(body) == 1
+    assert body[0]["is_seed"] is True
