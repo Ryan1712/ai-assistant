@@ -61,7 +61,7 @@ async def test_basic_skill_and_member_limits_enforced(client, monkeypatch):
     assert denied.status_code == 403
 
     await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")  # member thứ 2 OK
-    over = await client.post("/api/v1/invites", headers=ceo_h,
-                             json={"role": "manager", "email": "m2@a.vn", "full_name": "M2"})
+    over = await client.post("/api/v1/employees", headers=ceo_h,
+                             json={"full_name": "M2", "email": "m2@a.vn"})
     assert over.status_code == 403
     assert over.json()["detail"] == "plan_limit_reached"

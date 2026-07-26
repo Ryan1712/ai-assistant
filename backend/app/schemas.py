@@ -69,20 +69,33 @@ class TokenPairOut(BaseModel):
     refresh_token: str
 
 
-class CreateEmployeeIn(BaseModel):
-    email: EmailStr
+# CreateEmployeeIn/Out (route /invites cũ) tắt cùng route — xem api/invites.py.
+# Giữ code theo quy ước dự án (comment-out, không xóa).
+# class CreateEmployeeIn(BaseModel):
+#     email: EmailStr
+#     full_name: str
+#     role: Role
+#     manager_id: uuid.UUID | None = None
+#
+#
+# class CreateEmployeeOut(BaseModel):
+#     user_id: uuid.UUID
+#     email: str
+#     full_name: str
+#     role: Role
+#     activation_code: str
+#     expires_at: dt.datetime
+
+
+class AddEmployeeIn(BaseModel):
     full_name: str
-    role: Role
-    manager_id: uuid.UUID | None = None
+    email: EmailStr | None = None
 
 
-class CreateEmployeeOut(BaseModel):
+class AddEmployeeOut(BaseModel):
     user_id: uuid.UUID
-    email: str
     full_name: str
-    role: Role
-    activation_code: str
-    expires_at: dt.datetime
+    email: str | None = None
 
 
 class SignupCodeIn(BaseModel):
