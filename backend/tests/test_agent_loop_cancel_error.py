@@ -85,6 +85,47 @@ async def test_llm_error_marks_request_failed_without_raising(db_session):
     assert any(e["type"] == "request_failed" for _, e in pub.events)
 
 
+@pytest.mark.asyncio
+async def test_arq_cancellation_marks_request_failed_before_reraising(db_session):
+    """arq job_timeout giết job bằng asyncio.CancelledError — BaseException, trước
+    đây lọt qua except Exception → request kẹt status=running VĨNH VIỄN, FE không
+    nhận được bất kỳ event nào (AI "đứng im" không báo lỗi). Giờ phải best-effort
+    mark failed + publish request_failed rồi re-raise cho arq hoàn tất việc hủy."""
+    import asyncio
+
+    req = await _world(db_session)
+
+    class _CancelledMidStreamLLMClient(LLMClient):
+        async def stream(self, *, system, messages, tools):
+            raise asyncio.CancelledError()
+            yield  # pragma: no cover - giữ hàm là generator
+
+    pub = FakeEventPublisher()
+    with pytest.raises(asyncio.CancelledError):
+        await run_agent_loop(db_session, req, _CancelledMidStreamLLMClient(), pub)
+
+    assert req.status == ChatRequestStatus.failed
+    assert req.error == "job_cancelled"
+    assert any(e["type"] == "request_failed" for _, e in pub.events)
+
+
+def test_get_llm_client_sets_explicit_timeout():
+    """Không set timeout tường minh thì SDK default (~600s) ≥ arq job_timeout 600s
+    — stream treo (gateway chết giữa chừng) bị arq giết trước khi SDK kịp raise,
+    rơi đúng vào ca CancelledError ở trên. Timeout đọc phải đủ NHỎ so với
+    job_timeout để treo biến thành Exception bình thường (mark failed + báo FE)."""
+    from app.agent.llm_client import get_llm_client
+
+    get_llm_client.cache_clear()
+    try:
+        client = get_llm_client()
+        timeout = client._client.timeout
+        assert timeout.connect == 10.0
+        assert timeout.read == 180.0
+    finally:
+        get_llm_client.cache_clear()
+
+
 class _AlwaysToolUseLLMClient(LLMClient):
     """Kịch bản model buggy/adversarial: luôn trả tool_use cho tool vô hại
     (list_projects), không bao giờ tới end_turn. Dùng để kiểm tra MAX_ITERATIONS

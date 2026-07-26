@@ -507,6 +507,18 @@ async def run_agent_loop(
     except Exception as exc:
         await _mark_failed(db, req, publisher, str(exc))
         await _write_trace("error")
+    except BaseException:
+        # arq job_timeout giết job bằng asyncio.CancelledError — BaseException, lọt
+        # qua except Exception ở trên → request kẹt status=running VĨNH VIỄN, FE
+        # không nhận được event nào ("AI đứng im"). Best-effort mark failed + publish
+        # rồi re-raise NGUYÊN VẸN cho arq hoàn tất việc hủy (nuốt CancelledError của
+        # 1 task đang bị hủy là sai giao ước asyncio).
+        try:
+            await _mark_failed(db, req, publisher, "job_cancelled")
+            await _write_trace("cancelled_by_runtime")
+        except Exception:
+            logger.exception("mark failed khi job bị hủy cũng fail cho request %s", req.id)
+        raise
 
 
 _ACK_SYSTEM_PROMPT = (

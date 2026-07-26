@@ -193,6 +193,7 @@ def get_llm_client(model: str | None = None, thinking_budget: int | None = None)
     đường sâu (Phase 4 §8.2) — lru_cache khóa theo (model, thinking_budget) nên 2
     lời gọi khác tham số ra 2 client riêng, không đụng nhau."""
     import anthropic
+    import httpx
 
     from app.config import get_settings
 
@@ -200,6 +201,13 @@ def get_llm_client(model: str | None = None, thinking_budget: int | None = None)
     client = anthropic.AsyncAnthropic(
         api_key=settings.anthropic_api_key,
         base_url=settings.anthropic_base_url or None,  # None = api.anthropic.com
+        # Timeout tường minh: SDK default (~600s) ≥ arq job_timeout 600s nên stream
+        # treo (gateway chết giữa chừng) bị arq giết bằng CancelledError trước khi
+        # SDK kịp raise → đường chết im lặng. read=180s là khoảng lặng tối đa giữa
+        # 2 chunk stream (gateway dev từng quan sát 260s+/lượt là TỔNG thời gian
+        # lượt, chunk vẫn chảy đều) — treo thật sự thành Exception bình thường:
+        # mark failed + báo FE ngay thay vì kẹt running.
+        timeout=httpx.Timeout(180.0, connect=10.0),
     )
     return AnthropicLLMClient(client, model=model or settings.model_fast,
                               thinking_budget=thinking_budget)
