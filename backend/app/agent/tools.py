@@ -340,11 +340,9 @@ _register("revoke_skill_grant", "Thu hồi quyền dùng skill của 1 người 
           RevokeSkillGrantToolIn, _revoke_skill_grant)
 
 
-class CreateEmployeeToolIn(BaseModel):
-    email: EmailStr
+class AddEmployeeToolIn(BaseModel):
     full_name: str
-    role: Role
-    manager_id: uuid.UUID | None = None
+    email: EmailStr | None = None
 
 
 class LockUserToolIn(BaseModel):
@@ -367,16 +365,11 @@ async def _list_users(db, actor, body: NoArgsIn) -> dict:
                        "role": u.role.value} for u in rows.scalars()]}
 
 
-async def _create_employee(db, actor, body: CreateEmployeeToolIn) -> dict:
-    user, code, expires_at = await auth_service.create_employee(
-        db, actor=actor, email=body.email, full_name=body.full_name,
-        role=body.role.value, manager_id=body.manager_id)
-    return {"user_id": str(user.id), "email": user.email, "full_name": user.full_name,
-           "role": user.role.value, "activation_code": code,
-           "expires_at": expires_at.isoformat(),
-           "note": f"Đưa mã kích hoạt '{code}' cho {user.full_name} (nói trực tiếp, nhắn "
-                   "Zalo...) — họ mở app, chọn 'Kích hoạt tài khoản', nhập mã này + tự đặt "
-                   "mật khẩu. Không cần họ tự đăng ký gì thêm."}
+async def _add_employee(db, actor, body: AddEmployeeToolIn) -> dict:
+    user = await auth_service.add_employee(
+        db, actor=actor, full_name=body.full_name, email=body.email)
+    return {"user_id": str(user.id), "full_name": user.full_name, "email": user.email,
+           "note": f"Đã thêm {user.full_name} vào danh sách nhân viên công ty."}
 
 
 async def _lock_user(db, actor, body: LockUserToolIn) -> dict:
@@ -414,12 +407,13 @@ async def _change_user_role(db, actor, body: ChangeUserRoleToolIn) -> dict:
 _register("list_users", "Danh bạ công ty: liệt kê thành viên (id, tên, email, vai trò). "
           "Dùng để tra user_id theo tên trước khi giao task, gửi email, khóa/mở tài khoản "
           "— đừng bao giờ hỏi người dùng user_id.", NoArgsIn, _list_users)
-_register("create_employee", "Tạo tài khoản nhân viên/quản lý MỚI trực tiếp (chỉ CEO) — "
-          "KHÔNG cần người đó tự đăng ký/chấp nhận lời mời gì cả. Trả về activation_code — "
-          "CEO tự đưa mã này cho người được thêm (nói trực tiếp, nhắn Zalo...) để họ mở app, "
-          "chọn 'Kích hoạt tài khoản', nhập mã + tự đặt mật khẩu. Dùng khi nghe 'thêm nhân "
-          "viên X', 'mời Y vào làm quản lý', 'nhận Z làm nhân viên của A'.",
-          CreateEmployeeToolIn, _create_employee)
+_register("add_employee", "Thêm 1 người vào DANH SÁCH NHÂN VIÊN của công ty để giao "
+          "việc (chỉ CEO). Chỉ cần tên; email là tùy chọn. Đây KHÔNG PHẢI tạo tài "
+          "khoản/đăng nhập — nhân viên không dùng app này, chỉ CEO dùng. Dùng khi CEO "
+          "nhắc tên người chưa có trong danh sách (kiểm tra trước bằng resolve_person "
+          "hoặc danh bạ trong system prompt) mà muốn giao việc cho họ — nếu vậy, thêm "
+          "vào danh sách rồi giao việc luôn trong 1 lượt, đừng hỏi lại xác nhận thêm.",
+          AddEmployeeToolIn, _add_employee)
 _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi mọi thiết bị "
           "(chỉ CEO, hành động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).", LockUserToolIn, _lock_user,
           sensitive=True)
@@ -1043,7 +1037,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         "create_directive",
     }),
     "admin": frozenset({
-        "list_users", "create_employee", "lock_user", "unlock_user",
+        "list_users", "add_employee", "lock_user", "unlock_user",
         "offboard_user", "change_user_role", "list_audit_events", "forget_memory",
     }),
     "reporting": frozenset({
@@ -1079,5 +1073,5 @@ SNAPSHOT_WRITE_TOOLS: frozenset[str] = frozenset({
     "create_project", "update_project", "delete_project",
     "create_task", "update_task", "delete_task",
     "assign_task", "unassign_task", "add_task_update",
-    "offboard_user", "change_user_role", "create_directive", "create_employee",
+    "offboard_user", "change_user_role", "create_directive", "add_employee",
 })
