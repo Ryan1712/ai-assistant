@@ -93,7 +93,10 @@ async def login(
 ) -> tuple[User, str, str]:
     email = email.strip().lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if not user:
+    if not user or user.password_hash is None:
+        # password_hash=None = record chỉ-tên (add_employee, Task 3) — KHÔNG bao giờ
+        # đăng nhập được, dù email đúng. Chặn trước verify_password: None không có
+        # .encode() -> AttributeError (lỗi hệ thống) thay vì từ chối sạch nếu không guard.
         security.verify_password(password, _DUMMY_HASH)
         raise HTTPException(401, "invalid_credentials")
     if not security.verify_password(password, user.password_hash):
