@@ -337,6 +337,106 @@ async def test_process_conversation_filters_toolset_by_classified_route(engine, 
 
 
 @pytest.mark.asyncio
+async def test_requeue_after_confirm_does_not_reclassify_deep_request(engine, db_session):
+    """Request đường sâu paused ở propose_actions rồi được duyệt → resolve_confirmation
+    đưa về queued. Pickup lần 2 KHÔNG được classify lại (sẽ chạy run_deep_ack_turn
+    lần nữa: user nhận thêm 'Đang phân tích 30s' + cả 1 vòng deep 800s cho việc gần
+    xong). Nhận diện qua is_ack message → tiếp tục bằng run_deep_analysis (smart),
+    không ack lại."""
+    from app.models import Message as _Msg
+
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    from datetime import datetime, timezone
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="phan tich rui ro du an", queue_position=1.0,
+                      status=ChatRequestStatus.queued,
+                      started_at=datetime(2026, 1, 1, tzinfo=timezone.utc))  # đã chạy 1 lượt
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(_Msg(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                        role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    # is_ack message = dấu hiệu đã qua đường sâu
+    db_session.add(_Msg(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                        role=MessageRole.assistant, is_ack=True,
+                        content=[{"type": "text", "text": "Đang phân tích ~30s"}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[])  # KHÔNG được gọi (không ack lại, không classify)
+    pool = _RecordingPool()
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm, "event_publisher": FakeEventPublisher(),
+        "is_cancelled": lambda _id: _false(), "arq_pool": pool,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.deep_running
+    assert len(llm.calls) == 0
+    assert ("run_deep_analysis", (req.id,), {"_job_id": f"deep:{req.id}"}) in pool.calls
+
+
+@pytest.mark.asyncio
+async def test_requeue_after_confirm_fast_request_uses_full_toolset_no_reclassify(engine, db_session):
+    """Request fast paused ở tool nhạy cảm rồi duyệt → requeue. Pickup lần 2 tiếp
+    tục fast KHÔNG classify lại (tránh flip fast→deep gây lệch thinking-block 400)
+    — dùng full toolset an toàn."""
+    from app.agent.tools import TOOLS
+    from app.models import Message as _Msg
+
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    from datetime import datetime, timezone
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="khoa tai khoan Nam", queue_position=1.0,
+                      status=ChatRequestStatus.queued,
+                      started_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(_Msg(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                        role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[
+        [StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ])
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm, "event_publisher": FakeEventPublisher(),
+        "is_cancelled": lambda _id: _false(), "arq_pool": _RecordingPool(),
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.done
+    assert len(llm.calls) == 1  # 1 lượt loop, KHÔNG có lượt classify tier-2
+    assert {t["name"] for t in llm.calls[0]["tools"]} == set(TOOLS)  # full toolset
+
+
+async def _false():
+    return False
+
+
+@pytest.mark.asyncio
 async def test_process_conversation_survives_classify_route_error(engine, db_session):
     """classify_route (tier 2 gọi LLM) mà nổ — gateway 429/500 — thì exception
     thoát khỏi process_conversation, job chết, request kẹt `queued` VĨNH VIỄN

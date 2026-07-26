@@ -17,7 +17,7 @@ from app.agent.router import classify_route, tool_names_for_route
 from app.agent.summarizer import maybe_compress_history
 from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
-from app.models import ChatRequest, ChatRequestStatus, Conversation, User
+from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, User
 from app.services import (
     directive_service, distiller_service, embedding_service, example_bank_service,
     report_schedule_service, voice_service, watcher_service, work_service,
@@ -100,6 +100,36 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 # rollback() expire moi object trong session (ke ca req) — reload req
                 # qua duong async truoc khi dung tiep, tranh MissingGreenlet o classify_route.
                 await db.refresh(req)
+            # Requeue sau confirm: started_at da set nghia la request nay da chay it
+            # nhat 1 luot roi bi resolve_confirmation dua ve queued. TUYET DOI khong
+            # classify lai — router co the (a) doi route deep -> chay run_deep_ack_turn
+            # LAN 2 (user nhan them "Dang phan tich 30s" + ca 1 vong deep 800s cho
+            # viec gan xong), (b) flip fast<->deep -> model_smart bat thinking gui
+            # history ma assistant message cuoi chua tool_use KHONG co thinking block
+            # -> Anthropic 400 du tool da chay. Tiep tuc dung duong da chon lan dau:
+            if req.started_at is not None:
+                went_deep = (await db.execute(
+                    select(Message.id).where(
+                        Message.chat_request_id == req.id, Message.is_ack.is_(True)).limit(1)
+                )).scalar_one_or_none() is not None
+                if went_deep:
+                    # Deep dang do (paused o propose_actions roi duoc duyet) -> tiep
+                    # tuc bang job smart+thinking, KHONG ack lai. run_deep_analysis
+                    # guard status==deep_running nen set lai truoc khi enqueue.
+                    req.status = ChatRequestStatus.deep_running
+                    await db.commit()
+                    await ctx["arq_pool"].enqueue_job(
+                        "run_deep_analysis", req.id, _job_id=f"deep:{req.id}")
+                else:
+                    actor = await db.get(User, req.user_id)
+                    rag_context = await embedding_service.build_rag_context_block(
+                        db, actor, req.content)
+                    example_context = await example_bank_service.build_example_block(
+                        db, req.workspace_id, req.content)
+                    await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled,
+                                         tool_names=None, rag_context=rag_context,
+                                         example_context=example_context)
+                continue
             # Router (Phase 4 §8.1) - chi phan loai 1 lan luc pickup dau tien cua
             # request nay (status queued -> chuyen ngay khoi queued ben trong
             # run_deep_ack_turn/run_agent_loop, khong bao gio duoc chon lai o day).
