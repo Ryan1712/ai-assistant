@@ -26,3 +26,13 @@ def test_prompt_co_role_va_huong_dan():
     assert "tiếng Việt" in prompt          # chỉ dẫn ngôn ngữ tường minh
     assert "use_skill" in prompt           # gợi ý dùng skill
     assert "CEO" in prompt                 # nêu ranh giới quyền chính
+
+
+def test_prompt_cam_lo_ten_tool_noi_bo():
+    """Vấn đề CEO báo 2026-07-26: AI viết thẳng 'create_directive', 'assign_task'
+    trong câu trả lời — chi tiết code không được hiển thị cho người dùng. Prompt
+    phải có quy tắc tường minh: mô tả hành động bằng tiếng Việt tự nhiên, không
+    nhắc tên tool."""
+    prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
+    assert "chi tiết kỹ thuật nội bộ" in prompt
+    assert "không viết tên tool" in prompt
