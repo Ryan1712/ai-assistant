@@ -87,8 +87,12 @@ async def test_auto_title_tu_tin_nhan_dau(chat_client):
     await client.post(f"/api/v1/conversations/{conv['id']}/messages", headers=ceo_h,
                       json={"content": "Tao task lam slide quy 3 cho Nam nhe"})
 
+    # Tìm theo id, không dựa convs[0]: signup đã tạo sẵn seed conversation (Phase 6
+    # onboarding) — 2 conversation tạo trong cùng tick clock thì thứ tự created_at
+    # DESC không xác định (flake từng lộ khi chạy full suite máy chậm).
     convs = (await client.get("/api/v1/conversations", headers=ceo_h)).json()
-    assert convs[0]["title"] == "Tao task lam slide quy 3 cho Nam nhe"
+    target = next(c for c in convs if c["id"] == conv["id"])
+    assert target["title"] == "Tao task lam slide quy 3 cho Nam nhe"
 
 
 @pytest.mark.asyncio
@@ -102,7 +106,8 @@ async def test_auto_title_khong_ghi_de_title_co_san(chat_client):
                       json={"content": "tin nhan bat ky"})
 
     convs = (await client.get("/api/v1/conversations", headers=ceo_h)).json()
-    assert convs[0]["title"] == "Da dat ten"
+    target = next(c for c in convs if c["id"] == conv["id"])
+    assert target["title"] == "Da dat ten"
 
 
 @pytest.mark.asyncio
