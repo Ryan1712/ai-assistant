@@ -76,3 +76,32 @@ def test_system_prompt_tinh_co_huong_dan_import_text():
     prompt = _build_system_prompt(actor)
     assert "propose_actions" in prompt
     assert "dán" in prompt.lower() or "liệt kê nhiều công việc" in prompt
+
+
+async def test_seed_message_khong_lot_vao_history_gui_model(db_session):
+    ws, ceo = await _seed(db_session, role=Role.ceo)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id,
+                           role=MessageRole.assistant, is_seed=True,
+                           content=[{"type": "text", "text": "Chao mung ban!"}]))
+    await db_session.commit()
+
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="Tao project", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": "Tao project"}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[[TextDelta(text="ok"),
+        StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)]])
+    await run_agent_loop(db_session, req, llm, FakeEventPublisher())
+
+    messages = llm.calls[0]["messages"]
+    assert messages[0]["role"] == "user"
+    for m in messages:
+        for b in m["content"]:
+            assert "Chao mung ban" not in str(b)

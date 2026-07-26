@@ -60,7 +60,8 @@ async def maybe_compress_history(db: AsyncSession, conv: Conversation, llm: LLMC
     """Nén message cũ vào conv.rolling_summary nếu vượt ngưỡng (hoặc force). Trả True
     nếu đã nén + commit. force=True (dùng khi xoay conversation) bỏ qua SUMMARY_TRIGGER."""
     stmt = select(Message).where(
-        Message.conversation_id == conv.id, Message.is_ack.is_(False))
+        Message.conversation_id == conv.id, Message.is_ack.is_(False),
+        Message.is_seed.is_(False))
     if conv.summary_through_at is not None:
         stmt = stmt.where(Message.created_at > conv.summary_through_at)
     stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())

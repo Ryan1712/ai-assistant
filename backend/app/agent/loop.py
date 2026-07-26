@@ -165,6 +165,7 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
         or_(Message.chat_request_id.is_(None),
             Message.chat_request_id.not_in(skip_ids)),
         Message.is_ack.is_(False),
+        Message.is_seed.is_(False),
     )
     if since is not None:
         # Phase 5: message <= mốc summary_through_at đã gộp vào rolling_summary
@@ -240,6 +241,14 @@ async def run_agent_loop(
 
     actor = await db.get(User, req.user_id)
     conv = await db.get(Conversation, req.conversation_id)
+    coach_block: str | None = None
+    if actor.role == Role.ceo:
+        # Phase 6 (onboarding): tính 1 lần cho cả request, không phải mỗi vòng lặp
+        # — get_coach_flags đọc thẳng DB (không qua cache Redis của snapshot), tính
+        # lại mỗi iteration sẽ nhân chi phí lên tới MAX_ITERATIONS lần vô ích (state
+        # công ty không đổi giữa các bước tool-call của CÙNG 1 request).
+        coach_flags = await onboarding_service.get_coach_flags(db, req.workspace_id)
+        coach_block = onboarding_service.render_coach_block(coach_flags)
 
     iteration = 0
     tool_call_count = 0
@@ -307,13 +316,8 @@ async def run_agent_loop(
             snapshot_text = await snapshot_service.get_snapshot_text(db, actor)
             if snapshot_text:
                 dynamic_parts.append(snapshot_text)
-            if actor.role == Role.ceo:
-                # Phase 6 (onboarding): gợi ý dẫn dắt — chỉ CEO có quyền tạo
-                # project/mời người nên gợi ý này vô nghĩa với manager/employee.
-                coach_flags = await onboarding_service.get_coach_flags(db, req.workspace_id)
-                coach_block = onboarding_service.render_coach_block(coach_flags)
-                if coach_block:
-                    dynamic_parts.append(coach_block)
+            if coach_block:
+                dynamic_parts.append(coach_block)
             if conv is not None and conv.rolling_summary:
                 # Phase 5: tóm tắt hội thoại cũ — block ĐỘNG cuối, gần message nhất.
                 dynamic_parts.append(
