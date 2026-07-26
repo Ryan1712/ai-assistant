@@ -7,11 +7,11 @@ KHÔNG bao giờ chèn làm message (bài học is_ack: phá luật user/assista
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.llm_client import LLMClient, TextDelta
-from app.models import Conversation, Message, MessageRole
+from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole
 
 SUMMARY_TRIGGER = 60
 SUMMARY_KEEP_RECENT = 40
@@ -59,9 +59,29 @@ async def maybe_compress_history(db: AsyncSession, conv: Conversation, llm: LLMC
                                  keep_recent: int = SUMMARY_KEEP_RECENT) -> bool:
     """Nén message cũ vào conv.rolling_summary nếu vượt ngưỡng (hoặc force). Trả True
     nếu đã nén + commit. force=True (dùng khi xoay conversation) bỏ qua SUMMARY_TRIGGER."""
+    # Request CHƯA chạy (queued, hoặc cancelled chưa từng start): message của chúng
+    # KHÔNG được fold vào summary. Nếu fold, watermark summary_through_at vượt qua
+    # câu hỏi của chính request đó → _load_history (created_at > watermark) sẽ bỏ
+    # luôn câu hỏi khi request tới lượt → model trả lời nhầm. Dùng cùng điều kiện
+    # skip như _load_history (loop.py).
+    skip_ids = select(ChatRequest.id).where(
+        ChatRequest.conversation_id == conv.id,
+        or_(ChatRequest.status == ChatRequestStatus.queued,
+            and_(ChatRequest.status == ChatRequestStatus.cancelled,
+                 ChatRequest.started_at.is_(None))),
+    ).scalar_subquery()
+    # Mốc thời gian sớm nhất của các message "chưa chạy" đó — watermark phải nằm
+    # TRƯỚC mốc này (message xen kẽ theo created_at: R1 đang chạy có thể sinh
+    # message SAU câu hỏi R2 queued).
+    oldest_pending = (await db.execute(
+        select(func.min(Message.created_at)).where(
+            Message.conversation_id == conv.id,
+            Message.chat_request_id.in_(skip_ids)))).scalar()
+
     stmt = select(Message).where(
         Message.conversation_id == conv.id, Message.is_ack.is_(False),
-        Message.is_seed.is_(False))
+        Message.is_seed.is_(False),
+        or_(Message.chat_request_id.is_(None), Message.chat_request_id.not_in(skip_ids)))
     if conv.summary_through_at is not None:
         stmt = stmt.where(Message.created_at > conv.summary_through_at)
     stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())
@@ -81,6 +101,11 @@ async def maybe_compress_history(db: AsyncSession, conv: Conversation, llm: LLMC
             break
         cut += 1
     to_fold = msgs[:cut]
+    if oldest_pending is not None:
+        # Không đẩy watermark tới/vượt message của request chưa chạy (dù message
+        # đó đã bị loại khỏi msgs, message của R1 sinh SAU nó vẫn có thể lọt vào
+        # to_fold và đẩy watermark qua mốc) — cắt to_fold về trước oldest_pending.
+        to_fold = [m for m in to_fold if m.created_at < oldest_pending]
     if not to_fold:
         return False
 
