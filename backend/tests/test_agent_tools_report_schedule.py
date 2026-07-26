@@ -26,6 +26,28 @@ def test_report_schedule_tools_registered_and_not_sensitive():
 
 
 @pytest.mark.asyncio
+async def test_create_report_schedule_tool_rejects_out_of_range_weekday(db_session):
+    """LLM rất dễ sinh weekday=7 (nhầm quy ước 1..7 hoặc 0=Chủ Nhật). Không chặn
+    thì compute_next_run chạy `while weekday()!=7` vô hạn → treo worker. Tool phải
+    trả invalid_input (như schema API ge=0,le=6) để model tự sửa, không nổ/treo."""
+    ws, ceo = await _ceo(db_session)
+    res = await call_tool(db_session, ceo, "create_report_schedule",
+                          {"weekday": 7, "hour": 8, "minute": 0})
+    assert res["error"] == "invalid_input"
+
+
+@pytest.mark.asyncio
+async def test_create_report_schedule_tool_rejects_out_of_range_hour(db_session):
+    ws, ceo = await _ceo(db_session)
+    res = await call_tool(db_session, ceo, "create_report_schedule",
+                          {"weekday": 0, "hour": 24, "minute": 0})
+    assert res["error"] == "invalid_input"
+    res2 = await call_tool(db_session, ceo, "create_report_schedule",
+                           {"weekday": 0, "hour": 8, "minute": 60})
+    assert res2["error"] == "invalid_input"
+
+
+@pytest.mark.asyncio
 async def test_create_list_delete_report_schedule_tools(db_session):
     ws, ceo = await _ceo(db_session)
 

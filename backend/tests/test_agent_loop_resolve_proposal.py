@@ -86,6 +86,35 @@ async def test_approved_proposal_runs_all_actions_sequentially_skips_failures(db
 
 
 @pytest.mark.asyncio
+async def test_approved_proposal_action_without_tool_input_defaults_to_empty(db_session, monkeypatch):
+    """Schema propose_actions cho tool_input default {} nên LLM có thể bỏ trống;
+    action lưu là dict thô từ model. Trước đây _resolve_proposal đọc a["tool_input"]
+    → KeyError → confirm 500 → request kẹt awaiting_confirmation (chỉ Từ chối mới
+    thoát). Phải mặc định {} và chạy tool bình thường (get_today_dashboard không
+    cần tham số)."""
+    ws, ceo, project, task, conv = await _setup(db_session)
+    from app.services import snapshot_service
+    monkeypatch.setattr(snapshot_service, "invalidate", lambda workspace_id: _noop())
+    req = await _make_req(db_session, ws, conv, ceo, [
+        {"tool_name": "get_today_dashboard", "display_text": "Xem tổng hợp hôm nay"},
+    ])
+
+    # KHÔNG được raise (trước fix: KeyError 'tool_input')
+    await resolve_confirmation(db_session, req, approved=True)
+
+    assert req.status == ChatRequestStatus.queued
+    assert req.pending_action is None
+    msgs = (await db_session.execute(select(Message))).scalars().all()
+    tool_result = [m for m in msgs if m.content[0]["type"] == "tool_result"][0]
+    payload = json.loads(tool_result.content[0]["content"])
+    assert payload["outcome"] == "completed"
+
+
+async def _noop():
+    return None
+
+
+@pytest.mark.asyncio
 async def test_proposal_all_actions_succeed_outcome_completed(db_session, monkeypatch):
     ws, ceo, project, task, conv = await _setup(db_session)
     task2 = Task(workspace_id=ws.id, project_id=project.id, title="T2", created_by=ceo.id)

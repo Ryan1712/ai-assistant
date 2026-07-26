@@ -479,9 +479,12 @@ _register("list_reports", "Liệt kê các báo cáo Excel đã tạo trước �
 
 
 class CreateReportScheduleToolIn(BaseModel):
-    weekday: int | None = None
-    hour: int
-    minute: int = 0
+    # Ràng buộc GIỐNG HỆT ReportScheduleCreateIn (schema REST) — thiếu ge/le thì
+    # weekday=7 (LLM rất dễ nhầm quy ước 1..7) làm compute_next_run lặp vô hạn treo
+    # worker; hour=24 nổ ValueError. Chặn ở input để trả invalid_input cho model tự sửa.
+    weekday: int | None = Field(default=None, ge=0, le=6)  # 0=Mon..6=Sun, None=daily
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
     project_id: uuid.UUID | None = None
     assignee_id: uuid.UUID | None = None
     status: TaskStatus | None = None
@@ -995,6 +998,9 @@ def validate_proposal_actions(actions: list[dict]) -> str | None:
     if not actions:
         return "actions rỗng — propose_actions cần ít nhất 1 hành động."
     for a in actions:
+        if not isinstance(a, dict):
+            return ("mỗi phần tử actions phải là object {tool_name, tool_input, "
+                   "display_text} — không phải chuỗi/giá trị đơn.")
         name = a.get("tool_name")
         if name not in TOOLS:
             return f"tool_name '{name}' không tồn tại — gọi lại với tên tool đúng."

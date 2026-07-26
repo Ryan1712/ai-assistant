@@ -622,17 +622,22 @@ async def _resolve_proposal(db: AsyncSession, actor: User, action: dict, approve
     any_write = False
     for a in action["actions"]:
         tool_started = time.monotonic()
-        r = await call_tool(db, actor, a["tool_name"], a["tool_input"])
-        trace_tools.append(_tool_trace_entry(a["tool_name"], a["tool_input"], r,
+        # tool_input là optional trong schema propose_actions (default {}) — LLM có
+        # thể bỏ trống với tool không cần tham số (get_today_dashboard...). Trước đây
+        # a["tool_input"] KeyError → confirm 500 → request kẹt awaiting_confirmation.
+        tool_input = a.get("tool_input") or {}
+        tool_name = a["tool_name"]
+        r = await call_tool(db, actor, tool_name, tool_input)
+        trace_tools.append(_tool_trace_entry(tool_name, tool_input, r,
                                              int((time.monotonic() - tool_started) * 1000)))
-        results.append({"tool_name": a["tool_name"], "display_text": a.get("display_text"),
+        results.append({"tool_name": tool_name, "display_text": a.get("display_text"),
                         "result": r})
-        label = a.get("display_text") or a["tool_name"]
+        label = a.get("display_text") or tool_name
         if "error" in r:
             failed.append(label)
         else:
             succeeded.append(label)
-            if a["tool_name"] in SNAPSHOT_WRITE_TOOLS:
+            if tool_name in SNAPSHOT_WRITE_TOOLS:
                 any_write = True
     if any_write:
         await snapshot_service.invalidate(workspace_id)
