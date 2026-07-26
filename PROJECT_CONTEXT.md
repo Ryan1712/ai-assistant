@@ -47,8 +47,8 @@ backend/app/
   config.py       Settings (env vars) + các cờ *_mock
   security.py     JWT + bcrypt
   deps.py         get_current_user (JWT bearer)
-alembic/versions/ 22 migration (xem mục 9)
-backend/tests/    128 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
+alembic/versions/ 23 migration (xem mục 9)
+backend/tests/    131 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
 
 frontend/app/
   auth/           login, signup-workspace, activate (signup-code.tsx còn file nhưng đã tắt)
