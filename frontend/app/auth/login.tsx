@@ -56,12 +56,14 @@ export default function Login() {
         >
           Nhân viên mới? Đăng ký bằng mã mời công ty
         </Text> */}
-        <Text
+        {/* Kích hoạt tài khoản (create_employee cũ) tắt - chỉ CEO đăng nhập app,
+            nhân viên là record chỉ-tên (2026-07-26). */}
+        {/* <Text
           style={{ color: colors.primary, fontFamily: fonts.semibold }}
           onPress={() => navigation.navigate("Activate")}
         >
           Đã được thêm vào công ty? Kích hoạt tài khoản
-        </Text>
+        </Text> */}
         <Text
           style={{ color: colors.primary, fontFamily: fonts.semibold }}
           onPress={() => navigation.navigate("SignupWorkspace")}

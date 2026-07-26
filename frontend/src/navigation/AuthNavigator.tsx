@@ -9,7 +9,10 @@ import ForgotPassword from "../../app/auth/forgot-password";
 // chỉ bỏ đăng ký route để không truy cập được nữa.
 // import SignupCode from "../../app/auth/signup-code";
 import SignupWorkspace from "../../app/auth/signup-workspace";
-import Activate from "../../app/auth/activate";
+// Activate (kích hoạt tài khoản CEO tạo trước) tắt - product quyết định
+// 2026-07-26 chỉ CEO đăng nhập, nhân viên là record chỉ-tên (add_employee),
+// không còn ai kích hoạt. Giữ nguyên file, chỉ bỏ route.
+// import Activate from "../../app/auth/activate";
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
@@ -29,7 +32,7 @@ export function AuthNavigator() {
       <Stack.Screen name="ForgotPassword" component={ForgotPassword} options={{ title: "Quên mật khẩu" }} />
       {/* <Stack.Screen name="SignupCode" component={SignupCode} options={{ title: "Đăng ký bằng mã mời" }} /> */}
       <Stack.Screen name="SignupWorkspace" component={SignupWorkspace} options={{ title: "Tạo công ty mới" }} />
-      <Stack.Screen name="Activate" component={Activate} options={{ title: "Kích hoạt tài khoản" }} />
+      {/* <Stack.Screen name="Activate" component={Activate} options={{ title: "Kích hoạt tài khoản" }} /> */}
     </Stack.Navigator>
   );
 }
