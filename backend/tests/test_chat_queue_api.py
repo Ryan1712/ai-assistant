@@ -24,9 +24,16 @@ class _FakeArqPool:
 class _FakeRedis:
     def __init__(self):
         self.set_calls = []
+        self.deleted = []
+        self.store = {}
 
     async def set(self, key, value, ex=None):
         self.set_calls.append((key, value, ex))
+        self.store[key] = value
+
+    async def delete(self, key):
+        self.deleted.append(key)
+        self.store.pop(key, None)
 
 
 @pytest.fixture
@@ -191,6 +198,99 @@ async def test_list_requests_exposes_pending_action_for_confirm_card(queue_clien
     assert waiting["pending_action"]["tool_use_id"] == "t1"
 
 
+def test_cancel_ttl_covers_deep_job_timeout():
+    """_CANCEL_TTL phải >= job_timeout của run_deep_analysis (900s) + biên chờ
+    queue — nếu nhỏ hơn, lệnh hủy request deep bốc hơi trước khi job kịp chạy/đọc."""
+    from app.api.chat import _CANCEL_TTL
+    assert _CANCEL_TTL >= 900
+
+
+@pytest.mark.asyncio
+async def test_cancel_awaiting_confirmation_writes_tool_result_and_cancels(queue_client):
+    """Trước đây cancel bỏ sót status awaiting_confirmation → no-op im lặng, queue
+    bị guard paused chặn tới khi user tìm đúng confirm card cũ bấm từ chối. Cancel
+    phải: ghi tool_result (tránh tool_use mồ côi → Anthropic 400), đánh dấu
+    cancelled, nối lại queue."""
+    client, fake_pool, fake_redis, maker = queue_client
+    ceo_h = await _ceo_headers(client)
+    me = (await client.get("/api/v1/users/me", headers=ceo_h)).json()
+
+    async with maker() as db:
+        ceo = await db.get(User, uuid.UUID(me["id"]))
+        target = User(workspace_id=ceo.workspace_id, email="e@a.vn", password_hash="x",
+                     full_name="E", role="employee")
+        db.add(target)
+        await db.flush()
+        conv = Conversation(workspace_id=ceo.workspace_id, user_id=ceo.id)
+        db.add(conv)
+        await db.flush()
+        req = ChatRequest(workspace_id=ceo.workspace_id, conversation_id=conv.id,
+                          user_id=ceo.id, content="khoa e", queue_position=1.0,
+                          status=ChatRequestStatus.awaiting_confirmation,
+                          pending_action={"kind": "tool", "tool_name": "lock_user",
+                                         "tool_input": {"target_id": str(target.id)},
+                                         "tool_use_id": "t1"})
+        db.add(req)
+        await db.commit()
+        req_id, target_id = req.id, target.id
+
+    resp = await client.post(f"/api/v1/chat-requests/{req_id}/cancel", headers=ceo_h)
+    assert resp.status_code == 204
+
+    async with maker() as db:
+        req = await db.get(ChatRequest, req_id)
+        assert req.status == ChatRequestStatus.cancelled
+        assert req.pending_action is None
+        # tool nhạy cảm KHÔNG được chạy — target vẫn active
+        target = await db.get(User, target_id)
+        assert target.status == UserStatus.active
+        rows = (await db.execute(select(Message).where(
+            Message.chat_request_id == req_id, Message.role == "user"))).scalars().all()
+        tool_results = [m for m in rows
+                        if m.content and m.content[0].get("type") == "tool_result"
+                        and m.content[0].get("tool_use_id") == "t1"]
+        assert len(tool_results) == 1  # đã ghi tool_result cho tool_use mồ côi
+    # queue được nối lại
+    assert any(name == "process_conversation" for name, _a, _k in fake_pool.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_confirm_clears_stale_cancel_key(queue_client):
+    """Bug: cancel lúc running set cancel:{id}; nếu loop kịp chuyển awaiting mà
+    chưa tiêu thụ key, key còn sống. User duyệt → tool nhạy cảm CHẠY → requeue →
+    run_agent_loop check_cancelled thấy key cũ → cancel. FE báo 'đã hủy' nhưng
+    email đã gửi/tài khoản đã khóa. confirm phải xóa cancel key trước khi requeue."""
+    client, fake_pool, fake_redis, maker = queue_client
+    ceo_h = await _ceo_headers(client)
+    me = (await client.get("/api/v1/users/me", headers=ceo_h)).json()
+
+    async with maker() as db:
+        ceo = await db.get(User, uuid.UUID(me["id"]))
+        target = User(workspace_id=ceo.workspace_id, email="e2@a.vn", password_hash="x",
+                     full_name="E2", role="employee")
+        db.add(target)
+        await db.flush()
+        conv = Conversation(workspace_id=ceo.workspace_id, user_id=ceo.id)
+        db.add(conv)
+        await db.flush()
+        req = ChatRequest(workspace_id=ceo.workspace_id, conversation_id=conv.id,
+                          user_id=ceo.id, content="khoa e2", queue_position=1.0,
+                          status=ChatRequestStatus.awaiting_confirmation,
+                          pending_action={"kind": "tool", "tool_name": "lock_user",
+                                         "tool_input": {"target_id": str(target.id)},
+                                         "tool_use_id": "t1"})
+        db.add(req)
+        await db.commit()
+        req_id = req.id
+
+    await fake_redis.set(f"cancel:{req_id}", "1", ex=600)  # cancel key mồ côi còn sống
+
+    resp = await client.post(f"/api/v1/chat-requests/{req_id}/confirm", headers=ceo_h,
+                             json={"approved": True})
+    assert resp.status_code == 200
+    assert f"cancel:{req_id}" in fake_redis.deleted  # đã xóa key mồ côi
+
+
 @pytest.mark.asyncio
 async def test_cancel_queued_request_marks_cancelled(queue_client):
     client, *_, maker = queue_client
@@ -236,7 +336,7 @@ async def test_cancel_running_request_sets_redis_flag(queue_client):
 
     resp = await client.post(f"/api/v1/chat-requests/{req_id}/cancel", headers=ceo_h)
     assert resp.status_code == 204
-    assert fake_redis.set_calls == [(f"cancel:{req_id}", "1", 600)]
+    assert fake_redis.set_calls == [(f"cancel:{req_id}", "1", 1800)]
 
 
 @pytest.mark.asyncio
@@ -261,7 +361,7 @@ async def test_cancel_deep_running_request_sets_redis_flag(queue_client):
 
     resp = await client.post(f"/api/v1/chat-requests/{req_id}/cancel", headers=ceo_h)
     assert resp.status_code == 204
-    assert fake_redis.set_calls == [(f"cancel:{req_id}", "1", 600)]
+    assert fake_redis.set_calls == [(f"cancel:{req_id}", "1", 1800)]
 
 
 @pytest.mark.asyncio
@@ -286,7 +386,7 @@ async def test_stop_all_flags_deep_running_request(queue_client):
 
     resp = await client.post(f"/api/v1/conversations/{conv_id}/stop-all", headers=ceo_h)
     assert resp.status_code == 204
-    assert fake_redis.set_calls == [(f"cancel:{deep_id}", "1", 600)]
+    assert fake_redis.set_calls == [(f"cancel:{deep_id}", "1", 1800)]
 
 
 @pytest.mark.asyncio
@@ -374,4 +474,4 @@ async def test_stop_all_cancels_queued_and_flags_running(queue_client):
     async with maker() as db:
         queued = await db.get(ChatRequest, queued_id)
         assert queued.status == ChatRequestStatus.cancelled
-    assert fake_redis.set_calls == [(f"cancel:{running_id}", "1", 600)]
+    assert fake_redis.set_calls == [(f"cancel:{running_id}", "1", 1800)]

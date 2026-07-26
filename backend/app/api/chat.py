@@ -1,5 +1,6 @@
+import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -24,9 +25,28 @@ from app.services import continuity, embedding_service, session_service, voice_s
 router = APIRouter(prefix="/api/v1/conversations", tags=["chat"])
 chat_requests_router = APIRouter(prefix="/api/v1/chat-requests", tags=["chat"])
 
-# TTL key hủy PHẢI >= arq job_timeout (600s, xem worker.py) — nếu nhỏ hơn, lệnh hủy
-# có thể hết hạn trước khi loop kịp đọc trong 1 lượt stream dài.
-_CANCEL_TTL = 600
+# TTL key hủy PHẢI >= job_timeout LỚN NHẤT (run_deep_analysis = 900s, worker.py)
+# CỘNG biên chờ trong queue (job có thể xếp hàng trước khi chạy) — nếu nhỏ hơn,
+# lệnh hủy 1 request deep có thể bốc hơi trước khi job kịp chạy và đọc key.
+_CANCEL_TTL = 1800
+
+
+async def _cancel_awaiting(db: AsyncSession, req: ChatRequest) -> None:
+    """Hủy 1 request đang awaiting_confirmation: PHẢI ghi tool_result cho tool_use
+    đang chờ (nếu chỉ set cancelled, tool_use nằm mồ côi trong history → mọi call
+    Anthropic sau của conversation 400), rồi đánh dấu cancelled + xóa pending_action.
+    Không requeue (khác deny) — người dùng muốn bỏ hẳn."""
+    action = req.pending_action or {}
+    tool_use_id = action.get("tool_use_id")
+    if tool_use_id:
+        db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
+                       chat_request_id=req.id, role=MessageRole.user,
+                       content=[{"type": "tool_result", "tool_use_id": tool_use_id,
+                                "content": json.dumps({"error": "cancelled",
+                                                       "message": "Người dùng đã hủy yêu cầu."})}]))
+    req.status = ChatRequestStatus.cancelled
+    req.pending_action = None
+    req.finished_at = datetime.now(timezone.utc)
 
 
 async def get_arq_pool(request: Request):
@@ -209,11 +229,16 @@ async def stop_all(conversation_id: uuid.UUID, actor: User = Depends(get_current
     rows = await db.execute(select(ChatRequest).where(
         ChatRequest.conversation_id == conv.id,
         ChatRequest.status.in_([ChatRequestStatus.queued, ChatRequestStatus.running,
-                                ChatRequestStatus.deep_running]),
+                                ChatRequestStatus.deep_running,
+                                ChatRequestStatus.awaiting_confirmation]),
     ))
     for req in rows.scalars():
         if req.status == ChatRequestStatus.queued:
             req.status = ChatRequestStatus.cancelled
+        elif req.status == ChatRequestStatus.awaiting_confirmation:
+            # Bỏ sót awaiting trước đây khiến "dừng tất cả" không gỡ được confirm
+            # card đang chặn queue. Ghi tool_result + cancelled như cancel_request.
+            await _cancel_awaiting(db, req)
         else:
             await redis.set(f"cancel:{req.id}", "1", ex=_CANCEL_TTL)
     await db.commit()
@@ -224,7 +249,8 @@ async def stop_all(conversation_id: uuid.UUID, actor: User = Depends(get_current
 async def confirm_request(request_id: uuid.UUID, body: ConfirmIn,
                           actor: User = Depends(get_current_user),
                           db: AsyncSession = Depends(get_db),
-                          arq_pool=Depends(get_arq_pool)):
+                          arq_pool=Depends(get_arq_pool),
+                          redis=Depends(get_redis)):
     req = await _get_own_request_or_404(db, actor, request_id)
     if req.status != ChatRequestStatus.awaiting_confirmation:
         raise HTTPException(409, "not_awaiting_confirmation")
@@ -240,6 +266,12 @@ async def confirm_request(request_id: uuid.UUID, body: ConfirmIn,
         .values(status=ChatRequestStatus.running))
     if claimed.rowcount != 1:
         raise HTTPException(409, "not_awaiting_confirmation")
+    # Xóa cancel key MỒ CÔI (nếu có): user từng bấm hủy lúc request đang running,
+    # loop kịp chuyển awaiting mà chưa tiêu thụ key → key còn sống. Giờ user CHỦ
+    # ĐỘNG duyệt (hành động mới nhất, tường minh) — nếu không xóa, requeue xong
+    # run_agent_loop check_cancelled thấy key cũ sẽ hủy 1 request mà tool nhạy cảm
+    # VỪA chạy (FE báo "đã hủy" nhưng email đã gửi).
+    await redis.delete(f"cancel:{req.id}")
     await resolve_confirmation(db, req, approved=body.approved)
     await enqueue_conversation(arq_pool, req.conversation_id)
     return req
@@ -264,11 +296,20 @@ async def edit_request(request_id: uuid.UUID, body: ChatRequestEditIn,
 
 @chat_requests_router.post("/{request_id}/cancel", status_code=204)
 async def cancel_request(request_id: uuid.UUID, actor: User = Depends(get_current_user),
-                         db: AsyncSession = Depends(get_db), redis=Depends(get_redis)):
+                         db: AsyncSession = Depends(get_db), redis=Depends(get_redis),
+                         arq_pool=Depends(get_arq_pool)):
     req = await _get_own_request_or_404(db, actor, request_id)
     if req.status == ChatRequestStatus.queued:
         req.status = ChatRequestStatus.cancelled
         await db.commit()
+    elif req.status == ChatRequestStatus.awaiting_confirmation:
+        # Trước đây rơi qua mọi nhánh → no-op im lặng; queue bị guard paused chặn
+        # tới khi user tìm đúng confirm card cũ bấm từ chối. Ghi tool_result +
+        # cancelled, rồi nối lại queue (guard paused đã hết).
+        conv_id = req.conversation_id
+        await _cancel_awaiting(db, req)
+        await db.commit()
+        await enqueue_conversation(arq_pool, conv_id)
     elif req.status in (ChatRequestStatus.running, ChatRequestStatus.deep_running):
         await redis.set(f"cancel:{req.id}", "1", ex=_CANCEL_TTL)
     return Response(status_code=204)
