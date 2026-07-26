@@ -195,8 +195,13 @@ async def create_employee(
 
     if actor.role != Role.ceo:
         raise HTTPException(403, "forbidden")
-    await plans.enforce_limit(db, actor.workspace_id, "members")
     role_enum = Role(role)
+    # Chỉ root CEO mới được tạo tài khoản CEO mới — cùng chính sách với change_role
+    # (_check_role_change_permission): không thì CEO thường né rào bằng cách "tạo
+    # mới" thay vì "thăng cấp".
+    if role_enum == Role.ceo and not actor.is_root:
+        raise HTTPException(403, "only_root_can_create_ceo")
+    await plans.enforce_limit(db, actor.workspace_id, "members")
     email = email.strip().lower()
     if role_enum == Role.employee and manager_id is None:
         raise HTTPException(422, "employee_invite_requires_manager")
@@ -349,6 +354,18 @@ async def unlock_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID) -
 
 async def offboard_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID,
                         successor_id: uuid_mod.UUID | None = None) -> dict:
+    # Validate successor TRƯỚC khi khóa: nếu không, successor sai (id không tồn
+    # tại/khác workspace/đã khóa) làm raise SAU khi lock_user đã commit → target bị
+    # khóa + đăng xuất mọi thiết bị + ghi event 'offboarded' dù tool báo lỗi, còn
+    # task/project chưa bàn giao — state nửa vời, người dùng tưởng chưa làm gì.
+    successor: User | None = None
+    if successor_id is not None:
+        successor = await db.get(User, successor_id)
+        if successor is None or successor.workspace_id != actor.workspace_id:
+            raise HTTPException(404, "user_not_found")
+        if successor.id == target_id or successor.status == UserStatus.locked:
+            raise HTTPException(422, "invalid_successor")
+
     await lock_user(db, actor, target_id)
     db.add(AccountEvent(workspace_id=actor.workspace_id, target_user_id=target_id,
                         actor_id=actor.id, event_type="offboarded", detail="Nghỉ việc"))
@@ -359,12 +376,6 @@ async def offboard_user(db: AsyncSession, actor: User, target_id: uuid_mod.UUID,
     reports_reassigned = 0
 
     if successor_id is not None:
-        successor = await db.get(User, successor_id)
-        if successor is None or successor.workspace_id != actor.workspace_id:
-            raise HTTPException(404, "user_not_found")
-        if successor.id == target_id or successor.status == UserStatus.locked:
-            raise HTTPException(422, "invalid_successor")
-
         rows = (await db.execute(
             select(TaskAssignee).where(
                 TaskAssignee.user_id == target_id,

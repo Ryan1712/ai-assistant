@@ -44,6 +44,24 @@ async def test_non_ceo_cannot_offboard(db_session):
 
 
 @pytest.mark.asyncio
+async def test_offboard_invalid_successor_does_not_lock_target(db_session):
+    """Nguyên tử hóa: successor sai (id không tồn tại/khác workspace) → offboard
+    phải raise TRƯỚC khi khóa target. Trước đây lock_user + event 'offboarded' đã
+    commit rồi mới validate successor → target bị khóa + đăng xuất dù tool báo lỗi,
+    task/project chưa bàn giao — state nửa vời."""
+    import uuid as uuid_mod
+
+    ws, ceo, mgr, emp, successor, project, task = await _seed(db_session)
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.offboard_user(db_session, ceo, mgr.id,
+                                         successor_id=uuid_mod.uuid4())
+    assert exc.value.status_code == 404
+    await db_session.rollback()
+    await db_session.refresh(mgr)
+    assert mgr.status == UserStatus.active  # KHÔNG bị khóa vì successor sai
+
+
+@pytest.mark.asyncio
 async def test_offboard_without_successor_only_locks(db_session):
     ws, ceo, mgr, emp, successor, project, task = await _seed(db_session)
     result = await auth_service.offboard_user(db_session, ceo, mgr.id)

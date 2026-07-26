@@ -40,6 +40,34 @@ async def test_activation_code_single_use(client):
 
 
 @pytest.mark.asyncio
+async def test_non_root_ceo_cannot_create_ceo_account(db_session):
+    """create_employee nhận role='ceo' mà không check is_root → CEO thường tạo
+    thẳng CEO mới, né rào 'chỉ root đụng vào CEO' của change_role. Phải chặn:
+    non-root CEO tạo role=ceo → 403."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    root_ceo = User(workspace_id=ws.id, email="root@a.vn", password_hash="x",
+                    full_name="Root", role=Role.ceo, is_root=True)
+    plain_ceo = User(workspace_id=ws.id, email="ceo2@a.vn", password_hash="x",
+                     full_name="CEO Phu", role=Role.ceo, is_root=False)
+    db_session.add_all([root_ceo, plain_ceo])
+    await db_session.flush()
+    await db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await auth_service.create_employee(db_session, actor=plain_ceo,
+                                           email="new-ceo@a.vn", full_name="CEO Moi",
+                                           role="ceo")
+    assert exc.value.status_code == 403
+
+    # Root CEO thì tạo được (đối chứng — không chặn nhầm)
+    user, _code, _exp = await auth_service.create_employee(
+        db_session, actor=root_ceo, email="new-ceo2@a.vn", full_name="CEO Moi 2", role="ceo")
+    assert user.role == Role.ceo
+
+
+@pytest.mark.asyncio
 async def test_non_ceo_cannot_create_employee(client):
     headers = await _ceo_headers(client)
     mgr = await _invite_and_join(client, headers, "manager", "m1@a.vn")
