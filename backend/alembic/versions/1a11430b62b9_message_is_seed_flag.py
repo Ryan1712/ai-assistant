@@ -1,7 +1,7 @@
 """message_is_seed_flag
 
 Revision ID: 1a11430b62b9
-Revises: b0e866329b4c
+Revises: a3b4c5d6e7f8
 Create Date: 2026-07-25 21:55:36.555065
 
 """
@@ -13,7 +13,14 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '1a11430b62b9'
-down_revision: Union[str, Sequence[str], None] = 'b0e866329b4c'
+# Rebase luc merge phase6-onboarding vao main (2026-07-26): viet ban dau tro thang ve
+# b0e866329b4c (session_model_rolling_summary) vi nhanh nay tach ra tu do. Nhung 1
+# phien khac da lam song song 3 migration khac tu CUNG diem do thang tren main
+# (embeddings_table -> workspace_memories_table -> few_shot_examples_table) va merge
+# truoc -> giu nguyen ca 2 se tao 2 head Alembic. Doi down_revision tro ve cuoi chuoi
+# do (a3b4c5d6e7f8 = few_shot_examples_table) de gop lai thanh 1 chuoi tuyen tinh duy
+# nhat - an toan vi cot is_seed khong lien quan gi noi dung 3 bang kia.
+down_revision: Union[str, Sequence[str], None] = 'a3b4c5d6e7f8'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
