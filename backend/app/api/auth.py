@@ -26,10 +26,14 @@ async def signup_workspace(body: SignupWorkspaceIn, db: AsyncSession = Depends(g
     return AuthOut(access_token=access, refresh_token=refresh, user=user)
 
 
-@router.post("/activate", response_model=AuthOut, status_code=201)
-async def activate(body: ActivateAccountIn, db: AsyncSession = Depends(get_db)):
-    user, access, refresh = await auth_service.activate_account(db, **body.model_dump())
-    return AuthOut(access_token=access, refresh_token=refresh, user=user)
+# Kích hoạt tài khoản đã CEO tạo trước (create_employee cũ) tắt — sản phẩm quyết
+# định 2026-07-26 chỉ CEO đăng nhập, nhân viên là record chỉ-tên (add_employee),
+# không còn ai kích hoạt. Giữ nguyên auth_service.activate_account, chỉ bỏ route
+# (cùng quy ước đã dùng cho /signup-code bên dưới, 2026-07-23).
+# @router.post("/activate", response_model=AuthOut, status_code=201)
+# async def activate(body: ActivateAccountIn, db: AsyncSession = Depends(get_db)):
+#     user, access, refresh = await auth_service.activate_account(db, **body.model_dump())
+#     return AuthOut(access_token=access, refresh_token=refresh, user=user)
 
 
 # Tự đăng ký bằng mã mời chung workspace (luôn tạo role=employee) tắt tạm -

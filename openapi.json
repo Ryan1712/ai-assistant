@@ -62,47 +62,6 @@
         }
       }
     },
-    "/api/v1/auth/activate": {
-      "post": {
-        "tags": [
-          "auth"
-        ],
-        "summary": "Activate",
-        "operationId": "activate_api_v1_auth_activate_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ActivateAccountIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -633,18 +592,18 @@
         }
       }
     },
-    "/api/v1/invites": {
+    "/api/v1/employees": {
       "post": {
         "tags": [
-          "invites"
+          "employees"
         ],
-        "summary": "Create Employee",
-        "operationId": "create_employee_api_v1_invites_post",
+        "summary": "Add Employee",
+        "operationId": "add_employee_api_v1_employees_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateEmployeeIn"
+                "$ref": "#/components/schemas/AddEmployeeIn"
               }
             }
           },
@@ -656,7 +615,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateEmployeeOut"
+                  "$ref": "#/components/schemas/AddEmployeeOut"
                 }
               }
             }
@@ -4303,33 +4262,60 @@
   },
   "components": {
     "schemas": {
-      "ActivateAccountIn": {
+      "AddEmployeeIn": {
         "properties": {
-          "code": {
+          "full_name": {
             "type": "string",
-            "title": "Code"
+            "title": "Full Name"
           },
-          "password": {
-            "type": "string",
-            "title": "Password"
-          },
-          "device_uuid": {
-            "type": "string",
-            "title": "Device Uuid"
-          },
-          "device_name": {
-            "type": "string",
-            "title": "Device Name",
-            "default": ""
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           }
         },
         "type": "object",
         "required": [
-          "code",
-          "password",
-          "device_uuid"
+          "full_name"
         ],
-        "title": "ActivateAccountIn"
+        "title": "AddEmployeeIn"
+      },
+      "AddEmployeeOut": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "full_name"
+        ],
+        "title": "AddEmployeeOut"
       },
       "AgentTraceOut": {
         "properties": {
@@ -4830,80 +4816,6 @@
           "verbatim_text"
         ],
         "title": "CreateDirectiveIn"
-      },
-      "CreateEmployeeIn": {
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email",
-            "title": "Email"
-          },
-          "full_name": {
-            "type": "string",
-            "title": "Full Name"
-          },
-          "role": {
-            "$ref": "#/components/schemas/Role"
-          },
-          "manager_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Manager Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "email",
-          "full_name",
-          "role"
-        ],
-        "title": "CreateEmployeeIn"
-      },
-      "CreateEmployeeOut": {
-        "properties": {
-          "user_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "User Id"
-          },
-          "email": {
-            "type": "string",
-            "title": "Email"
-          },
-          "full_name": {
-            "type": "string",
-            "title": "Full Name"
-          },
-          "role": {
-            "$ref": "#/components/schemas/Role"
-          },
-          "activation_code": {
-            "type": "string",
-            "title": "Activation Code"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Expires At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "user_id",
-          "email",
-          "full_name",
-          "role",
-          "activation_code",
-          "expires_at"
-        ],
-        "title": "CreateEmployeeOut"
       },
       "DeviceOut": {
         "properties": {
