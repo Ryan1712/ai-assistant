@@ -185,58 +185,29 @@ async def revoke_refresh(db: AsyncSession, refresh_plain: str) -> None:
         await db.commit()
 
 
-async def create_employee(
-    db: AsyncSession, *, actor: User, email: str, full_name: str, role: str,
-    manager_id=None,
-) -> tuple[User, str, datetime]:
-    """Tạo tài khoản nhân viên/quản lý TRỰC TIẾP (không qua invite tự đăng ký cũ —
-    luồng đó không có màn hình FE nào redeem token, coi như chết). Trả về (user,
-    activation_code, expires_at) — CEO tự đưa activation_code cho người đó (Zalo/nói
-    trực tiếp) để họ tự kích hoạt (activate_account) + đặt mật khẩu, không cần biết
-    trước email/tên vì đã có sẵn."""
-    from app.models import _invite_code as _gen_code
-
+async def add_employee(db: AsyncSession, *, actor: User, full_name: str,
+                       email: str | None = None) -> User:
+    """Thêm 1 người vào DANH SÁCH NHÂN VIÊN công ty (chỉ CEO) — record chỉ để gán
+    việc, KHÔNG phải tạo tài khoản. Không mật khẩu (password_hash=None) nên
+    login() (Task 1) luôn từ chối — người này không bao giờ đăng nhập app được.
+    Sản phẩm quyết định 2026-07-26: chỉ CEO dùng app; xem
+    docs/superpowers/specs/2026-07-26-employee-as-list-design.md."""
     if actor.role != Role.ceo:
         raise HTTPException(403, "forbidden")
-    role_enum = Role(role)
-    # Chỉ root CEO mới được tạo tài khoản CEO mới — cùng chính sách với change_role
-    # (_check_role_change_permission): không thì CEO thường né rào bằng cách "tạo
-    # mới" thay vì "thăng cấp".
-    if role_enum == Role.ceo and not actor.is_root:
-        raise HTTPException(403, "only_root_can_create_ceo")
     await plans.enforce_limit(db, actor.workspace_id, "members")
-    email = email.strip().lower()
-    if role_enum == Role.employee and manager_id is None:
-        raise HTTPException(422, "employee_invite_requires_manager")
-    if manager_id is not None:
-        manager = await db.get(User, manager_id)
-        if not manager or manager.role != Role.manager or manager.workspace_id != actor.workspace_id:
-            raise HTTPException(422, "invalid_manager")
-    if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
+    email = email.strip().lower() if email else None
+    if email and (await db.execute(
+            select(User).where(User.email == email))).scalar_one_or_none():
         raise HTTPException(409, "email_taken")
-    user = User(
-        workspace_id=actor.workspace_id, email=email,
-        # password_hash khong nullable o DB - dat gia tri ngau nhien khong ai biet,
-        # se bi ghi de khi activate_account() thanh cong.
-        password_hash=security.hash_password(secrets.token_urlsafe(32)),
-        full_name=full_name, role=role_enum, manager_id=manager_id,
-        status=UserStatus.pending,
-    )
+    user = User(workspace_id=actor.workspace_id, email=email, password_hash=None,
+               full_name=full_name, role=Role.employee, status=UserStatus.active)
     db.add(user)
-    await db.flush()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    invite = Invite(
-        workspace_id=actor.workspace_id, token=_gen_code(),
-        role=role_enum, manager_id=manager_id, created_by=actor.id,
-        expires_at=expires_at, user_id=user.id,
-    )
-    db.add(invite)
     try:
         await db.commit()
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "email_taken")
-    return user, invite.token, expires_at
+    return user
 
 
 async def activate_account(
