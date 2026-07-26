@@ -42,7 +42,10 @@ async def test_create_and_list_own_conversations(chat_client):
                                 json={"title": "Cong viec"})
     assert created.status_code == 201
     listed = await client.get("/api/v1/conversations", headers=ceo_h)
-    assert [c["title"] for c in listed.json()] == ["Cong viec"]
+    # signup-workspace (Phase 6 onboarding) tu tao san 1 conversation seed
+    # (title=None) - liet ke moi nguoi dung "cua chinh minh" nen no cung xuat
+    # hien, moi hon len truoc (order_by created_at desc), seed cu hon xep sau.
+    assert [c["title"] for c in listed.json()] == ["Cong viec", None]
 
 
 @pytest.mark.asyncio

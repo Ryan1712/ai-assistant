@@ -418,6 +418,15 @@ class Message(Base):
     # thật, và đứng giữa user-text gốc + tool_use lượt sau của CHÍNH request đó
     # sẽ phá quy tắc user/assistant xen kẽ bắt buộc của Anthropic.
     is_ack: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Phase 6 (onboarding): câu chào viết sẵn lúc signup_workspace — KHÔNG gọi LLM.
+    # Cùng cách xử lý is_ack: KHÔNG vào lịch sử gửi model (_load_history/
+    # summarizer.py) — là message assistant DUY NHẤT lúc mới tạo conversation nên
+    # nếu gửi model, history sẽ mở đầu bằng role=assistant, bị Anthropic API từ
+    # chối ("first message must use the user role"). FE vẫn hiện nó bình thường
+    # qua GET .../messages (endpoint đó không dùng _load_history) — chỉ đường
+    # gửi model mới loại. Dùng để FE quyết định có hiện dải chip gợi ý hay không
+    # (xem chat.tsx).
+    is_seed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

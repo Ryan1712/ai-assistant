@@ -96,3 +96,15 @@ async def test_ack_va_rong_khong_tinh(db_session):
     llm = _fake_summary_llm()
     changed = await maybe_compress_history(db_session, conv, llm, force=True, keep_recent=0)
     assert changed is False  # chi co 1 ack -> khong co gi de nen
+
+
+async def test_seed_only_khong_bi_nen(db_session):
+    conv = await _mk_conv(db_session)
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           role=MessageRole.assistant, is_seed=True,
+                           content=[{"type": "text", "text": "Chao mung!"}]))
+    await db_session.commit()
+    llm = _fake_summary_llm()
+    changed = await maybe_compress_history(db_session, conv, llm, force=True, keep_recent=0)
+    assert changed is False
+    assert llm.calls == []

@@ -17,9 +17,12 @@ from app.agent.tools import (
 )
 from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
-    UsageLog, User,
+    Role, UsageLog, User,
 )
-from app.services import distiller_service, embedding_service, instruction_service, snapshot_service
+from app.services import (
+    distiller_service, embedding_service, instruction_service, onboarding_service,
+    snapshot_service,
+)
 from app.tz import VN_TZ
 
 _VN_WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
@@ -113,7 +116,13 @@ def _build_system_prompt(actor: User, now: datetime | None = None) -> str:
         "'partially_completed' hoặc 'failed' — một số action trong bản nháp đã lỗi): "
         "TUYỆT ĐỐI không nói chung chung 'đã xong' — PHẢI liệt kê rõ việc nào thành "
         "công ('succeeded'), việc nào thất bại kèm lý do ('failed'), để người dùng "
-        "biết chính xác cái gì cần làm lại."
+        "biết chính xác cái gì cần làm lại.\n"
+        "Khi người dùng dán 1 đoạn text dài liệt kê nhiều công việc (copy từ Excel/"
+        "Word/ghi chú), tự nhận diện project + danh sách task + người phụ trách "
+        "(nếu có nêu tên) từ nội dung đó, rồi gọi propose_actions MỘT LẦN gồm đủ "
+        "create_project + N create_task + assign_task tương ứng — không hỏi lại "
+        "từng dòng một, chỉ hỏi nếu tên người nhắc tới bị nhập nhằng "
+        "(resolve_person)."
     )
 
 # Chặn vòng lặp agent chạy vô hạn nếu model cứ gọi tool không nhạy cảm mà không bao
@@ -163,6 +172,7 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
         or_(Message.chat_request_id.is_(None),
             Message.chat_request_id.not_in(skip_ids)),
         Message.is_ack.is_(False),
+        Message.is_seed.is_(False),
     )
     if since is not None:
         # Phase 5: message <= mốc summary_through_at đã gộp vào rolling_summary
@@ -248,6 +258,14 @@ async def run_agent_loop(
 
     actor = await db.get(User, req.user_id)
     conv = await db.get(Conversation, req.conversation_id)
+    coach_block: str | None = None
+    if actor.role == Role.ceo:
+        # Phase 6 (onboarding): tính 1 lần cho cả request, không phải mỗi vòng lặp
+        # — get_coach_flags đọc thẳng DB (không qua cache Redis của snapshot), tính
+        # lại mỗi iteration sẽ nhân chi phí lên tới MAX_ITERATIONS lần vô ích (state
+        # công ty không đổi giữa các bước tool-call của CÙNG 1 request).
+        coach_flags = await onboarding_service.get_coach_flags(db, req.workspace_id)
+        coach_block = onboarding_service.render_coach_block(coach_flags)
 
     iteration = 0
     tool_call_count = 0
@@ -326,6 +344,8 @@ async def run_agent_loop(
                 # Phase 6 §10.3: đã build sẵn 1 lần ở worker.py — chỉ nối chuỗi,
                 # không gọi lại semantic_search ở đây.
                 dynamic_parts.append(rag_context)
+            if coach_block:
+                dynamic_parts.append(coach_block)
             if conv is not None and conv.rolling_summary:
                 # Phase 5: tóm tắt hội thoại cũ — block ĐỘNG cuối, gần message nhất.
                 dynamic_parts.append(

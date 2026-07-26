@@ -12,6 +12,17 @@ from app.models import (
 from app.services import example_bank_service, note_service
 
 
+class _RecordingPool:
+    """Fake arq pool ghi lại enqueue_job — dùng chung cho các test cần ctx["arq_pool"]."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def enqueue_job(self, name, *args, **kwargs):
+        self.calls.append((name, args, kwargs))
+        return "job-handle"
+
+
 @pytest.mark.asyncio
 async def test_process_conversation_runs_queued_requests_in_order_then_stops(engine, db_session):
     ws = Workspace(name="A")
@@ -120,6 +131,58 @@ async def test_process_conversation_blocks_queue_while_awaiting_confirmation(eng
     assert queued_req.status == ChatRequestStatus.queued  # khong bi dong xu ly
     assert paused_req.status == ChatRequestStatus.awaiting_confirmation  # khong bi dung
     assert len(llm.calls) == 0  # khong goi LLM nao het, vi queue bi chan ngay tu dau
+
+
+@pytest.mark.asyncio
+async def test_process_conversation_blocks_queue_while_deep_running(engine, db_session):
+    """Bug "gửi 2 câu hỏi → tịt luôn": request 1 đang deep_running (job phân tích
+    nền đang chạy) mà worker chạy tiếp request 2 queued thì 2 agent loop chạy SONG
+    SONG trên cùng conversation — message chen giữa tool_use/tool_result → Anthropic
+    400 → hỏng lịch sử vĩnh viễn. Queue phải DỪNG cho tới khi deep analysis xong
+    (run_deep_analysis tự enqueue lại conversation — test riêng bên dưới)."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    deep_req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                           content="phan tich rui ro du an", queue_position=1.0,
+                           status=ChatRequestStatus.deep_running)
+    queued_req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                             content="tin nhan tiep theo", queue_position=2.0)
+    db_session.add_all([deep_req, queued_req])
+    await db_session.flush()
+    for req in (deep_req, queued_req):
+        db_session.add(Message(workspace_id=ws.id, conversation_id=req.conversation_id,
+                               chat_request_id=req.id, role=MessageRole.user,
+                               content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[])
+    pub = FakeEventPublisher()
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": pub,
+        "is_cancelled": never_cancelled,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(deep_req)
+    await db_session.refresh(queued_req)
+    assert queued_req.status == ChatRequestStatus.queued  # không được chạy song song
+    assert deep_req.status == ChatRequestStatus.deep_running  # không bị đụng
+    assert len(llm.calls) == 0
 
 
 @pytest.mark.asyncio
@@ -539,6 +602,7 @@ async def test_run_deep_analysis_uses_smart_client_and_insight_toolset(engine, d
         "llm_client_smart": llm_smart,
         "event_publisher": pub,
         "is_cancelled": never_cancelled,
+        "arq_pool": _RecordingPool(),
     }
 
     await run_deep_analysis(ctx, req.id)
@@ -597,6 +661,7 @@ async def test_run_deep_analysis_injects_rag_context(engine, db_session):
         "llm_client_smart": llm_smart,
         "event_publisher": FakeEventPublisher(),
         "is_cancelled": never_cancelled,
+        "arq_pool": _RecordingPool(),
     }
 
     await run_deep_analysis(ctx, req.id)
@@ -648,6 +713,7 @@ async def test_run_deep_analysis_injects_example_context(engine, db_session):
         "llm_client_smart": llm_smart,
         "event_publisher": FakeEventPublisher(),
         "is_cancelled": never_cancelled,
+        "arq_pool": _RecordingPool(),
     }
 
     await run_deep_analysis(ctx, req.id)
@@ -682,11 +748,13 @@ async def test_run_deep_analysis_noop_if_request_not_deep_running(engine, db_ses
     await db_session.commit()
 
     llm_smart = FakeLLMClient(turns=[])
+    pool = _RecordingPool()
     ctx = {
         "session_factory": async_sessionmaker(engine, expire_on_commit=False),
         "llm_client_smart": llm_smart,
         "event_publisher": FakeEventPublisher(),
         "is_cancelled": lambda _id: False,
+        "arq_pool": pool,
     }
 
     await run_deep_analysis(ctx, req.id)
@@ -694,6 +762,56 @@ async def test_run_deep_analysis_noop_if_request_not_deep_running(engine, db_ses
     await db_session.refresh(req)
     assert req.status == ChatRequestStatus.cancelled
     assert len(llm_smart.calls) == 0
+    assert pool.calls == []  # không đụng gì thì cũng không enqueue lại
+
+
+@pytest.mark.asyncio
+async def test_run_deep_analysis_reenqueues_conversation_when_finished(engine, db_session):
+    """Nửa còn lại của guard deep_running: queue bị chặn trong lúc phân tích nền
+    chạy, nên job phân tích xong (kể cả failed) PHẢI tự enqueue lại conversation
+    để các request queued phía sau được xử lý tiếp — mô hình y hệt
+    resolve_confirmation (chuyển queued + enqueue lại job)."""
+    from app.agent.worker import run_deep_analysis
+
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="phan tich rui ro du an", queue_position=1.0,
+                      status=ChatRequestStatus.deep_running)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm_smart = FakeLLMClient(turns=[
+        [TextDelta(text="ket qua"),
+         StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ], model="sonnet-smart")
+    pool = _RecordingPool()
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client_smart": llm_smart,
+        "event_publisher": FakeEventPublisher(),
+        "is_cancelled": never_cancelled,
+        "arq_pool": pool,
+    }
+
+    await run_deep_analysis(ctx, req.id)
+
+    assert ("process_conversation", (conv.id,), {"_job_id": f"conv:{conv.id}"}) in pool.calls
 
 
 def test_worker_settings_registers_run_deep_analysis_with_extended_timeout():

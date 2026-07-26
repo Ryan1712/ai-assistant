@@ -22,6 +22,15 @@ def _reset_mock_push():
     push_service.mock_push_client.sent.clear()
 
 
+class _RecordingPool:
+    def __init__(self):
+        self.calls = []
+
+    async def enqueue_job(self, name, *args, **kwargs):
+        self.calls.append((name, args, kwargs))
+        return "job-handle"
+
+
 async def _world_deep_running(db):
     ws = Workspace(name="A")
     db.add(ws)
@@ -62,6 +71,7 @@ async def test_run_deep_analysis_notifies_sender_when_done(engine, db_session):
         "llm_client_smart": llm_smart,
         "event_publisher": FakeEventPublisher(),
         "is_cancelled": never_cancelled,
+        "arq_pool": _RecordingPool(),
     }
 
     await run_deep_analysis(ctx, req.id)
@@ -96,6 +106,7 @@ async def test_run_deep_analysis_does_not_notify_when_cancelled(engine, db_sessi
         "llm_client_smart": llm_smart,
         "event_publisher": FakeEventPublisher(),
         "is_cancelled": always_cancelled,
+        "arq_pool": _RecordingPool(),
     }
 
     await run_deep_analysis(ctx, req.id)

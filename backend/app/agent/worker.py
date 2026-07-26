@@ -46,7 +46,8 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
             paused = (await db.execute(
                 select(ChatRequest.id).where(
                     ChatRequest.conversation_id == conversation_id,
-                    ChatRequest.status == ChatRequestStatus.awaiting_confirmation,
+                    ChatRequest.status.in_([ChatRequestStatus.awaiting_confirmation,
+                                            ChatRequestStatus.deep_running]),
                 ).limit(1)
             )).scalar_one_or_none()
             if paused is not None:
@@ -59,6 +60,11 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 # tool_result phai theo ngay sau tool_use. Vi vay dung han xu ly toan
                 # bo queue cua conversation nay cho toi khi resolve_confirmation duoc
                 # goi (chuyen request dang paused ve lai `queued` va enqueue lai job).
+                # deep_running cung nam trong guard: job run_deep_analysis dang chay
+                # agent loop rieng tren CUNG conversation — chay them 1 queued
+                # request bay gio la 2 loop song song ghi message xen ke nhau, cung
+                # hong lich su nhu tren ("gui 2 cau hoi → tit luon"). Job deep tu
+                # enqueue lai conversation khi xong de noi lai queue.
                 return
             conv = await db.get(Conversation, conversation_id)
             if conv is not None and conv.queue_held:
@@ -148,6 +154,11 @@ async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:
                         payload={"chat_request_id": str(req.id),
                                  "conversation_id": str(req.conversation_id)})
             await db.commit()
+        # Queue cua conversation bi process_conversation CHAN suot luc deep_running
+        # (guard tranh 2 loop song song) — xong viec (ke ca failed/cancelled) phai
+        # tu enqueue lai de cac request queued phia sau chay tiep, mo hinh y het
+        # resolve_confirmation.
+        await enqueue_conversation(ctx["arq_pool"], req.conversation_id)
 
 
 async def enqueue_conversation(arq_pool, conversation_id: uuid.UUID):

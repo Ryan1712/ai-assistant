@@ -1,8 +1,8 @@
 # PROJECT_CONTEXT.md
 
-> **Last verified:** 2026-07-24
-> **Branch:** `main` (Phase 5 đã merge — xác nhận `main` và branch làm việc trùng HEAD ở `c6081d1`, khác ghi chú cũ của bản trước nói "chưa merge")
-> **Verified against commit:** `c6081d1` (commit code cuối cùng của Phase 5) + Phase 6.3 (semantic_search) làm tiếp ngay sau, chưa có SHA riêng lúc viết dòng này
+> **Last verified:** 2026-07-26
+> **Branch:** `main` (merge của 2 nhánh làm song song: `main` tự làm thẳng Phase 6.2/6.3/6.4 — semantic_search/RAG/watcher/distiller/example bank — ngày 2026-07-24; nhánh `phase6-onboarding` làm mảnh 10.5 tách từ `main` ở `9a00d27`, merge lại sau)
+> **Verified against commit:** commit code cuối cùng trước merge của nhánh `phase6-onboarding` (fix Critical `is_seed` phá lịch sử gửi model) — SHA tự tham chiếu không khả thi vì sửa nội dung đổi SHA mỗi lần, nên ghi mô tả thay vì đuổi theo SHA của chính commit docs này
 
 Trạng thái thực tế của code tại commit trên, xác minh trực tiếp từ source (không dựa vào spec/plan). Nếu HEAD của branch đã đi xa hơn commit này, đối chiếu lại trước khi tin — đặc biệt các bảng API/màn hình/cờ mock bên dưới.
 
@@ -41,14 +41,14 @@ backend/app/
   agent/          loop.py (vòng lặp agent), worker.py (arq job + cron), tools.py (tool registry),
                   llm_client.py (Anthropic wrapper), publisher.py (Redis pub/sub)
   services/       business logic (1 file/domain), tất cả permission check nằm ở đây
-  models.py       toàn bộ SQLAlchemy models (31 bảng)
+  models.py       toàn bộ SQLAlchemy models (34 bảng)
   schemas.py      toàn bộ Pydantic request/response models
   permissions.py  visible_user_ids / visible_task_ids / require_ceo... — nguồn chuẩn duy nhất cho quyền
   config.py       Settings (env vars) + các cờ *_mock
   security.py     JWT + bcrypt
   deps.py         get_current_user (JWT bearer)
-alembic/versions/ 25 migration (xem mục 9)
-backend/tests/    136 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
+alembic/versions/ 26 migration (xem mục 9)
+backend/tests/    139 test file, pytest + pytest-asyncio, SQLite in-memory (StaticPool)
 
 frontend/app/
   auth/           login, signup-workspace, activate (signup-code.tsx còn file nhưng đã tắt)
@@ -145,6 +145,7 @@ FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích s
 - **Rolling summary / nén lịch sử (Phase 5, `app/agent/summarizer.py`)**: `maybe_compress_history(db, conv, llm, *, force=False, keep_recent=SUMMARY_KEEP_RECENT) -> bool` — khi số message "sống" của 1 conversation (không tính `is_ack`, không tính message rỗng) vượt `SUMMARY_TRIGGER=60` (hoặc gọi `force=True`), gấp phần cũ (giữ lại `SUMMARY_KEEP_RECENT=40` message gần nhất) thành văn xuôi qua **1 lượt gọi `model_fast` không tool**, ghi vào `Conversation.rolling_summary` + đẩy `summary_through_at` tới điểm cắt an toàn (không bao giờ để phần giữ lại bắt đầu bằng 1 `tool_result` mồ côi). `process_conversation` (worker) gọi hàm này TRƯỚC khi dispatch mỗi request — lỗi nén được bọc try/except + `db.refresh(req)` sau `rollback()` để không giết job (bug thật tìm thấy lúc code review: `db.rollback()` trần làm expire cả `req`, dòng sau đọc `req.content` ném `MissingGreenlet` không bắt). `_load_history(..., since=conv.summary_through_at)` (`app/agent/loop.py`) chỉ nạp message có `created_at > since` — phần đã nén không gửi lại model dạng verbatim nữa. Khi `conv.rolling_summary` khác rỗng, `run_agent_loop` nối `"# Tóm tắt hội thoại trước đó\n" + rolling_summary` vào **system prompt** (block động, KHÔNG BAO GIỜ thành 1 chat message) — giữ đúng luật xen kẽ user/assistant bắt buộc của Anthropic, cùng bài học đã sinh ra `Message.is_ack` ở Phase 4.
 - **Xoay conversation ngầm (Phase 5, `app/services/session_service.py`)**: bất biến — mỗi user có **≤1 `Conversation` "sống"** (`archived_at IS NULL`). `get_or_rotate_active_conversation(db, actor, llm_factory, *, now=None)` (gọi từ `GET /conversations/active` lúc FE mount): chưa có conversation nào → tạo mới; có rồi → xoay (fold TOÀN BỘ đuôi còn lại vào `rolling_summary` của conversation cũ qua `maybe_compress_history(..., force=True, keep_recent=0)`, set `archived_at`, tạo conversation mới seed sẵn `rolling_summary` đó) khi idle > `ROTATE_IDLE_HOURS=12` giờ HOẶC > `ROTATE_MAX_MESSAGES=150` message sống — TRỪ KHI còn việc dang dở (bất kỳ `ChatRequest` `queued`/`running`/`deep_running`/`awaiting_confirmation`, hoặc `queue_held=True`) thì hoãn xoay. `queue`/`queue_held`/"tiếp tục công việc" (`continuity.py`) KHÔNG bị sửa gì — rotation chỉ ĐỌC các trạng thái đó để quyết định hoãn. FE (mục 5) đọc liên tục qua `GET /conversations/timeline` xuyên nhiều conversation nên việc xoay ở tầng server trong suốt với người dùng bình thường. **Bất biến "≤1 live/user" chỉ được đảm bảo qua đúng đường `get_or_rotate_active_conversation`** — route REST `POST /conversations` (`create_conversation`) vẫn còn ở BE (tạo thẳng 1 `Conversation` mới KHÔNG qua hàm này, không có DB constraint nào chặn 2 hàng `archived_at IS NULL` cùng 1 user), nhưng FE không còn nơi nào gọi nó nữa: nút cuối cùng gọi route này (`main/conversations.tsx`, phát hiện lúc verify Task 12) đã bỏ ở commit `b47a475`, cùng đợt với việc bỏ nút ở `chat.tsx` header (task 10) và `DrawerContent.tsx` (task 11) — xem mục 5.
 - **Report định kỳ**: `arq.cron` chạy `check_report_schedules` mỗi phút (không qua LLM), độc lập với vòng lặp chat.
+- **Onboarding (Phase 6 mảnh 1 "10.5", spec `docs/superpowers/specs/2026-07-25-phase6-onboarding-design.md`, roadmap gốc `2026-07-19-ai-intelligence-upgrade.md` §10.5)**: 4 phần, áp dụng CHỈ lúc CEO tạo workspace mới (không áp dụng cho manager/employee activate sau này — họ vào workspace đã có dữ liệu). (1) **Seed message**: `auth_service.py::signup_workspace` tạo thêm 1 `Conversation` + 1 `Message(role=assistant, is_seed=True, chat_request_id=None)` ngay trong cùng transaction đăng ký — nội dung TĨNH viết sẵn (KHÔNG gọi LLM); cột mới `Message.is_seed` (mẫu hình giống `Message.is_ack` Phase 4 — cờ đánh dấu nguồn gốc). **Sửa lại sau review toàn nhánh (bug thật, không phải giả định lúc code)**: thiết kế ban đầu để seed VÀO lịch sử gửi model (lý luận "ngữ cảnh hợp lệ, không đứng giữa cặp tool_use/tool_result") — sai, vì seed luôn là message `assistant` DUY NHẤT của 1 conversation mới; khi CEO gửi tin đầu tiên, `_load_history` dựng mảng `[seed(assistant), tin user đầu]` mở đầu bằng `role=assistant`, bị Anthropic API từ chối thẳng ("first message must use the user role") — vỡ đúng lượt chat đầu tiên của MỌI CEO mới, `FakeLLMClient` không bắt được vì test double không xác thực thứ tự role. Fix: `is_seed` xử lý giống hệt `is_ack` — `_load_history` (`app/agent/loop.py`) VÀ `maybe_compress_history` (`app/agent/summarizer.py`) đều loại thẳng message `is_seed=True` khỏi truy vấn, không bao giờ gửi model. FE vẫn hiện seed bình thường qua `GET /conversations/{id}/messages` (route riêng, không qua `_load_history`) nên chip gợi ý (mục dưới) không bị ảnh hưởng — chỉ đường gửi model mới loại. Hệ quả phụ: conversation chỉ có seed (CEO signup rồi idle >12h chưa nhắn gì) giờ có 0 message "sống" sau lọc, nên rotation (`session_service.py`) gọi `maybe_compress_history(force=True)` trả `False` ngay (`if not msgs: return False`) — không tốn 1 lượt LLM để "tóm tắt" một câu chào tĩnh. (2) **3 chip gợi ý** ("Tạo project"/"Xem công việc"/"Xem thử làm được gì", `app/main/chat.tsx`): hiện đúng 1 lần khi LIVE mode (không phải history mode) + `rows.length===1` + message đó `is_seed===true`; bấm chip = `submit(overrideText)` gửi y hệt gõ tay rồi bấm gửi, đi qua luật hành xử 3 mức có sẵn (Phase 2) — KHÔNG có logic riêng phía client/server cho chip; biến mất vĩnh viễn sau khi có thêm bất kỳ tin nhắn nào (suy ra từ độ dài `rows`, không cần state riêng lưu "đã ẩn chip"). (3) **Coach block** (`app/services/onboarding_service.py::get_coach_flags`/`render_coach_block`, tính ngay sau `conv = await db.get(Conversation, ...)` trong `run_agent_loop` — xem "Vòng lặp" ở trên): 4 cờ — `has_projects`/`has_tasks`/`has_members` tái dùng thẳng `build_workspace_data()` (Phase 1), `has_first_report` là 1 query mới duy nhất (`EXISTS` trên `reports`). **Sửa lại sau review toàn nhánh**: bản đầu tính bên TRONG `while True:` (vòng lặp mỗi request có thể chạy tới `MAX_ITERATIONS=25` lần) — mỗi lần gọi lại `get_coach_flags` là 4-5 query SQL thẳng (KHÔNG qua đường cache Redis mà `snapshot_service.get_snapshot_text` dùng), nhân phí lên tới 25 lần vô ích cho MỌI CEO, kể cả khi workspace đã "tốt nghiệp" (4 cờ đều `True`, `render_coach_block` trả `None`, tính xong vứt đi). Fix: tính đúng **1 lần mỗi request**, không phải mỗi vòng lặp — flag có thể "cũ" trong PHẠM VI 1 lượt nhiều tool-call (vd. `create_project` chạy giữa turn sẽ không phản ánh ngay ở các bước còn lại của CÙNG turn đó) nhưng đúng lại ngay từ request kế tiếp; chấp nhận được vì coach block là gợi ý mềm, không phải dữ liệu đúng-sai (khác task/project state luôn lấy từ tool result). Không cache Redis, không lưu trạng thái "đã tốt nghiệp" — vẫn tính lại mỗi request mới. Chỉ tiêm khi `actor.role == Role.ceo` (manager/employee không tạo được project/mời người theo `permissions.py` nên gợi ý vô nghĩa với họ); đủ cả 4 mốc → `render_coach_block` trả `None` → khối tự biến mất khỏi system prompt, không cần code "tắt hẳn" riêng. (4) **Dán text danh sách công việc cũ**: 1 đoạn hướng dẫn TĨNH thêm vào `_build_system_prompt` (mọi actor, không riêng CEO — khả năng chung giống `propose_actions`) — khi user dán 1 đoạn text dài (copy Excel/Word/ghi chú), model tự nhận diện project + danh sách task + người phụ trách rồi gọi `propose_actions` MỘT LẦN gồm đủ `create_project` + N `create_task` + `assign_task` tương ứng, không hỏi lại từng dòng một (chỉ hỏi khi tên người nhắc tới bị nhập nhằng, qua `resolve_person`); KHÔNG có tool/endpoint riêng, KHÔNG parse `.xlsx` thật (không upload file) — thuần dựa vào khả năng đọc-hiểu của model trên text dán trực tiếp vào khung chat. **Quyết định giữ nguyên từ spec, không phải phát hiện mới lúc code**: `get_workload_summary` (mảnh "10.1" của roadmap gốc §10 — 3/4 tool phân tích còn lại đã có từ Phase 2-3: `get_project_health`/`get_progress_stats`/`get_directive_status`) tiếp tục KHÔNG xây — dữ liệu đã có sẵn đầy đủ trong workspace snapshot (Phase 1, mục "Nhân sự & khối lượng") tiêm vào mọi system prompt, xây thêm 1 tool tổng hợp sẽ trùng lặp không ai dùng; coi 10.1 là đã xong mà không cần code mới. **10.2 (background agents)/10.3 (RAG+embeddings)/10.4 (example bank) NGOÀI PHẠM VI mảnh này** — phụ thuộc hạ tầng embeddings/pgvector chưa tồn tại (chưa cài, chưa chọn provider), để lại cho 1 mảnh Phase 6 riêng sau (xem mục 13) — **Phase 6 CHƯA xong hoàn toàn**, chỉ mảnh "onboarding" (10.5) xong.
 
 ## 7. Phân quyền & cách ly đa công ty
 
@@ -172,9 +173,9 @@ Cờ trong `app/config.py`, tất cả **mặc định `True` (mock)** — bật
 
 ## 9. Database & migrations
 
-Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **25 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `invite_user_id_and_pending_status` → `chat_request_deep_running_status` → `message_is_ack_flag` → `session_model_rolling_summary` → `embeddings_table` → `workspace_memories_table` → **`few_shot_examples_table`** (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router + Phase 5 session model + Phase 6 semantic_search/distiller/example bank — `invite_user_id_and_pending_status` thêm `UserStatus 'pending'` + `invites.user_id` FK cho activation code; `chat_request_deep_running_status` = `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`; `message_is_ack_flag` thêm `messages.is_ack`; `session_model_rolling_summary` (Phase 5) thêm 3 cột cho `conversations`; `embeddings_table` (Phase 6) tạo bảng `embeddings`; `workspace_memories_table` (Phase 6, down_revision = `embeddings_table`) tạo bảng `workspace_memories`; **`few_shot_examples_table`** (Phase 6, down_revision = `workspace_memories_table`) tạo bảng `few_shot_examples` (`workspace_id` NULLABLE — global example) — cả 3 migration Phase 6 viết tay (không autogenerate được vì môi trường không có Postgres chạy sẵn để so schema), đã xác nhận `alembic heads` chỉ còn 1 head sau mỗi lần thêm). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
+Postgres (prod/dev qua docker-compose) / SQLite in-memory (test, `StaticPool`). Alembic, **26 migration** theo thứ tự: `initial_schema` → `work_domain_skills` → `chat_agent_core` → `reports` → `plan5_new_features` → `plan7_push_email_voice` → `plan8_queue_held` → `plan9_report_schedules` → `attachments_table` → `account_events_table` → `user_notification_prefs` → `email_task_project_context` → `task_deadline_reminder` → `voice_note_status_duration` → `chat_voice_attachment` → `agent_traces` → `usage_log_hardening_fields` → `directives_table` → `invite_user_id_and_pending_status` → `chat_request_deep_running_status` → `message_is_ack_flag` → `session_model_rolling_summary` → `embeddings_table` → `workspace_memories_table` → `few_shot_examples_table` → **`message_is_seed_flag`** (Phase 0 tracing + hardening + Phase 3 Directive + Phase 4 Router + Phase 5 session model + Phase 6 semantic_search/distiller/example bank/onboarding — `invite_user_id_and_pending_status` thêm `UserStatus 'pending'` + `invites.user_id` FK cho activation code; `chat_request_deep_running_status` = `ALTER TYPE chatrequeststatus ADD VALUE IF NOT EXISTS 'deep_running'`; `message_is_ack_flag` thêm `messages.is_ack`; `session_model_rolling_summary` (Phase 5) thêm 3 cột cho `conversations`; `embeddings_table` (Phase 6) tạo bảng `embeddings`; `workspace_memories_table` (Phase 6, down_revision = `embeddings_table`) tạo bảng `workspace_memories`; `few_shot_examples_table` (Phase 6, down_revision = `workspace_memories_table`) tạo bảng `few_shot_examples` (`workspace_id` NULLABLE — global example); **`message_is_seed_flag`** (revision `1a11430b62b9`, Phase 6 onboarding) thêm `messages.is_seed BOOLEAN NOT NULL server_default=false` — bắt buộc `server_default` vì bảng `messages` đã có dữ liệu thật ở dev lúc thêm cột `NOT NULL`. **Lưu ý merge**: migration này viết ban đầu với `down_revision=session_model_rolling_summary` (tách nhánh cùng lúc với `embeddings_table` từ cùng 1 điểm — 2 nhánh làm song song); lúc merge `phase6-onboarding` vào `main` đã rebase `down_revision` sang `few_shot_examples_table` (cuối chuỗi 3 migration Phase 6 kia) để gộp thành 1 chuỗi tuyến tính duy nhất, tránh 2 head Alembic — đã xác nhận `alembic heads` chỉ còn 1 head sau merge, chạy `alembic upgrade head` sạch trên Postgres dev thật cho toàn bộ chuỗi). Chạy `alembic upgrade head`; `alembic` ưu tiên env `DATABASE_URL` nếu set.
 
-31 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
+34 bảng — mỗi domain ở mục 4 tương ứng 1-3 bảng (xem `app/models.py` để biết chi tiết cột, không lặp lại ở đây).
 
 ## 10. Test & lệnh verify
 
@@ -182,7 +183,7 @@ Chạy trong `backend/` (venv `.venv`):
 ```
 docker compose up -d postgres redis         # 5435/6380
 alembic upgrade head
-pytest tests/ -v                            # 752 pass + 4 skip (136 file test) hiện tại trên nhánh này
+pytest tests/ -v                            # 765 pass + 4 skip (139 file test) hiện tại trên nhánh này, đã verify trên kết quả merge
 uvicorn app.main:app --reload               # API — KHÔNG tự chạy agent loop
 arq app.agent.worker.WorkerSettings         # bắt buộc chạy riêng để chat hoạt động
 python scripts/export_openapi.py            # chạy lại sau MỌI thay đổi contract (schemas.py/router)
@@ -442,3 +443,54 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   nào. **Phase 6 "Lớp dữ liệu thông minh còn lại" (spec §10) coi như xong** — còn lại Onboarding
   (§10.5) cố ý CHƯA làm, cần quyết định UX/sản phẩm nhiều hơn kỹ thuật thuần túy, để hỏi lại
   user thay vì tự triển khai mù.
+- 2026-07-26: **Phase 6 mảnh 1 "Onboarding" (10.5) xong** — nhánh `phase6-onboarding` (7
+  task TDD + task 7 verify này), theo
+  `docs/superpowers/specs/2026-07-25-phase6-onboarding-design.md` (roadmap gốc
+  `2026-07-19-ai-intelligence-upgrade.md` §10.5). Seed message (scripted, 0 LLM) + 3 chip
+  gợi ý dưới bong bóng chào + coach block (CEO-only, tính 1 lần mỗi request, KHÔNG cache
+  Redis) + hướng dẫn dán-text danh sách công việc cũ vào system prompt tĩnh — chi tiết đầy
+  đủ ở mục 6. Migration mới `message_is_seed_flag` (revision `1a11430b62b9`, down
+  `session_model_rolling_summary`) thêm `messages.is_seed` — xem mục 9. `MessageOut.is_seed`
+  + `openapi.json` regenerate; FE `chat.tsx` đọc `Message.is_seed` để hiện/ẩn dải chip.
+  `get_workload_summary` (mảnh "10.1" roadmap gốc) tiếp tục KHÔNG xây — quyết định giữ
+  nguyên từ spec (dữ liệu đã có trong snapshot Phase 1), không phải phát hiện mới lúc
+  code. **Phát hiện lúc verify Task 7 (chạy full pytest), fix ngay cùng đợt (commit
+  `5dd8119`, KHÔNG phải bug sản phẩm)**: seed conversation/message mới của Task 2 làm
+  lệch 2 test cũ không liên quan trực tiếp onboarding —
+  `test_chat_api.py::test_create_and_list_own_conversations` (GET /conversations giờ trả
+  thêm 1 dòng seed `title=None`) và
+  `test_conversation_active_timeline_api.py::test_timeline_xuyen_conversation_theo_thu_tu`
+  (seed message có `created_at=now()` thật, trễ hơn hẳn mốc giả lập `2026-01-01` mà test
+  tự dựng, lấn át thành message mới nhất, phá thứ tự newest-first đang test) — sửa 2 test
+  để phản ánh đúng hành vi mới, không đụng code nghiệp vụ. Full pytest **706 pass/4 skip
+  (131 file, tăng từ 695/4/128)**, `tsc --noEmit` 0 lỗi, `alembic upgrade head` sạch trên
+  Postgres dev thật (head = `1a11430b62b9`). Lúc viết dòng này (làm trên nhánh riêng
+  `phase6-onboarding`, tách từ `main` ở `9a00d27`), 10.2 (background agents)/10.3
+  (RAG+embeddings)/10.4 (example bank) tưởng còn chặn bởi hạ tầng embeddings/pgvector chưa
+  thiết kế — **hóa ra SAI**: 1 phiên khác đã làm xong cả 3 mảnh đó thẳng trên `main` cùng
+  ngày 2026-07-24 (xem 4 entry phía trên), merge vào `main` trước khi nhánh này merge lại.
+  Xem entry tổng kết cuối cùng bên dưới.
+- 2026-07-26 (review toàn nhánh sau task 7, cùng ngày): phát hiện 1 bug CRITICAL + 1 vấn đề
+  hiệu năng qua review kỹ code (không phải chạy test — `FakeLLMClient` không xác thực thứ
+  tự role nên không bắt được). (1) **Seed message phá lượt chat đầu tiên của MỌI CEO mới**:
+  thiết kế gốc để `is_seed` VÀO lịch sử gửi model — nhưng seed là message `assistant` DUY
+  NHẤT lúc conversation mới tạo, nên khi CEO gửi tin đầu, `_load_history` dựng mảng mở đầu
+  bằng `role=assistant`, Anthropic API từ chối ("first message must use the user role").
+  Fix: `is_seed` xử lý giống `is_ack` — loại khỏi cả `_load_history` (`app/agent/loop.py`)
+  lẫn `maybe_compress_history` (`app/agent/summarizer.py`); FE vẫn hiện seed bình thường
+  qua `GET .../messages` (route riêng). (2) **Coach flags tính lại mỗi vòng lặp thay vì
+  mỗi request**: `get_coach_flags` đọc thẳng DB (không qua cache Redis), đặt trong
+  `while True:` nên nhân phí tới `MAX_ITERATIONS=25` lần/request vô ích — chuyển ra tính 1
+  lần ngay sau khi load `conv`, chấp nhận staleness trong phạm vi 1 turn nhiều tool-call
+  (gợi ý mềm, không phải dữ liệu đúng-sai). 2 test mới (`test_onboarding_coach_loop.py`,
+  `test_summarizer.py`) phủ cả 2 fix; toàn bộ suite liên quan pass sau fix. Xem mục 6 (đã
+  cập nhật) để biết chi tiết hành vi đúng.
+- 2026-07-26 (merge `phase6-onboarding` vào `main`): 2 nhánh làm song song cùng đụng
+  `app/agent/loop.py` (nhánh `main` thêm `rag_context`/`example_context` vào `dynamic_parts`,
+  nhánh này thêm `coach_block` cùng chỗ) — conflict thật khi merge, giải quyết bằng cách giữ
+  cả 2 khối (thứ tự: rag_context → coach_block → rolling_summary, rolling_summary vẫn phải là
+  block động cuối cùng theo bất biến Phase 5), không có xung đột logic (2 tính năng độc lập,
+  cùng chèn vào `dynamic_parts` nhưng không đọc/ghi chung state). **Phase 6 "Lớp dữ liệu thông
+  minh còn lại" (spec §10) giờ coi như XONG TOÀN BỘ**: 10.1 cố ý không xây (dữ liệu đã có ở
+  snapshot), 10.2/10.3/10.4 xong trên `main` (entry 2026-07-24 phía trên), 10.5 xong trên nhánh
+  này. Không còn mảnh Phase 6 nào treo.
