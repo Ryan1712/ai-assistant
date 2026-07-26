@@ -102,7 +102,16 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
             # Router (Phase 4 §8.1) - chi phan loai 1 lan luc pickup dau tien cua
             # request nay (status queued -> chuyen ngay khoi queued ben trong
             # run_deep_ack_turn/run_agent_loop, khong bao gio duoc chon lai o day).
-            group = await classify_route(req.content, llm)
+            # Boc try/except: tier 2 goi LLM, gateway 429/500 ma de exception thoat
+            # ra la job chet -> request ket `queued` vinh vien khong event nao cho
+            # FE (poison pill "AI dung im"). Loi phan loai chi duoc phep lam mat toi
+            # uu toolset, khong duoc lam mat request -> fallback None = full toolset.
+            try:
+                group = await classify_route(req.content, llm)
+            except Exception:
+                logger.exception("classify_route fail cho request %s - fallback full toolset",
+                                 req.id)
+                group = None
             if group == "deep":
                 await run_deep_ack_turn(db, req, llm, publisher, is_cancelled=is_cancelled)
                 await ctx["arq_pool"].enqueue_job(

@@ -337,6 +337,71 @@ async def test_process_conversation_filters_toolset_by_classified_route(engine, 
 
 
 @pytest.mark.asyncio
+async def test_process_conversation_survives_classify_route_error(engine, db_session):
+    """classify_route (tier 2 gọi LLM) mà nổ — gateway 429/500 — thì exception
+    thoát khỏi process_conversation, job chết, request kẹt `queued` VĨNH VIỄN
+    không một event nào cho FE (AI "đứng im"). Lỗi phân loại phải rơi về
+    group=None (full toolset — fallback an toàn sẵn có) và request vẫn chạy."""
+    from app.agent.llm_client import LLMClient
+    from app.agent.tools import TOOLS
+
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db_session.add(conv)
+    await db_session.flush()
+    # Nội dung KHÔNG khớp heuristic tier 1 nào → classify_route buộc phải gọi tier 2.
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="xin chao ban co khoe khong", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    class _ClassifyRaisesThenOkClient(LLMClient):
+        """Lượt stream ĐẦU (tier 2 classify) nổ như gateway lỗi; các lượt sau
+        (agent loop thật) chạy bình thường."""
+
+        def __init__(self):
+            self.calls = []
+            self._first = True
+
+        async def stream(self, *, system, messages, tools):
+            if self._first:
+                self._first = False
+                raise RuntimeError("gateway_500")
+            self.calls.append({"system": system, "messages": messages, "tools": tools})
+            yield StreamDone(tool_uses=[], stop_reason="end_turn",
+                             input_tokens=1, output_tokens=1)
+
+    llm = _ClassifyRaisesThenOkClient()
+    pub = FakeEventPublisher()
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": pub,
+        "is_cancelled": never_cancelled,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.done  # không kẹt queued
+    called_tool_names = {t["name"] for t in llm.calls[0]["tools"]}
+    assert called_tool_names == set(TOOLS)  # fallback full toolset
+
+
+@pytest.mark.asyncio
 async def test_process_conversation_injects_rag_context_once_before_loop(engine, db_session):
     """Phase 6 §10.3 fast-follow: worker tính rag_context ĐÚNG MỘT LẦN lúc pickup
     (giống Router) rồi truyền vào run_agent_loop — không phải loop tự gọi lại
