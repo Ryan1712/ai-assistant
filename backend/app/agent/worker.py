@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from arq.connections import RedisSettings
 from arq.cron import cron
@@ -175,6 +176,56 @@ async def enqueue_conversation(arq_pool, conversation_id: uuid.UUID):
                                       _job_id=f"conv:{conversation_id}")
 
 
+# Watchdog (lưới an toàn cuối cho "AI đứng im"): worker crash/restart giữa chừng,
+# BaseException lọt khe... đều để lại request kẹt running/deep_running mà không job
+# nào đụng tới nữa. Ngưỡng phải > job_timeout lớn nhất (run_deep_analysis 900s) để
+# không giết nhầm request đang chạy thật.
+STUCK_ACTIVE_MINUTES = 20
+# Request queued mà quá lâu không được pickup (worker restart trước khi job chạy,
+# enqueue thất lạc) — chỉ cần enqueue lại conversation, job_id conv:{id} tự dedup.
+STALE_QUEUED_MINUTES = 5
+
+
+async def rescue_stuck_requests(ctx: dict) -> None:
+    """arq cron (mỗi phút): giải cứu chat_request kẹt.
+
+    - running/deep_running quá STUCK_ACTIVE_MINUTES: job đã chết từ lâu (mọi đường
+      chạy thật đều < 900s) → mark failed + publish request_failed (FE hiện lỗi
+      thay vì spinner vĩnh viễn) + enqueue lại conversation cho queue chạy tiếp.
+    - queued quá STALE_QUEUED_MINUTES: enqueue lại conversation (vô hại nếu đang
+      có job chạy — dedup; nếu conversation đang held/paused, process_conversation
+      tự return ngay)."""
+    from datetime import timedelta
+
+    publisher = ctx["event_publisher"]
+    async with ctx["session_factory"]() as db:
+        now = datetime.now(timezone.utc)
+        stuck_rows = await db.execute(select(ChatRequest).where(
+            ChatRequest.status.in_([ChatRequestStatus.running,
+                                    ChatRequestStatus.deep_running]),
+            ChatRequest.started_at < now - timedelta(minutes=STUCK_ACTIVE_MINUTES)))
+        for req in stuck_rows.scalars():
+            logger.warning("watchdog: request %s kẹt %s từ %s — mark failed",
+                           req.id, req.status.value, req.started_at)
+            req.status = ChatRequestStatus.failed
+            req.error = "stuck_timeout"
+            req.finished_at = now
+            await db.commit()
+            await publisher.publish(req.conversation_id,
+                                    {"type": "request_failed",
+                                     "chat_request_id": str(req.id),
+                                     "error": "stuck_timeout"})
+            await enqueue_conversation(ctx["arq_pool"], req.conversation_id)
+
+        stale_conv_ids = (await db.execute(
+            select(ChatRequest.conversation_id).where(
+                ChatRequest.status == ChatRequestStatus.queued,
+                ChatRequest.created_at < now - timedelta(minutes=STALE_QUEUED_MINUTES),
+            ).distinct())).scalars().all()
+        for conv_id in stale_conv_ids:
+            await enqueue_conversation(ctx["arq_pool"], conv_id)
+
+
 async def check_report_schedules(ctx: dict) -> None:
     """arq cron (mỗi phút): quét ReportSchedule tới hạn, sinh báo cáo + notify
     (funtional-plan 6.5 nâng cao — báo cáo định kỳ tự động, gói Advanced)."""
@@ -249,7 +300,9 @@ class WorkerSettings:
                 func(run_deep_analysis, timeout=900)]
     cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0),
                 cron(check_directive_escalations, second=0), cron(send_morning_briefs, second=0),
-                cron(distill_workspace_memories, second=0)]
+                cron(distill_workspace_memories, second=0),
+                # second=30: lệch pha với cụm cron second=0 cho đỡ dồn việc đầu phút
+                cron(rescue_stuck_requests, second=30)]
     on_startup = _startup
     on_shutdown = _shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

@@ -503,6 +503,132 @@ async def test_process_conversation_injects_example_context_once_before_loop(eng
     assert "lock_user" in text
 
 
+async def _watchdog_world(db, *, status, started_ago_minutes=None, created_ago_minutes=0):
+    from datetime import datetime, timedelta, timezone
+
+    ws = Workspace(name="A")
+    db.add(ws)
+    await db.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db.add(ceo)
+    await db.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    db.add(conv)
+    await db.flush()
+    now = datetime.now(timezone.utc)
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="cau hoi nao do", queue_position=1.0, status=status,
+                      created_at=now - timedelta(minutes=created_ago_minutes))
+    if started_ago_minutes is not None:
+        req.started_at = now - timedelta(minutes=started_ago_minutes)
+    db.add(req)
+    await db.commit()
+    return conv, req
+
+
+@pytest.mark.asyncio
+async def test_rescue_marks_long_stuck_running_request_failed(engine, db_session):
+    """Lưới an toàn cuối: worker restart/crash giữa chừng để lại request kẹt
+    running/deep_running vĩnh viễn — không job nào đụng tới nữa, FE đứng im.
+    Cron watchdog phải fail + publish request_failed + enqueue lại conversation."""
+    from app.agent.worker import rescue_stuck_requests
+
+    conv, req = await _watchdog_world(db_session, status=ChatRequestStatus.running,
+                                      started_ago_minutes=30)
+    pub = FakeEventPublisher()
+    pool = _RecordingPool()
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False),
+           "event_publisher": pub, "arq_pool": pool}
+
+    await rescue_stuck_requests(ctx)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.failed
+    assert req.error == "stuck_timeout"
+    assert any(e["type"] == "request_failed" for _, e in pub.events)
+    assert ("process_conversation", (conv.id,), {"_job_id": f"conv:{conv.id}"}) in pool.calls
+
+
+@pytest.mark.asyncio
+async def test_rescue_marks_long_stuck_deep_running_request_failed(engine, db_session):
+    from app.agent.worker import rescue_stuck_requests
+
+    conv, req = await _watchdog_world(db_session, status=ChatRequestStatus.deep_running,
+                                      started_ago_minutes=30)
+    pub = FakeEventPublisher()
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False),
+           "event_publisher": pub, "arq_pool": _RecordingPool()}
+
+    await rescue_stuck_requests(ctx)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.failed
+
+
+@pytest.mark.asyncio
+async def test_rescue_leaves_recent_running_request_alone(engine, db_session):
+    """deep_running hợp lệ chạy tới 900s (job_timeout) — ngưỡng watchdog phải đủ
+    lớn để KHÔNG giết nhầm request đang chạy thật."""
+    from app.agent.worker import rescue_stuck_requests
+
+    _conv, req = await _watchdog_world(db_session, status=ChatRequestStatus.deep_running,
+                                       started_ago_minutes=10)
+    pub = FakeEventPublisher()
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False),
+           "event_publisher": pub, "arq_pool": _RecordingPool()}
+
+    await rescue_stuck_requests(ctx)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.deep_running
+    assert pub.events == []
+
+
+@pytest.mark.asyncio
+async def test_rescue_reenqueues_stale_queued_conversation(engine, db_session):
+    """Request queued mồ côi (worker restart trước khi pickup, job enqueue thất
+    lạc) — enqueue lại conversation là đủ (job_id conv:{id} tự dedup nếu đang có
+    job chạy); KHÔNG fail request vì nó chưa hề chạy."""
+    from app.agent.worker import rescue_stuck_requests
+
+    conv, req = await _watchdog_world(db_session, status=ChatRequestStatus.queued,
+                                      created_ago_minutes=10)
+    pool = _RecordingPool()
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False),
+           "event_publisher": FakeEventPublisher(), "arq_pool": pool}
+
+    await rescue_stuck_requests(ctx)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.queued  # không bị đổi status
+    assert ("process_conversation", (conv.id,), {"_job_id": f"conv:{conv.id}"}) in pool.calls
+
+
+@pytest.mark.asyncio
+async def test_rescue_leaves_fresh_queued_conversation_alone(engine, db_session):
+    from app.agent.worker import rescue_stuck_requests
+
+    _conv, _req = await _watchdog_world(db_session, status=ChatRequestStatus.queued,
+                                        created_ago_minutes=1)
+    pool = _RecordingPool()
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False),
+           "event_publisher": FakeEventPublisher(), "arq_pool": pool}
+
+    await rescue_stuck_requests(ctx)
+
+    assert pool.calls == []
+
+
+def test_worker_settings_registers_rescue_cron():
+    from app.agent.worker import rescue_stuck_requests
+
+    names = [j.name for j in WorkerSettings.cron_jobs]
+    assert "cron:rescue_stuck_requests" in names
+    job = next(j for j in WorkerSettings.cron_jobs if j.name == "cron:rescue_stuck_requests")
+    assert job.coroutine is rescue_stuck_requests
+
+
 @pytest.mark.asyncio
 async def test_enqueue_conversation_uses_conversation_scoped_job_id():
     class _FakePool:
