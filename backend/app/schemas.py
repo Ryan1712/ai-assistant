@@ -395,6 +395,9 @@ class ChatRequestOut(BaseModel):
     voice_note_id: uuid.UUID | None = None
     # Cho FE khôi phục confirm card đầy đủ (tên tool + tham số) sau khi reload màn
     pending_action: dict | None = None
+    # Cho FE hiện lỗi khi lỡ mất event request_failed (WS rớt đúng lúc) — nếu
+    # không, request failed chỉ hiện lỗi qua WS, miss là im lặng vĩnh viễn.
+    error: str | None = None
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}

@@ -55,6 +55,10 @@ function friendlyError(raw: string): string {
   if (raw.includes("max_total_tokens_exceeded"))
     return "Yêu cầu này cần xử lý quá nhiều dữ liệu — thử chia nhỏ yêu cầu.";
   if (raw.includes("max_tokens")) return "Câu trả lời quá dài bị cắt.";
+  if (raw.includes("stuck_timeout"))
+    return "Yêu cầu bị kẹt do lỗi hệ thống và đã được dừng — gửi lại giúp nhé.";
+  if (raw.includes("job_cancelled"))
+    return "Xử lý bị gián đoạn giữa chừng (hệ thống AI chậm/treo) — thử gửi lại.";
   return `Có lỗi khi xử lý (${raw.slice(0, 120)}).`;
 }
 
@@ -212,6 +216,9 @@ export default function Chat() {
   const audioStatus = useAudioPlayerStatus(audioPlayer);
   const streamingText = useRef<Map<string, string>>(new Map());
   const contentByRequest = useRef<Map<string, string>>(new Map());
+  // Request đã thấy đang chạy/xếp hàng trong phiên này — để phát hiện failed mà
+  // FE lỡ mất event request_failed (WS rớt đúng lúc).
+  const watchedRequests = useRef<Set<string>>(new Set());
   const listRef = useRef<FlatList>(null);
   const closeWs = useRef<(() => void) | null>(null);
   const suppressAutoScroll = useRef(false);
@@ -219,7 +226,33 @@ export default function Chat() {
   const refreshQueue = useCallback(async (cid: string) => {
     const reqs = await listRequests(cid);
     reqs.forEach((r) => contentByRequest.current.set(r.id, r.content));
-    setQueue(reqs.filter((r) => r.status === "queued" || r.status === "running"));
+    // Request từng thấy đang chạy/xếp hàng trong phiên này mà giờ failed: event
+    // request_failed có thể đã mất lúc WS rớt — hiện lỗi khi refresh thay vì im
+    // lặng vĩnh viễn (dedup theo key với row do WS thêm).
+    reqs.forEach((r) => {
+      if (r.status === "queued" || r.status === "running" || r.status === "deep_running"
+          || r.status === "awaiting_confirmation")
+        watchedRequests.current.add(r.id);
+    });
+    const missedFails = reqs.filter(
+      (r) => r.status === "failed" && watchedRequests.current.has(r.id),
+    );
+    if (missedFails.length > 0) {
+      setRows((prev) => {
+        const next = [...prev];
+        for (const r of missedFails) {
+          const key = `fail-${r.id}`;
+          if (!next.some((row) => row.key === key))
+            next.push({ key, kind: "failed", text: friendlyError(r.error ?? "unknown"),
+                        retryContent: r.content });
+        }
+        return next;
+      });
+      missedFails.forEach((r) => watchedRequests.current.delete(r.id));
+    }
+    setQueue(reqs.filter(
+      (r) => r.status === "queued" || r.status === "running" || r.status === "deep_running",
+    ));
     const waiting = reqs.find((r) => r.status === "awaiting_confirmation");
     if (waiting) {
       const action = waiting.pending_action;
@@ -272,15 +305,11 @@ export default function Chat() {
       } else if (e.type === "request_failed") {
         setRunningTool(null);
         const retryContent = contentByRequest.current.get(e.chat_request_id) ?? null;
-        setRows((prev) => [
-          ...prev,
-          {
-            key: `fail-${e.chat_request_id}`,
-            kind: "failed",
-            text: friendlyError(e.error),
-            retryContent,
-          },
-        ]);
+        setRows((prev) => {
+          const key = `fail-${e.chat_request_id}`;
+          if (prev.some((r) => r.key === key)) return prev; // refreshQueue có thể đã thêm
+          return [...prev, { key, kind: "failed", text: friendlyError(e.error), retryContent }];
+        });
         refreshQueue(cid);
       } else if (e.type === "confirmation_required") {
         setRunningTool(null);
@@ -300,7 +329,7 @@ export default function Chat() {
           });
         }
         refreshQueue(cid);
-      } else if (e.type === "status_update") {
+      } else if (e.type === "status_update" || e.type === "deep_analysis_started") {
         refreshQueue(cid);
       }
     },
@@ -357,7 +386,8 @@ export default function Chat() {
         if (cancelled) return;
         setConversationId(convId);
         await refreshQueue(convId);
-        closeWs.current = await openConversationStream(convId, onWsEvent(convId));
+        closeWs.current = await openConversationStream(convId, onWsEvent(convId),
+                                                       () => refreshQueue(convId));
       } catch (e: any) {
         if (!cancelled) setLoadError(String(e?.message ?? e));
       } finally {
@@ -515,7 +545,7 @@ export default function Chat() {
     await refreshQueue(conversationId);
   };
 
-  const running = queue.find((q) => q.status === "running");
+  const running = queue.find((q) => q.status === "running" || q.status === "deep_running");
   const queuedOnly = queue.filter((q) => q.status === "queued");
   const canSend = input.trim().length > 0 || !!attachedAudio;
 
@@ -675,7 +705,17 @@ export default function Chat() {
       {running && !runningTool && !pendingConfirm && !streamingText.current.get(running.id) && (
         <View style={styles.working}>
           <ActivityIndicator color={colors.primary} size="small" />
-          <Text style={styles.workingText}>AI đang soạn…</Text>
+          <Text style={styles.workingText}>
+            {running.status === "deep_running"
+              ? "Đang phân tích sâu — có thể mất 1-2 phút…"
+              : "AI đang soạn…"}
+          </Text>
+        </View>
+      )}
+      {!running && !runningTool && !pendingConfirm && !held && queuedOnly.length > 0 && (
+        <View style={styles.working}>
+          <ActivityIndicator color={colors.primary} size="small" />
+          <Text style={styles.workingText}>Đang chờ tới lượt…</Text>
         </View>
       )}
       {pendingConfirm && pendingConfirm.kind === "proposal" && (

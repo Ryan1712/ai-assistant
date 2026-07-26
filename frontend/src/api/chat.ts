@@ -28,6 +28,7 @@ export type ChatRequestStatus =
   | "queued"
   | "running"
   | "awaiting_confirmation"
+  | "deep_running"
   | "done"
   | "failed"
   | "cancelled";
@@ -61,6 +62,7 @@ export type ChatRequest = {
   content: string;
   voice_note_id: string | null;
   pending_action: PendingAction | null;
+  error: string | null;
   created_at: string;
 };
 

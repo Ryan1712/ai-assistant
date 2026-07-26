@@ -4595,6 +4595,17 @@
             ],
             "title": "Pending Action"
           },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
