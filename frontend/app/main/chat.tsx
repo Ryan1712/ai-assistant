@@ -271,6 +271,11 @@ export default function Chat() {
           toolInput: (action?.tool_input ?? {}) as Record<string, unknown>,
         });
       }
+    } else {
+      // Không còn request nào chờ xác nhận (đã resolve nơi khác, request failed,
+      // hoặc bị hủy) → phải xóa confirm card. Thiếu nhánh này thì bar treo vĩnh
+      // viễn; bấm Đồng ý sẽ 409.
+      setPendingConfirm(null);
     }
   }, []);
 
@@ -386,8 +391,12 @@ export default function Chat() {
         if (cancelled) return;
         setConversationId(convId);
         await refreshQueue(convId);
-        closeWs.current = await openConversationStream(convId, onWsEvent(convId),
-                                                       () => refreshQueue(convId));
+        closeWs.current = await openConversationStream(
+          convId,
+          onWsEvent(convId),
+          () => refreshQueue(convId),
+          () => setActionError("Mất kết nối realtime (phiên hết hạn) — kéo xuống để tải lại."),
+        );
       } catch (e: any) {
         if (!cancelled) setLoadError(String(e?.message ?? e));
       } finally {
@@ -507,8 +516,15 @@ export default function Chat() {
 
   const resolveConfirm = async (approved: boolean) => {
     if (!pendingConfirm || !conversationId) return;
-    await confirmRequest(pendingConfirm.requestId, approved);
+    // Ẩn card ngay để tránh double-tap gửi 2 confirm (BE có atomic guard nhưng
+    // FE cũng không nên gửi trùng). confirmRequest có thể 409 (đã resolve nơi
+    // khác) — không được để lỗi văng ra ngoài làm card kẹt; báo nhẹ rồi refresh.
     setPendingConfirm(null);
+    try {
+      await confirmRequest(pendingConfirm.requestId, approved);
+    } catch {
+      setActionError("Xác nhận không thành công (có thể đã được xử lý) — thử lại.");
+    }
     await refreshQueue(conversationId);
   };
 

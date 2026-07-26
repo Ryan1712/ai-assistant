@@ -1,4 +1,4 @@
-import { API_URL } from "./client";
+import { API_URL, tryRefresh } from "./client";
 import { getTokens } from "../auth/tokenStore";
 import type { ProposedAction } from "./chat";
 
@@ -31,15 +31,30 @@ export type WsEvent =
  * onReconnect gọi sau mỗi lần nối lại thành công để caller refresh trạng thái
  * (bù các event đã lỡ trong lúc đứt).
  */
+// BE đóng WS bằng code 4401 khi token sai/hết hạn HOẶC conversation không truy
+// cập được (xem api/ws.py). Phân biệt 2 ca bằng cách thử refresh token: refresh
+// được + mở lại OK = ca token hết hạn; vẫn 4401 sau khi đã refresh = ca fatal
+// (conversation mất/không quyền) → dừng, không loop 4401 vô hạn tốn pin.
+const WS_AUTH_CLOSE = 4401;
+const MAX_AUTH_RETRIES = 2;
+
 export async function openConversationStream(
   conversationId: string,
   onEvent: (e: WsEvent) => void,
   onReconnect?: () => void,
+  onFatal?: () => void,
 ): Promise<() => void> {
   let closed = false;
   let ws: WebSocket | null = null;
   let attempt = 0;
+  let authRetries = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const scheduleReconnect = () => {
+    attempt += 1;
+    const delayMs = Math.min(1000 * 2 ** (attempt - 1), 15000);
+    timer = setTimeout(() => connect(true), delayMs);
+  };
 
   const connect = async (isReconnect: boolean) => {
     // Lấy token MỖI lần connect — token cũ có thể đã hết hạn trong lúc đứt mạng.
@@ -51,6 +66,7 @@ export async function openConversationStream(
     );
     ws.onopen = () => {
       attempt = 0;
+      authRetries = 0;
       if (isReconnect) onReconnect?.();
     };
     ws.onmessage = (ev) => {
@@ -59,13 +75,29 @@ export async function openConversationStream(
       } catch {}
     };
     ws.onerror = () => ws?.close();
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (closed) return;
-      attempt += 1;
-      const delayMs = Math.min(1000 * 2 ** (attempt - 1), 15000);
-      timer = setTimeout(() => {
-        connect(true);
-      }, delayMs);
+      const code = (ev as any)?.code;
+      if (code === WS_AUTH_CLOSE) {
+        // Đừng reconnect với đúng token chết (loop 4401 vô hạn). Thử refresh 1
+        // lần rồi mở lại; hết lượt mà vẫn 4401 = fatal → dừng, báo caller.
+        if (authRetries >= MAX_AUTH_RETRIES) {
+          onFatal?.();
+          return;
+        }
+        authRetries += 1;
+        tryRefresh().then((ok) => {
+          if (closed) return;
+          if (ok) {
+            attempt = 0;
+            connect(true);
+          } else {
+            onFatal?.();
+          }
+        });
+        return;
+      }
+      scheduleReconnect();
     };
   };
 

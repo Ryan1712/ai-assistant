@@ -15,19 +15,29 @@ export class ApiError extends Error {
 
 let refreshing: Promise<boolean> | null = null;
 
-async function tryRefresh(): Promise<boolean> {
+export async function tryRefresh(): Promise<boolean> {
   // Gom các 401 đồng thời về 1 lần refresh duy nhất
   if (!refreshing) {
     refreshing = (async () => {
       const tokens = await getTokens();
       if (!tokens?.refresh_token) return false;
-      const resp = await fetch(`${API_URL}/api/v1/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: tokens.refresh_token }),
-      });
+      let resp: Response;
+      try {
+        resp = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+        });
+      } catch {
+        // Lỗi mạng (không phải server từ chối) — GIỮ token, để lần sau thử lại;
+        // xóa token ở đây là đá người dùng ra ngoài chỉ vì mất sóng thoáng qua.
+        return false;
+      }
       if (!resp.ok) {
-        await clearTokens();
+        // CHỈ xóa token khi server thực sự từ chối refresh token (401/403). 5xx/429
+        // (VPS restart lúc deploy, lỗi thoáng qua) → refresh token vẫn còn hiệu lực,
+        // giữ lại để lần sau thử; xóa ở đây gây logout oan.
+        if (resp.status === 401 || resp.status === 403) await clearTokens();
         return false;
       }
       const pair = await resp.json();
