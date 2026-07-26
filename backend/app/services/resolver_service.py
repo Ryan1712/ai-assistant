@@ -29,8 +29,13 @@ async def resolve_person(db: AsyncSession, actor: User, query: str) -> dict:
     scored = [(u, match_score(query, u.full_name)) for u in users]
     picked = pick_matches(scored)
     if not picked:
+        # Hint dạy model cách NÓI với người dùng: nhân viên do CEO thêm trực tiếp
+        # (không tự đăng ký), nên hỏi "có tài khoản trong hệ thống chưa" là sai
+        # ngữ cảnh và gây bối rối — vấn đề CEO báo 2026-07-26.
         return {"found": False, "candidates": [],
-                "hint": f"Không tìm thấy ai tên gần giống '{query}'."}
+                "hint": f"'{query}' chưa có trong danh sách nhân viên. Báo người dùng "
+                        "đúng như vậy và đề nghị thêm nhân viên mới nếu họ muốn giao "
+                        "việc cho người này — ĐỪNG hỏi kiểu 'có tài khoản chưa'."}
     if len(picked) == 1:
         return {"found": True, "match": _user_out(picked[0][0])}
     return {"ambiguous": True, "candidates": [_user_out(u) for u, _ in picked],

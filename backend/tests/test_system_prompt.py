@@ -28,6 +28,15 @@ def test_prompt_co_role_va_huong_dan():
     assert "CEO" in prompt                 # nêu ranh giới quyền chính
 
 
+def test_prompt_nguoi_chua_co_trong_danh_sach_nhan_vien():
+    """Cùng vấn đề 2026-07-26 (vế prompt): khi nhắc tới người không có trong danh
+    bạ, AI phải nói 'X chưa có trong danh sách nhân viên' + đề nghị thêm mới —
+    không hỏi 'có tài khoản trong hệ thống chưa'."""
+    prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
+    assert "chưa có trong danh sách nhân viên" in prompt
+    assert "có tài khoản trong hệ thống chưa" in prompt  # nêu đích danh câu bị cấm
+
+
 def test_prompt_cam_lo_ten_tool_noi_bo():
     """Vấn đề CEO báo 2026-07-26: AI viết thẳng 'create_directive', 'assign_task'
     trong câu trả lời — chi tiết code không được hiển thị cho người dùng. Prompt

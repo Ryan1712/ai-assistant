@@ -44,10 +44,16 @@ async def test_resolve_person_ambiguous_two_candidates(db_session):
 
 @pytest.mark.asyncio
 async def test_resolve_person_not_found(db_session):
+    """Vấn đề CEO báo 2026-07-26: giao việc cho người chưa tồn tại, AI hỏi 'Hiếu
+    và Duy có tài khoản trong hệ thống chưa?' — sai ngữ cảnh (nhân viên không tự
+    đăng ký tài khoản). Hint phải dạy model nói 'chưa có trong danh sách nhân
+    viên' + đề nghị thêm mới, cấm hỏi về tài khoản."""
     ws, ceo, duy, nam1, nam2, project = await _setup(db_session)
     result = await resolver_service.resolve_person(db_session, ceo, "Khong Ton Tai Xyz")
     assert result["found"] is False
     assert result["candidates"] == []
+    assert "chưa có trong danh sách nhân viên" in result["hint"]
+    assert "tài khoản" in result["hint"]  # dặn tường minh ĐỪNG hỏi về tài khoản
 
 
 @pytest.mark.asyncio
