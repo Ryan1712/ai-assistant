@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.models import Conversation, Message, MessageRole, User
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from tests.conftest import _ceo_headers
 
@@ -41,6 +41,13 @@ async def test_timeline_xuyen_conversation_theo_thu_tu(client, db_session):
     ceo_id = uuid.UUID(me["id"])
     # UserOut khong tra workspace_id (chi co trong model DB) -> lay qua db_session.
     ws_id = (await db_session.get(User, ceo_id)).workspace_id
+    # signup-workspace (Phase 6 onboarding) tu tao san 1 seed message voi
+    # created_at = now() thuc te, tre hon han moc gia lap 2026-01-01 ben duoi ->
+    # se lan at thanh message moi nhat va pha thu tu dang test o day. Test nay
+    # chu dich kiem tra thu tu xuyen conversation cua du lieu tu dung, khong
+    # lien quan seed onboarding nen xoa no truoc.
+    await db_session.execute(delete(Message).where(Message.is_seed == True))
+    await db_session.commit()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     c1 = Conversation(workspace_id=ws_id, user_id=ceo_id, created_at=base)
     c2 = Conversation(workspace_id=ws_id, user_id=ceo_id, created_at=base + timedelta(hours=1))
