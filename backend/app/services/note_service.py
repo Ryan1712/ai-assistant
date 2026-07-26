@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Note, User
 from app.permissions import get_visible_task_or_404, visible_project_ids
+from app.services import embedding_service
 
 
 async def create_note(db: AsyncSession, actor: User, content: str,
@@ -25,6 +26,7 @@ async def create_note(db: AsyncSession, actor: User, content: str,
         note.note_date = note_date
     db.add(note)
     await db.commit()
+    await embedding_service.index_content(db, actor.workspace_id, "note", note.id, content)
     return note
 
 

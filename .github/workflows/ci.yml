@@ -1,7 +1,22 @@
 name: CI
+
 on:
+  # Only backend changes trigger CI, and only on `push` — `pull_request` was
+  # removed so each update produces exactly one run instead of two.
   push:
-  pull_request:
+    branches-ignore:
+      - main   # main push is handled by deploy.yml
+    paths:
+      - "backend/**"
+
+permissions:
+  contents: read
+
+# A newer push to the same branch cancels the older in-progress CI run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -10,8 +25,13 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
       - run: pip install -r requirements.txt
+
       - run: pytest tests/ -v

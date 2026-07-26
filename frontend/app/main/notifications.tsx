@@ -26,6 +26,7 @@ const NOTIFICATION_TYPES: { type: string; label: string }[] = [
   { type: "email_received", label: "Có mail mới" },
   { type: "mentioned", label: "Được nhắc tên trong bình luận/cập nhật" },
   { type: "directive_assigned", label: "Được giao việc chính thức" },
+  { type: "morning_brief", label: "Tóm tắt buổi sáng" },
 ];
 
 function PreferencesSection() {
@@ -124,6 +125,8 @@ function describe(n: Notification): { title: string; taskId?: string; goTo?: "em
       const task = p.task_title ? ` (${p.task_title})` : "";
       return { title: `${p.from_name} giao việc: ${p.summary}${task}` };
     }
+    case "morning_brief":
+      return { title: `☀️ ${p.summary}` };
     default:
       return { title: n.type };
   }

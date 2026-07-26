@@ -1,29 +1,68 @@
 services:
   api:
-    build: .
+    image: ${IMAGE:-ghcr.io/ryan1712/ai-assistant:latest}
     restart: unless-stopped
     ports: ["127.0.0.1:8010:8000"]
     env_file: .env
     volumes: ["reports_data:/data/reports"]
-    depends_on: [postgres, redis]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   worker:
-    build: .
+    image: ${IMAGE:-ghcr.io/ryan1712/ai-assistant:latest}
     restart: unless-stopped
     command: ["arq", "app.agent.worker.WorkerSettings"]
     env_file: .env
     volumes: ["reports_data:/data/reports"]
-    depends_on: [postgres, redis]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # One-shot migration service — profile-gated so `docker compose up -d` never
+  # starts it automatically.  Invoke explicitly via:
+  #   docker compose -f docker-compose.prod.yml --profile migration run --rm migrate
+  #
+  # DATABASE_URL in .env MUST use the Docker service name as host, e.g.:
+  #   DATABASE_URL=postgresql+asyncpg://app:<password>@postgres:5432/app
+  # env.py wraps async alembic in asyncio.run() — CLI-compatible with asyncpg driver.
+  migrate:
+    profiles: ["migration"]
+    image: ${IMAGE:-ghcr.io/ryan1712/ai-assistant:latest}
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: app
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD not set}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
     volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   pgdata:
   reports_data:

@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     stt_mock: bool = True
     portal_base_url: str = "https://ceo.9learning.edu.vn"
+    # Embedding cho semantic_search (Phase 6 §10.3) — mock mặc định (hashing
+    # bag-of-words, xem embedding_service.py) không cần API key để dev/test.
+    embedding_mock: bool = True
+    embedding_api_key: str = ""
     # Snapshot workspace (spec AI upgrade §5): TTL fallback khi không có invalidation
     # (ghi từ REST của FE); ghi qua agent tool được invalidate ngay.
     snapshot_ttl_seconds: int = 300
