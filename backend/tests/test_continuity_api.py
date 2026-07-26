@@ -67,7 +67,9 @@ async def test_resume_phrase_clears_hold_and_queues_at_tail(api_client):
     assert r.status_code == 201
 
     convs = (await client.get("/api/v1/conversations", headers=headers)).json()
-    assert convs[0]["queue_held"] is False
+    # Tìm theo id (không dựa convs[0]): signup tạo sẵn seed conversation → thứ tự
+    # created_at DESC không xác định khi tạo cùng tick (cùng họ flake commit f534711).
+    assert next(c for c in convs if c["id"] == conv_id)["queue_held"] is False
     reqs = (await client.get(f"/api/v1/conversations/{conv_id}/requests",
                              headers=headers)).json()
     # việc cũ vẫn đứng trước, request "tiếp tục công việc" nằm cuối queue
@@ -85,7 +87,7 @@ async def test_normal_message_keeps_hold(api_client):
     assert r.status_code == 201
 
     convs = (await client.get("/api/v1/conversations", headers=headers)).json()
-    assert convs[0]["queue_held"] is True  # vẫn chờ đúng cụm từ
+    assert next(c for c in convs if c["id"] == conv_id)["queue_held"] is True  # vẫn chờ đúng cụm từ
 
 
 @pytest.mark.asyncio
@@ -100,7 +102,7 @@ async def test_resume_phrase_when_not_held_is_normal_message(api_client):
     assert r.status_code == 201
 
     convs = (await client.get("/api/v1/conversations", headers=headers)).json()
-    assert convs[0]["queue_held"] is False
+    assert next(c for c in convs if c["id"] == conv["id"])["queue_held"] is False
 
 
 @pytest.mark.asyncio
