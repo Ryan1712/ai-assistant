@@ -6,7 +6,7 @@ không đổi hành vi, kể cả khi bị monkeypatch trong test khác)."""
 import pytest
 from sqlalchemy import select
 
-from app.agent.llm_client import FakeLLMClient, StreamDone, ToolUseBlock
+from app.agent.llm_client import FakeLLMClient, LLMClient, StreamDone, TextDelta, ToolUseBlock
 from app.agent.loop import run_agent_loop
 from app.agent.publisher import FakeEventPublisher
 from app.models import AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole, Role, User, Workspace
@@ -30,6 +30,54 @@ async def _world(db):
                    role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
     await db.commit()
     return ws, ceo, conv, req
+
+
+@pytest.mark.asyncio
+async def test_deep_route_keeps_deep_running_status_during_loop(db_session):
+    """LỖ HỔNG bug queue đường sâu: process_conversation guard chặn queue khi
+    request ở deep_running, NHƯNG run_agent_loop ghi đè status=running ngay dòng
+    đầu. Nếu route="deep" cũng bị hạ về running thì suốt 800s phân tích, guard
+    (chỉ thấy deep_running) không chặn gì → watchdog/tin nhắn mới pickup request
+    queued chạy SONG SONG cùng conversation → hỏng lịch sử. Vì vậy khi route=
+    "deep", loop phải GIỮ status=deep_running trong lúc chạy."""
+    ws, ceo, conv, req = await _world(db_session)
+
+    seen_status = {}
+
+    class _StatusProbeLLM(LLMClient):
+        async def stream(self, *, system, messages, tools):
+            # Đọc status NGAY TRONG lúc loop đang chạy (giữa 2 lần commit).
+            await db_session.refresh(req)
+            seen_status["during"] = req.status
+            yield TextDelta(text="ket qua")
+            yield StreamDone(tool_uses=[], stop_reason="end_turn",
+                             input_tokens=1, output_tokens=1)
+
+    await run_agent_loop(db_session, req, _StatusProbeLLM(), FakeEventPublisher(),
+                         route="deep")
+
+    assert seen_status["during"] == ChatRequestStatus.deep_running
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.done  # xong thật vẫn về done
+
+
+@pytest.mark.asyncio
+async def test_fast_route_uses_running_status_during_loop(db_session):
+    """Đối chứng: route mặc định (fast) vẫn dùng running như cũ."""
+    ws, ceo, conv, req = await _world(db_session)
+
+    seen_status = {}
+
+    class _StatusProbeLLM(LLMClient):
+        async def stream(self, *, system, messages, tools):
+            await db_session.refresh(req)
+            seen_status["during"] = req.status
+            yield StreamDone(tool_uses=[], stop_reason="end_turn",
+                             input_tokens=1, output_tokens=1)
+
+    await run_agent_loop(db_session, req, _StatusProbeLLM(), FakeEventPublisher())
+
+    assert seen_status["during"] == ChatRequestStatus.running
 
 
 @pytest.mark.asyncio

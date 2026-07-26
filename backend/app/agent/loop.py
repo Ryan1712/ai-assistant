@@ -261,7 +261,15 @@ async def run_agent_loop(
                      else MAX_DURATION_SECONDS)
     total_tokens_limit = (max_total_tokens if max_total_tokens is not None
                           else MAX_TOTAL_TOKENS)
-    req.status = ChatRequestStatus.running
+    # route="deep": job run_deep_analysis chạy loop này TRÊN CÙNG conversation với
+    # process_conversation. Guard chống-2-loop-song-song của worker.py chỉ nhận
+    # diện deep_running/awaiting_confirmation — nếu ở đây hạ status về `running`
+    # thì suốt cả lượt phân tích sâu guard mù, tin nhắn mới (hoặc watchdog stale-
+    # queued) sẽ pickup request queued chạy song song → ghi Message xen kẽ → hỏng
+    # lịch sử. Vì vậy đường sâu GIỮ nguyên deep_running trong lúc chạy; chỉ fast
+    # path mới dùng running.
+    req.status = (ChatRequestStatus.deep_running if route == "deep"
+                  else ChatRequestStatus.running)
     req.started_at = datetime.now(timezone.utc)
     await db.commit()
 
