@@ -85,6 +85,55 @@ async def test_confirm_approved_executes_and_requeues(queue_client):
 
 
 @pytest.mark.asyncio
+async def test_double_confirm_executes_sensitive_tool_exactly_once(queue_client):
+    """Double-tap / retry mạng gửi 2 confirm cho cùng request nhạy cảm. Trước đây
+    confirm_request là check-then-act (đọc status rồi mới resolve) → cả 2 qua được
+    check → lock_user chạy 2 lần + 2 tool_result cùng tool_use_id làm hỏng lịch
+    sử. Atomic claim (UPDATE ... WHERE status=awaiting) phải để đúng 1 confirm
+    thắng (200), cái kia 409, tool chạy 1 lần."""
+    import asyncio
+
+    client, fake_pool, fake_redis, maker = queue_client
+    ceo_h = await _ceo_headers(client)
+    me = (await client.get("/api/v1/users/me", headers=ceo_h)).json()
+
+    async with maker() as db:
+        ceo = await db.get(User, uuid.UUID(me["id"]))
+        target = User(workspace_id=ceo.workspace_id, email="e@a.vn", password_hash="x",
+                     full_name="E", role="employee")
+        db.add(target)
+        await db.flush()
+        conv = Conversation(workspace_id=ceo.workspace_id, user_id=ceo.id)
+        db.add(conv)
+        await db.flush()
+        req = ChatRequest(workspace_id=ceo.workspace_id, conversation_id=conv.id,
+                          user_id=ceo.id, content="khoa e", queue_position=1.0,
+                          status=ChatRequestStatus.awaiting_confirmation,
+                          pending_action={"tool_name": "lock_user",
+                                         "tool_input": {"target_id": str(target.id)},
+                                         "tool_use_id": "t1"})
+        db.add(req)
+        await db.commit()
+        req_id, target_id = req.id, target.id
+
+    r1, r2 = await asyncio.gather(
+        client.post(f"/api/v1/chat-requests/{req_id}/confirm", headers=ceo_h,
+                    json={"approved": True}),
+        client.post(f"/api/v1/chat-requests/{req_id}/confirm", headers=ceo_h,
+                    json={"approved": True}),
+    )
+    assert sorted([r1.status_code, r2.status_code]) == [200, 409]  # đúng 1 thắng
+
+    async with maker() as db:
+        # tool_result cho tool_use_id "t1" chỉ được ghi 1 lần
+        rows = (await db.execute(select(Message).where(
+            Message.chat_request_id == req_id, Message.role == "user"))).scalars().all()
+        tool_results = [m for m in rows
+                        if m.content and m.content[0].get("type") == "tool_result"]
+        assert len(tool_results) == 1
+
+
+@pytest.mark.asyncio
 async def test_confirm_when_not_awaiting_returns_409(queue_client):
     client, *_, maker = queue_client
     ceo_h = await _ceo_headers(client)

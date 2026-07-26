@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.loop import resolve_confirmation
@@ -227,6 +227,18 @@ async def confirm_request(request_id: uuid.UUID, body: ConfirmIn,
                           arq_pool=Depends(get_arq_pool)):
     req = await _get_own_request_or_404(db, actor, request_id)
     if req.status != ChatRequestStatus.awaiting_confirmation:
+        raise HTTPException(409, "not_awaiting_confirmation")
+    # Atomic claim chống double-confirm (double-tap / retry mạng): chuyển status ra
+    # khỏi awaiting_confirmation bằng UPDATE có điều kiện — nếu không, 2 confirm
+    # đồng thời đều qua check ở trên rồi cùng resolve_confirmation → tool nhạy cảm
+    # (lock_user, send_email) chạy 2 lần + 2 tool_result trùng tool_use_id làm hỏng
+    # lịch sử. rowcount != 1 nghĩa là 1 confirm khác đã thắng → 409.
+    claimed = await db.execute(
+        update(ChatRequest)
+        .where(ChatRequest.id == req.id,
+               ChatRequest.status == ChatRequestStatus.awaiting_confirmation)
+        .values(status=ChatRequestStatus.running))
+    if claimed.rowcount != 1:
         raise HTTPException(409, "not_awaiting_confirmation")
     await resolve_confirmation(db, req, approved=body.approved)
     await enqueue_conversation(arq_pool, req.conversation_id)
