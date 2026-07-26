@@ -25,6 +25,37 @@ async def _world(client):
 
 
 @pytest.mark.asyncio
+async def test_send_email_failure_does_not_persist_phantom_record(client, db_session, monkeypatch):
+    """send_email add EmailMessage TRƯỚC client.send(): nếu SMTP raise, call_tool
+    bắt lỗi nhưng không rollback → bản ghi email "đã gửi" ma vẫn treo trong session
+    rồi bị commit ké ở lượt sau của loop (list_emails hiện email chưa từng gửi
+    được). Phải gửi trước rồi mới ghi → send fail thì KHÔNG có bản ghi nào, và
+    commit tiếp theo của loop cũng sạch."""
+    from sqlalchemy import select
+
+    from app.models import EmailMessage, Role, User
+
+    ceo_h, m1, e1, e2 = await _world(client)
+    ceo_user = (await db_session.execute(
+        select(User).where(User.role == Role.ceo))).scalars().first()
+
+    class _FailingClient:
+        async def send(self, **kw):
+            raise RuntimeError("smtp_down")
+
+    monkeypatch.setattr(email_service, "get_email_client", lambda: _FailingClient())
+
+    result = await call_tool(db_session, ceo_user, "send_email",
+                             {"recipient_id": e1["user"]["id"], "subject": "hi", "body": "x"})
+    assert result["error"] == "tool_failed"
+    # Mô phỏng commit của agent loop ngay sau call_tool — với bug, phantom email
+    # bị persist tại đây.
+    await db_session.commit()
+    emails = (await db_session.execute(select(EmailMessage))).scalars().all()
+    assert emails == []  # không có email ma
+
+
+@pytest.mark.asyncio
 async def test_matrix_employee_to_employee_forbidden(client, db_session):
     ceo_h, m1, e1, e2 = await _world(client)
     from app.models import User

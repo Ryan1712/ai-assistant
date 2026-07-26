@@ -4,6 +4,7 @@ Khác update_task/assign_task ở chỗ người nhận PHẢI xác nhận đã 
 Quyền tạo tách biệt khỏi work_service (xem app/permissions.py::can_assign_directive) —
 không mở rộng phạm vi quyền của assign_task/create_task/update_task hiện có.
 """
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -15,6 +16,8 @@ from app.models import Directive, DirectiveStatus, Role, Task, User
 from app.permissions import can_assign_directive, direct_report_ids
 from app.services import email_service
 from app.services.notify import notify
+
+logger = logging.getLogger(__name__)
 
 
 def _directive_out(d: Directive) -> dict:
@@ -56,7 +59,16 @@ async def create_directive(db: AsyncSession, actor: User, *, recipient_id: uuid.
                          "deadline": deadline.isoformat() if deadline else None})
     subject = f"Việc mới: {structured_summary or verbatim_text[:60]}"
     body = f"{verbatim_text}\n\n---\n{structured_summary}" if structured_summary else verbatim_text
-    await email_service.send_email(db, actor, recipient_id, subject, body, task_id=task_id)
+    # Email là kênh phụ (khác notify in-app bắt buộc): SMTP chết / task ngoài tầm
+    # nhìn của send_email KHÔNG được kéo sập việc giao directive. Best-effort —
+    # nuốt lỗi, log lại; directive + notify vẫn commit. (Nếu để raise: call_tool
+    # bắt lỗi không rollback → directive/notify treo rồi bị commit ké, model báo
+    # "không giao được" nhưng người nhận vẫn nhận thông báo — mâu thuẫn.)
+    try:
+        await email_service.send_email(db, actor, recipient_id, subject, body, task_id=task_id)
+    except Exception:
+        logger.warning("gửi email directive %s thất bại (best-effort, vẫn tạo directive)",
+                       directive.id, exc_info=True)
     await db.commit()
     return _directive_out(directive)
 

@@ -37,6 +37,34 @@ async def _world(db):
 
 
 @pytest.mark.asyncio
+async def test_create_directive_survives_email_failure_best_effort(db_session, monkeypatch):
+    """Email là kênh phụ: SMTP chết KHÔNG được kéo sập việc giao directive. Trước
+    đây send_email raise ra ngoài → call_tool bắt lỗi NHƯNG không rollback →
+    directive + notification treo lơ lửng trong session, model báo user "không
+    giao được" nhưng commit sau của loop persist chúng (directive/notification ma).
+    Giờ directive vẫn được tạo (best-effort email), không raise."""
+    ws, ceo, mgr, duy, other_mgr, nam, task = await _world(db_session)
+
+    class _FailingClient:
+        async def send(self, **kw):
+            raise RuntimeError("smtp_down")
+
+    from app.services import email_service
+    monkeypatch.setattr(email_service, "get_email_client", lambda: _FailingClient())
+
+    out = await directive_service.create_directive(
+        db_session, ceo, recipient_id=duy.id, task_id=task.id,
+        verbatim_text="Duy xong deadline nhe", structured_summary="Doi han task X")
+
+    directive = (await db_session.execute(select(Directive))).scalar_one()
+    assert out["id"] == str(directive.id)  # tạo được dù email lỗi
+    # directive_assigned notification vẫn có; KHÔNG có email_received (email fail)
+    notif_types = {n.type for n in (await db_session.execute(select(Notification))).scalars()}
+    assert "directive_assigned" in notif_types
+    assert "email_received" not in notif_types
+
+
+@pytest.mark.asyncio
 async def test_ceo_creates_directive_for_employee(db_session):
     ws, ceo, mgr, duy, other_mgr, nam, task = await _world(db_session)
 

@@ -88,12 +88,15 @@ async def send_email(db: AsyncSession, actor: User, recipient_id: uuid.UUID,
         await get_visible_task_or_404(db, actor, task_id)
     if project_id is not None and project_id not in await visible_project_ids(db, actor):
         raise HTTPException(404, "project_not_found")
+    # Gửi TRƯỚC khi ghi bản ghi: nếu SMTP raise thì chưa có gì trong session, lỗi
+    # nổi lên sạch (call_tool trả tool_failed) — không để lại EmailMessage "ma"
+    # (call_tool không rollback, bản ghi thêm trước sẽ bị commit ké ở lượt loop sau).
+    await get_email_client().send(from_email=actor.email, to_email=recipient.email,
+                                  subject=subject, body=body)
     email = EmailMessage(workspace_id=actor.workspace_id, sender_id=actor.id,
                          recipient_id=recipient.id, subject=subject, body=body,
                          task_id=task_id, project_id=project_id)
     db.add(email)
-    await get_email_client().send(from_email=actor.email, to_email=recipient.email,
-                                  subject=subject, body=body)
     await notify(db, workspace_id=actor.workspace_id, recipient_id=recipient.id,
                 type="email_received",
                 payload={"from_user": str(actor.id), "from_name": actor.full_name,
