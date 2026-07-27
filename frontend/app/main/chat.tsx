@@ -44,6 +44,7 @@ type Row =
   | { key: string; kind: "user" | "assistant"; text: string; voiceNoteId?: string | null; isSeed?: boolean }
   | { key: string; kind: "streaming"; text: string }
   | { key: string; kind: "system"; text: string }
+  | { key: string; kind: "choices"; options: string[] }
   | { key: string; kind: "failed"; text: string; retryContent: string | null };
 
 function friendlyError(raw: string): string {
@@ -157,8 +158,15 @@ function messagesToRows(msgs: Message[]): Row[] {
     // Lượt AI thuần thao tác (tạo task, gán người...) không có text — trước đây
     // biến mất khỏi lịch sử, người dùng mất dấu "AI đã làm gì".
     for (const b of m.content) {
-      if (b.type === "tool_use")
-        out.push({ key: `${m.id}-${b.id}`, kind: "system", text: labelForTool(b.name) });
+      if (b.type === "tool_use") {
+        if (b.name === "suggest_replies") {
+          const options = (b.input as { options?: unknown })?.options;
+          if (Array.isArray(options) && options.length > 0)
+            out.push({ key: `${m.id}-${b.id}`, kind: "choices", options: options as string[] });
+        } else {
+          out.push({ key: `${m.id}-${b.id}`, kind: "system", text: labelForTool(b.name) });
+        }
+      }
     }
   }
   return out;
@@ -304,7 +312,9 @@ export default function Chat() {
         streamingText.current.delete(e.chat_request_id);
         setRows((prev) =>
           prev.map((r) =>
-            r.key === `stream-${e.chat_request_id}` ? { ...r, kind: "assistant" } : r,
+            r.key === `stream-${e.chat_request_id}` && r.kind === "streaming"
+              ? { ...r, kind: "assistant" as const }
+              : r,
           ),
         );
         refreshQueue(cid);
@@ -613,6 +623,21 @@ export default function Chat() {
               </TouchableOpacity>
             )}
           </View>
+        </View>
+      );
+    }
+    if (item.kind === "choices") {
+      return (
+        <View style={styles.onboardingChipsRow}>
+          {item.options.map((opt, i) => (
+            <TouchableOpacity
+              key={`${item.key}-${i}`}
+              style={styles.onboardingChip}
+              onPress={() => submit(opt)}
+            >
+              <Text style={styles.onboardingChipText}>{opt}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       );
     }
