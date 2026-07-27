@@ -964,6 +964,24 @@ _register("resolve_person", "Tìm người theo tên/biệt danh, chịu đượ
           "(trùng tên, tên lạ).", ResolvePersonToolIn, _resolve_person)
 
 
+class SuggestRepliesToolIn(BaseModel):
+    options: list[str] = Field(min_length=2, max_length=5)
+
+
+async def _suggest_replies(db, actor, body: SuggestRepliesToolIn) -> dict:
+    return {"shown": True}
+
+
+_register("suggest_replies",
+          "Gọi tool này NGAY SAU KHI đã viết câu hỏi cho người dùng trong phần text, nếu câu "
+          "hỏi có một tập lựa chọn ngắn, rời rạc, rõ ràng (vd: chọn giữa 2 người trùng tên, "
+          "xác nhận có/không, chọn 1 trong vài mốc thời gian). Mỗi phần tử trong `options` "
+          "PHẢI là nguyên văn câu trả lời ngắn gọn mà người dùng sẽ gửi nếu chọn (vd: "
+          "'Nam Nguyễn', 'Có, tạo task mới'), KHÔNG phải nhãn mô tả. Tối đa 5 lựa chọn. "
+          "KHÔNG gọi tool này nếu câu hỏi mở, cần câu trả lời tự do không có sẵn đáp án ngắn.",
+          SuggestRepliesToolIn, _suggest_replies)
+
+
 class ResolveTaskToolIn(BaseModel):
     query: str = ""
     assignee_id: uuid.UUID | None = None
@@ -1032,7 +1050,7 @@ _register("propose_actions",
 TOOL_GROUPS: dict[str, frozenset[str]] = {
     "core": frozenset({
         "get_task", "search", "semantic_search", "resolve_person", "resolve_task",
-        "propose_actions",
+        "propose_actions", "suggest_replies",
     }),
     "work": frozenset({
         "create_project", "update_project", "list_projects",
