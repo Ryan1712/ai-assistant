@@ -503,10 +503,24 @@ async def run_agent_loop(
                 # LÀ cách model báo "đã hỏi xong, đang chờ người dùng chọn". Vẫn phải sinh
                 # tool_result cho tool_use này (hợp đồng API Anthropic: mọi tool_use phải có
                 # tool_result ở lượt kế tiếp, thiếu sẽ lỗi 400 ở lần gọi sau).
+                # Hardening (Fix 4, whole-branch review): AnthropicLLMClient luôn gửi
+                # disable_parallel_tool_use=True nên thực tế chỉ có 1 tool_use/lượt, nhưng
+                # LLM call đi qua gateway bên thứ 3 (platform.beeknoee.com) — không nên tin
+                # tuyệt đối gateway forward đúng tham số. Duyệt HẾT done.tool_uses để không
+                # tool_use nào bị mồ côi tool_result (lớp lỗi đã từng gặp trong repo này).
+                tool_result_msgs = []
+                for tu in done.tool_uses:
+                    if tu.id == reply_gate.id:
+                        content = {"shown": True}
+                    else:
+                        content = {"error": "skipped",
+                                   "hint": "Lượt này đã kết thúc bằng suggest_replies, "
+                                           "tool này chưa được chạy."}
+                    tool_result_msgs.append({"type": "tool_result", "tool_use_id": tu.id,
+                                             "content": json.dumps(content)})
                 db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
                                chat_request_id=req.id, role=MessageRole.user,
-                               content=[{"type": "tool_result", "tool_use_id": reply_gate.id,
-                                        "content": json.dumps({"shown": True})}]))
+                               content=tool_result_msgs))
                 req.status = ChatRequestStatus.done
                 req.finished_at = datetime.now(timezone.utc)
                 req.result_summary = "".join(text_parts)[:500]
@@ -515,6 +529,15 @@ async def run_agent_loop(
                     await embedding_service.index_content(
                         db, req.workspace_id, "chat_message", assistant_msg.id,
                         "".join(text_parts))
+                # Fix 1 (whole-branch review): request_done KHÔNG mang options — FE chỉ
+                # biết đổi dòng "streaming" thành "assistant" + refresh queue, không đọc
+                # lại message. Không publish riêng event này thì chip suggest_replies
+                # không bao giờ hiện trong phiên chat LIVE (chỉ hiện lại nếu người dùng
+                # rời màn rồi mở lại, lúc đó messagesToRows load từ REST mới sinh ra nó).
+                await publisher.publish(req.conversation_id,
+                                        {"type": "suggest_replies",
+                                         "chat_request_id": str(req.id),
+                                         "options": reply_gate.input.get("options", [])})
                 await publisher.publish(req.conversation_id,
                                         {"type": "request_done", "chat_request_id": str(req.id),
                                          "result_summary": req.result_summary})

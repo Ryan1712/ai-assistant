@@ -22,7 +22,8 @@ export type WsEvent =
       reasoning: string;
     }
   | { type: "tool_running"; chat_request_id: string; tool_name: string }
-  | { type: "deep_analysis_started"; chat_request_id: string };
+  | { type: "deep_analysis_started"; chat_request_id: string }
+  | { type: "suggest_replies"; chat_request_id: string; options: string[] };
 
 /**
  * Mở WS stream cho 1 conversation, TỰ NỐI LẠI khi rớt (mất mạng, BE restart);

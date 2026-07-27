@@ -327,6 +327,23 @@ export default function Chat() {
           return [...prev, { key, kind: "failed", text: friendlyError(e.error), retryContent }];
         });
         refreshQueue(cid);
+      } else if (e.type === "suggest_replies") {
+        // Chips gợi ý trả lời nhanh (suggest_replies) từ 1 lượt LIVE — request_done
+        // (publish ngay sau event này, cùng lượt) chỉ chuyển dòng "streaming" thành
+        // "assistant", không tự đọc lại message nên đây là nơi DUY NHẤT tạo dòng
+        // "choices" cho phiên đang mở. Key lấy theo chat_request_id (không phải
+        // message.id — id message thật chưa lộ ra ở tầng WS) để khớp đúng cách
+        // dòng "stream-${chat_request_id}" ở trên được giữ NGUYÊN key khi chuyển
+        // sang kind "assistant" thay vì đổi sang key theo m.id: rows state trong
+        // phiên đang mở không bao giờ merge với rows nạp lại từ REST (mount lại
+        // luôn setRows([]) trước khi load), nên không phát sinh dòng trùng trong
+        // cùng 1 phiên; nếu người dùng rời màn rồi mở lại, dòng này biến mất theo
+        // rows cũ và messagesToRows sẽ tự tạo lại đúng 1 dòng chip từ message đã lưu.
+        setRows((prev) => {
+          const key = `choices-${e.chat_request_id}`;
+          if (prev.some((r) => r.key === key)) return prev;
+          return [...prev, { key, kind: "choices", options: e.options }];
+        });
       } else if (e.type === "confirmation_required") {
         setRunningTool(null);
         if (e.kind === "proposal") {
