@@ -1118,3 +1118,33 @@ def test_worker_settings_registers_run_deep_analysis_with_extended_timeout():
     assert entry is not None, "run_deep_analysis chưa đăng ký trong WorkerSettings.functions"
     assert entry.coroutine is run_deep_analysis
     assert entry.timeout_s == 900
+
+
+def test_worker_settings_registers_retitle_conversations_cron():
+    from app.agent.worker import retitle_conversations
+
+    names = [j.name for j in WorkerSettings.cron_jobs]
+    assert "cron:retitle_conversations" in names
+    job = next(j for j in WorkerSettings.cron_jobs if j.name == "cron:retitle_conversations")
+    assert job.coroutine is retitle_conversations
+
+
+@pytest.mark.asyncio
+async def test_retitle_conversations_calls_service(engine, monkeypatch):
+    from app.agent import worker as worker_module
+
+    called = {}
+
+    async def fake_retitle(db, llm, **kwargs):
+        called["db"] = db
+        called["llm"] = llm
+        return 0
+
+    monkeypatch.setattr(worker_module.conversation_title_service,
+                        "retitle_pending_conversations", fake_retitle)
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False),
+          "llm_client": "fake-llm-marker"}
+
+    await worker_module.retitle_conversations(ctx)
+
+    assert called["llm"] == "fake-llm-marker"

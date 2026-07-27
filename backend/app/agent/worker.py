@@ -19,8 +19,8 @@ from app.agent.tools import TOOL_GROUPS
 from app.config import get_settings
 from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, User
 from app.services import (
-    directive_service, distiller_service, embedding_service, example_bank_service,
-    report_schedule_service, voice_service, watcher_service, work_service,
+    conversation_title_service, directive_service, distiller_service, embedding_service,
+    example_bank_service, report_schedule_service, voice_service, watcher_service, work_service,
 )
 from app.services.notify import notify
 
@@ -291,6 +291,13 @@ async def distill_workspace_memories(ctx: dict) -> None:
         await distiller_service.distill_workspace_memories(db, ctx["llm_client"])
 
 
+async def retitle_conversations(ctx: dict) -> None:
+    """arq cron (mỗi phút): tự đặt tên tối đa 10 cuộc trò chuyện/lượt bằng model_fast,
+    cho các cuộc đã có AI trả lời nhưng title_locked=False (spec 2026-07-27 §2)."""
+    async with ctx["session_factory"]() as db:
+        await conversation_title_service.retitle_pending_conversations(db, ctx["llm_client"])
+
+
 async def transcribe_voice_note(ctx: dict, voice_note_id: uuid.UUID) -> None:
     """arq job: chạy STT cho 1 voice note (enqueue sau upload hoặc từ POST
     /voice-notes/{id}/transcribe — Task 16)."""
@@ -330,7 +337,7 @@ class WorkerSettings:
                 func(run_deep_analysis, timeout=900)]
     cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0),
                 cron(check_directive_escalations, second=0), cron(send_morning_briefs, second=0),
-                cron(distill_workspace_memories, second=0),
+                cron(distill_workspace_memories, second=0), cron(retitle_conversations, second=0),
                 # second=30: lệch pha với cụm cron second=0 cho đỡ dồn việc đầu phút
                 cron(rescue_stuck_requests, second=30)]
     on_startup = _startup
