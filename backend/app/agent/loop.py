@@ -496,6 +496,31 @@ async def run_agent_loop(
                 await _write_trace("awaiting_confirmation")
                 return
 
+            reply_gate = next((tu for tu in done.tool_uses if tu.name == "suggest_replies"), None)
+            if reply_gate is not None:
+                # Không sensitive/propose_actions nên không khớp first_gate ở trên — nhưng
+                # vẫn phải kết thúc lượt ngay (không gọi LLM thêm 1 vòng), vì suggest_replies
+                # LÀ cách model báo "đã hỏi xong, đang chờ người dùng chọn". Vẫn phải sinh
+                # tool_result cho tool_use này (hợp đồng API Anthropic: mọi tool_use phải có
+                # tool_result ở lượt kế tiếp, thiếu sẽ lỗi 400 ở lần gọi sau).
+                db.add(Message(workspace_id=req.workspace_id, conversation_id=req.conversation_id,
+                               chat_request_id=req.id, role=MessageRole.user,
+                               content=[{"type": "tool_result", "tool_use_id": reply_gate.id,
+                                        "content": json.dumps({"shown": True})}]))
+                req.status = ChatRequestStatus.done
+                req.finished_at = datetime.now(timezone.utc)
+                req.result_summary = "".join(text_parts)[:500]
+                await db.commit()
+                if text_parts and assistant_msg is not None:
+                    await embedding_service.index_content(
+                        db, req.workspace_id, "chat_message", assistant_msg.id,
+                        "".join(text_parts))
+                await publisher.publish(req.conversation_id,
+                                        {"type": "request_done", "chat_request_id": str(req.id),
+                                         "result_summary": req.result_summary})
+                await _write_trace(done.stop_reason)
+                return
+
             tool_results = []
             for tu in done.tool_uses:
                 await publisher.publish(req.conversation_id,
