@@ -130,9 +130,9 @@ trước vòng lặp thực thi tool bình thường ở dòng 499):
 - **Tính năng A**: nếu `model_fast` trả tên trùng lặp/nhàm chán cho nhiều cuộc hội thoại tương tự nhau
   (vd nhiều lần hỏi "giao task"), đây là giới hạn chất lượng model, không phải bug — không đặt mục
   tiêu giải quyết trong spec này.
-- Không đổi API contract theo nghĩa breaking — `title_locked` là field mới, các client cũ (nếu có)
-  vẫn hoạt động bình thường vì không đọc field này. Vẫn cần chạy `export_openapi.py` vì có field mới
-  trong response.
+- `title_locked` là cột nội bộ, KHÔNG thêm vào `ConversationOut` (schema response hiện liệt kê field
+  tường minh, không tự động serialize cột mới) — không đổi API contract, không cần chạy lại
+  `export_openapi.py` cho phần này.
 
 ## 5. Ngoài phạm vi
 
