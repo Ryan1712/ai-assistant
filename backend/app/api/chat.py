@@ -71,7 +71,12 @@ async def _get_owned_conversation_or_404(db: AsyncSession, actor: User,
 async def create_conversation(body: ConversationCreateIn,
                               actor: User = Depends(get_current_user),
                               db: AsyncSession = Depends(get_db)):
-    conv = Conversation(workspace_id=actor.workspace_id, user_id=actor.id, title=body.title)
+    # Fix 3 (whole-branch review): title tường minh lúc TẠO cũng phải lock, cùng lý
+    # do PATCH rename lock (Task 4) — không lock thì cron retitle_pending_conversations
+    # coi conversation này là "chưa đặt tên" (chỉ đọc title_locked, không phân biệt
+    # title=None hay title do client set) và đè lên bằng tiêu đề AI tự sinh.
+    conv = Conversation(workspace_id=actor.workspace_id, user_id=actor.id, title=body.title,
+                        title_locked=body.title is not None)
     db.add(conv)
     await db.commit()
     return conv

@@ -52,6 +52,39 @@ async def test_create_and_list_own_conversations(chat_client):
 
 
 @pytest.mark.asyncio
+async def test_create_conversation_voi_title_tuong_minh_thi_lock_luon(chat_client, engine):
+    """Fix 3 (whole-branch review): PATCH rename đã lock title_locked=True (Task 4) —
+    nếu POST /conversations kèm title mà không lock luôn, cron retitle sẽ tưởng đây
+    là conversation 'chưa đặt tên qua text' và đè lên title người dùng chọn ngay lúc
+    tạo."""
+    client, _ = chat_client
+    ceo_h = await _ceo_headers(client)
+    created = await client.post("/api/v1/conversations", headers=ceo_h,
+                                json={"title": "Cong viec"})
+    assert created.status_code == 201
+    conv_id = created.json()["id"]
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with maker() as db:
+        row = await db.get(Conversation, uuid.UUID(conv_id))
+        assert row.title_locked is True
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_khong_title_thi_khong_lock(chat_client, engine):
+    client, _ = chat_client
+    ceo_h = await _ceo_headers(client)
+    created = await client.post("/api/v1/conversations", headers=ceo_h, json={})
+    assert created.status_code == 201
+    conv_id = created.json()["id"]
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with maker() as db:
+        row = await db.get(Conversation, uuid.UUID(conv_id))
+        assert row.title_locked is False
+
+
+@pytest.mark.asyncio
 async def test_send_message_enqueues_job_and_creates_queued_request(chat_client):
     client, fake_pool = chat_client
     ceo_h = await _ceo_headers(client)

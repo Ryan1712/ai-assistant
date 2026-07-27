@@ -79,6 +79,54 @@ async def test_retitle_gioi_han_batch_size(db_session):
     assert processed == 2
 
 
+async def test_retitle_khong_ghi_de_manual_rename_xay_ra_giua_batch(db_session):
+    """Fix 2 (whole-branch review): trước đây conversation_title_service ghi
+    conv.title/title_locked bằng attribute assignment ORM thường rồi chỉ commit
+    1 LẦN ở cuối vòng lặp — nếu người dùng PATCH rename (title_locked=True) 1
+    conversation đang nằm trong batch trong lúc batch còn chạy (LLM call có thể
+    mất vài giây), commit cuối lượt sẽ ghi đè object cũ trong session đè lên tên
+    người dùng vừa đặt. Test này giả lập race bằng cách tự set title_locked=True
+    (qua UPDATE riêng, giống PATCH /conversations/{id}) SAU khi hàm đã build xong
+    candidate list (mô phỏng bằng cách patch app.services.conversation_title_service
+    để chèn hành động đó ngay trước khi service ghi kết quả) — với fix dùng
+    update(...).where(title_locked.is_(False)) + commit từng conversation, UPDATE
+    này sẽ apply 0 dòng nên tên thủ công của người dùng phải sống sót."""
+    from sqlalchemy import update as sa_update
+
+    from app.services import conversation_title_service
+
+    conv = await _mk_conv_with_reply(db_session)
+    manual_title = "Ten nguoi dung tu doi tay"
+
+    class _RaceLLM:
+        model = "fake"
+
+        def __init__(self):
+            self.calls = []
+
+        async def stream(self, *, system, messages, tools):
+            # Mô phỏng: giữa lúc build xong candidate list và lúc service ghi kết
+            # quả (đây là khoảng "LLM call mất vài giây" theo mô tả root cause),
+            # 1 request khác (PATCH rename) commit riêng title_locked=True.
+            self.calls.append(1)
+            await db_session.execute(
+                sa_update(Conversation).where(Conversation.id == conv.id)
+                .values(title=manual_title, title_locked=True))
+            await db_session.commit()
+            yield TextDelta(text="Tieu de AI dat")
+            yield StreamDone(tool_uses=[], stop_reason="end_turn",
+                             input_tokens=1, output_tokens=1)
+
+    llm = _RaceLLM()
+
+    processed = await conversation_title_service.retitle_pending_conversations(db_session, llm)
+
+    assert processed == 0  # UPDATE có điều kiện title_locked.is_(False) áp dụng 0 dòng
+    await db_session.refresh(conv)
+    assert conv.title == manual_title
+    assert conv.title_locked is True
+
+
 async def test_retitle_loi_llm_khong_lock_thu_lai_luot_sau(db_session, monkeypatch):
     conv = await _mk_conv_with_reply(db_session)
 

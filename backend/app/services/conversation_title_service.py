@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.llm_client import LLMClient, TextDelta
@@ -80,8 +80,18 @@ async def retitle_pending_conversations(db: AsyncSession, llm: LLMClient, *,
             continue
         if not title:
             continue
-        conv.title = title
-        conv.title_locked = True
-        processed += 1
-    await db.commit()
+        # Fix (whole-branch review, race với PATCH rename thủ công): KHÔNG gán
+        # attribute ORM rồi commit gộp 1 lần cuối vòng lặp — nếu người dùng tự đổi
+        # tên (title_locked=True, session/transaction KHÁC) trong lúc batch này còn
+        # đang chạy (LLM call có thể mất vài giây/conversation), commit gộp cuối
+        # cùng sẽ vô tình đè lên tên vừa đổi. UPDATE có điều kiện + commit ngay
+        # sau MỖI conversation giữ cho quyết định "có ghi hay không" atomic và cửa
+        # sổ race hẹp nhất có thể (chỉ còn giữa lúc SELECT candidate và UPDATE này).
+        result = await db.execute(
+            update(Conversation)
+            .where(Conversation.id == conv.id, Conversation.title_locked.is_(False))
+            .values(title=title, title_locked=True))
+        await db.commit()
+        if result.rowcount:
+            processed += 1
     return processed
