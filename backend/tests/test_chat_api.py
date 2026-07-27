@@ -1,3 +1,5 @@
+import uuid
+
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -5,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.api.chat import get_arq_pool
 from app.db import get_db
 from app.main import create_app
+from app.models import Conversation
 from tests.conftest import _ceo_headers, _invite_and_join
 
 
@@ -123,6 +126,22 @@ async def test_rename_own_conversation(chat_client):
 
     listed = await client.get("/api/v1/conversations", headers=ceo_h)
     assert listed.json()[0]["title"] == "Ke hoach Q3"
+
+
+@pytest.mark.asyncio
+async def test_rename_locks_title_against_auto_retitle(chat_client, engine):
+    client, _ = chat_client
+    ceo_h = await _ceo_headers(client)
+    conv = (await client.post("/api/v1/conversations", headers=ceo_h, json={})).json()
+
+    resp = await client.patch(f"/api/v1/conversations/{conv['id']}", headers=ceo_h,
+                              json={"title": "Ke hoach Q3"})
+    assert resp.status_code == 200, resp.text
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with maker() as db:
+        row = await db.get(Conversation, uuid.UUID(conv["id"]))
+        assert row.title_locked is True
 
 
 @pytest.mark.asyncio

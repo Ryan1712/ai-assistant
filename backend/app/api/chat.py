@@ -124,6 +124,7 @@ async def rename_conversation(conversation_id: uuid.UUID, body: ConversationRena
                               db: AsyncSession = Depends(get_db)):
     conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
     conv.title = body.title
+    conv.title_locked = True
     await db.commit()
     return conv
 
