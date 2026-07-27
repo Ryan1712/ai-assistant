@@ -365,6 +365,10 @@ class Conversation(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Cron tự đặt tên (worker.py::retitle_conversations) chạy sau khi AI trả lời xong
+    # tin đầu — True nghĩa là tiêu đề đã chốt (do cron HOẶC người dùng tự đổi tên tay),
+    # cron không được ghi đè nữa.
+    title_locked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # 5.7: mất mạng/đóng app → hold queue; chỉ "tiếp tục công việc" mới clear
     queue_held: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Phase 5 (session model): nén hội thoại cũ + xoay conversation ngầm.

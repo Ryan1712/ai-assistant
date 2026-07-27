@@ -72,3 +72,21 @@ async def test_chat_request_status_has_deep_running(db_session):
     found = (await db_session.execute(select(ChatRequest).where(
         ChatRequest.id == req.id))).scalar_one()
     assert found.status == ChatRequestStatus.deep_running
+
+
+@pytest.mark.asyncio
+async def test_conversation_title_locked_defaults_false(db_session):
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    u = User(workspace_id=ws.id, email="tl@a.vn", password_hash="x",
+             full_name="U", role=Role.ceo, is_root=True)
+    db_session.add(u)
+    await db_session.flush()
+
+    conv = Conversation(workspace_id=ws.id, user_id=u.id)
+    db_session.add(conv)
+    await db_session.commit()
+    await db_session.refresh(conv)
+
+    assert conv.title_locked is False
