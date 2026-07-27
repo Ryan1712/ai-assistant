@@ -121,7 +121,12 @@ async def forgot_password(db: AsyncSession, redis, *, email: str) -> None:
     không tồn tại (chống dò email). Dev email_mock → mã nằm trong mock_email_client.sent."""
     email = email.strip().lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if user is None:
+    if user is None or user.password_hash is None:
+        # password_hash=None = record chỉ-tên (add_employee) — KHÔNG bao giờ đăng
+        # nhập được (Task 1 guard trong login()), nên cũng không được cấp mã đặt lại
+        # mật khẩu. Gộp chung nhánh với "user is None" để bên ngoài nhìn giống hệt
+        # nhau — không lộ khác biệt giữa "email không tồn tại" và "email của record
+        # chỉ-tên" (Fix 1, review toàn nhánh add_employee, 2026-07-27).
         return
     code = f"{secrets.randbelow(1_000_000):06d}"
     await redis.set(f"{_PWRESET_PREFIX}{email}", code, ex=_PWRESET_TTL)
@@ -145,7 +150,11 @@ async def reset_password(db: AsyncSession, redis, *, email: str, code: str,
     if stored is None or stored != code.strip():
         raise HTTPException(400, "invalid_or_expired_code")
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if user is None:
+    if user is None or user.password_hash is None:
+        # Cùng guard với forgot_password ở trên — record chỉ-tên (add_employee)
+        # không được phép "nhận" mật khẩu qua đường reset dù có mã đúng cách nào đó
+        # (Fix 1, review toàn nhánh add_employee, 2026-07-27). Trả lỗi giống hệt mã
+        # sai/hết hạn, không lộ thêm thông tin.
         raise HTTPException(400, "invalid_or_expired_code")
     user.password_hash = security.hash_password(new_password)
     await redis.delete(f"{_PWRESET_PREFIX}{email}")
@@ -192,8 +201,7 @@ async def add_employee(db: AsyncSession, *, actor: User, full_name: str,
     login() (Task 1) luôn từ chối — người này không bao giờ đăng nhập app được.
     Sản phẩm quyết định 2026-07-26: chỉ CEO dùng app; xem
     docs/superpowers/specs/2026-07-26-employee-as-list-design.md."""
-    if actor.role != Role.ceo:
-        raise HTTPException(403, "forbidden")
+    require_ceo(actor)
     await plans.enforce_limit(db, actor.workspace_id, "members")
     email = email.strip().lower() if email else None
     if email and (await db.execute(

@@ -66,9 +66,9 @@ Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer
 
 | Domain (router) | Endpoint chính | Ghi chú quyền |
 |---|---|---|
-| `auth` | signup-workspace, activate, login, refresh, logout, unlock-request, forgot-password, reset-password | **`signup-code` đã comment tắt** (route bỏ, `auth_service.signup_with_code` giữ nguyên) — nhân viên không còn tự đăng nhập app (2026-07-23). activate = kích hoạt tài khoản do CEO tạo sẵn (xem `invites` bên dưới); forgot/reset-password = OTP đặt lại mật khẩu |
+| `auth` | signup-workspace, login, refresh, logout, unlock-request, forgot-password, reset-password | **`signup-code` VÀ `activate` đã comment tắt** (route bỏ, `auth_service.signup_with_code`/`activate_account` giữ nguyên) — chỉ CEO đăng nhập app (2026-07-26, xem entry 2026-07-27 mục 13). forgot/reset-password = OTP đặt lại mật khẩu, giờ có guard chặn record chỉ-tên (`password_hash is None`, Fix 1 mục 13) |
 | `users` | GET /me, GET "" (danh sách theo quyền thấy), GET /{id}/devices, POST /{id}/lock, /unlock, /offboard, /change-role | devices + lock/unlock/offboard/change-role: CEO-only |
-| `invites` | POST "" (`create_employee`: CEO tạo tài khoản nhân viên/quản lý TRỰC TIẾP — email/tên/role/manager cho sẵn, `User` tạo ngay ở trạng thái `pending`, trả về `activation_code` 8 ký tự) | CEO-only; CEO tự đưa `activation_code` cho người đó (Zalo/nói trực tiếp), người đó vào FE màn hình `(auth)/activate.tsx` nhập mã + tự đặt mật khẩu (`POST /auth/activate`) — không còn bước "chấp nhận lời mời" tự đăng ký kiểu cũ (route `signup-invite` đã xóa hẳn, chưa từng có màn hình FE redeem). Cũng gọi được qua chat (agent tool `create_employee`). |
+| `employees` | POST "" (`add_employee`: CEO thêm 1 người vào DANH SÁCH nhân viên — chỉ tên, email tùy chọn, KHÔNG tạo tài khoản/mật khẩu, `User.password_hash=None` + `status=active`) | CEO-only; **thay hẳn** `invites` cũ (route `POST /invites` đã comment tắt, không còn `activation_code`/kích hoạt gì). Cũng gọi được qua chat (agent tool `add_employee`, không sensitive) |
 | `workspace` | GET/POST /invite-code (rotate) | CEO-only |
 | `projects` | POST, GET, PATCH, **DELETE /{id}** | create/patch/delete CEO-only; list theo `visible_project_ids`. DELETE là tool nhạy cảm khi gọi qua chat (xem mục 6) |
 | `tasks` | POST, GET, GET/{id}, PATCH, **DELETE /{id}**, POST/DELETE assignees, POST/GET updates, POST/GET comments | create/delete CEO-only; list/get theo `visible_task_ids`. DELETE task là tool nhạy cảm khi gọi qua chat (xem mục 6) |
@@ -118,7 +118,7 @@ Tất cả route dưới `/api/v1`. Quyền luôn kiểm tra trong service layer
 | `main/audit-log.tsx` | CEO-only | |
 | `main/search.tsx` | — | **CODE MỒ CÔI**: file màn + `src/api/search.ts` + endpoint BE đều có, nhưng KHÔNG navigator nào trỏ tới (không thể mở từ UI). Cần quyết bỏ hẳn hay nối lại |
 
-Màn auth (`app/auth/`): login, forgot-password, signup-workspace, activate — 3 màn cuối dùng `ConversationalForm` (hỏi từng câu kiểu chat). `signup-code.tsx` còn file nhưng route đã tắt.
+Màn auth (`app/auth/`): login, forgot-password, signup-workspace — dùng `ConversationalForm` (hỏi từng câu kiểu chat). `signup-code.tsx` và `activate.tsx` còn file (thân component đã comment out ở `activate.tsx`, xem entry 2026-07-27 mục 13) nhưng route đã tắt cả 2, không navigator nào trỏ tới.
 
 FE **không có** màn hình tạo/sửa Project hay Task (đúng chủ đích sản phẩm — hành động quản trị qua chat).
 
@@ -494,3 +494,27 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   minh còn lại" (spec §10) giờ coi như XONG TOÀN BỘ**: 10.1 cố ý không xây (dữ liệu đã có ở
   snapshot), 10.2/10.3/10.4 xong trên `main` (entry 2026-07-24 phía trên), 10.5 xong trên nhánh
   này. Không còn mảnh Phase 6 nào treo.
+- 2026-07-27: **Plan "employee-as-list" (8 task) + review toàn nhánh xong** — hiện
+  thực hóa quyết định sản phẩm 2026-07-23/26 (chỉ CEO đăng nhập app; nhân viên chỉ
+  là record để gán việc). Đính chính 2 claim đã lỗi thời ở entry 2026-07-23 phía
+  trên: `create_employee` KHÔNG còn "treo, chưa quyết" — đã thay hẳn bằng
+  `add_employee` (chỉ tên + email tùy chọn, `password_hash=None`, KHÔNG tạo tài
+  khoản/mã kích hoạt gì); và `activate.tsx`/`POST /auth/activate` KHÔNG còn "GIỮ
+  NGUYÊN" — cả route BE lẫn màn FE đã tắt (mục 4/5 đã cập nhật theo bảng mới nhất).
+  `POST /invites` cũ cũng tắt, thay bằng `POST /employees`. Review toàn nhánh (sau
+  khi cả 8 task đã tự pass review riêng) phát hiện 1 bug CRITICAL xuyên-task mà
+  review từng task không thấy: `forgot_password`/`reset_password`
+  (`app/services/auth_service.py`) chưa từng được đụng tới nên không có guard chặn
+  record chỉ-tên — CEO thêm nhân viên có email → nhân viên tự "Quên mật khẩu" →
+  nhận OTP thật → tự đặt mật khẩu → đăng nhập được, phá thẳng bất biến "chỉ CEO
+  đăng nhập". Fix: cả 2 hàm thêm `user.password_hash is None` vào guard hiện có
+  (test RED/GREEN mới ở `test_auth_service_login.py`, xem chuỗi exploit đầy đủ
+  add_employee→forgot_password→reset_password→login). Kèm 4 fix nhỏ cùng đợt:
+  `add_employee` dùng `require_ceo()` thay check role thủ công; mô tả tool
+  `add_employee` (`app/agent/tools.py`) đổi hướng dẫn AI — gọi `add_employee` TRỰC
+  TIẾP rồi dùng `user_id` thật để `assign_task` ở lượt sau, KHÔNG gộp 2 tool vào 1
+  bản nháp `propose_actions` (bundle cũ sẽ fail Pydantic vì lúc đề xuất người đó
+  chưa có id thật); copy lỗi "account_pending" ở `login.tsx` đổi thành "liên hệ
+  CEO" (bản cũ trỏ vào màn kích hoạt đã tắt — dead-end); `AuthContext.activateAccount()`
+  và màn `activate.tsx` gọi nó comment out (route BE đã tắt từ trước, giờ FE nhất
+  quán theo).

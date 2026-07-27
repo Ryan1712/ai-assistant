@@ -30,7 +30,12 @@ type AuthState = {
     password: string;
     full_name: string;
   }) => Promise<void>;
-  activateAccount: (v: { code: string; password: string }) => Promise<void>;
+  // activateAccount: kích hoạt tài khoản CEO tạo trước (create_employee cũ) — route
+  // BE /auth/activate đã tắt (2026-07-26, chỉ CEO đăng nhập, nhân viên là record
+  // chỉ-tên qua add_employee), màn hình duy nhất gọi hàm này (app/auth/activate.tsx)
+  // cũng đã bỏ khỏi navigator. Comment out thay vì xóa, cùng quy ước với các luồng
+  // đã tắt khác trong file này.
+  // activateAccount: (v: { code: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -101,14 +106,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       await finishAuth(out);
     },
-    activateAccount: async (v) => {
-      const out = await apiFetch<AuthOut>("/api/v1/auth/activate", {
-        method: "POST",
-        auth: false,
-        body: { ...v, ...(await deviceFields()) },
-      });
-      await finishAuth(out);
-    },
+    // activateAccount: (xem rationale ở khai báo type AuthState phía trên) — route
+    // /auth/activate đã tắt, không còn ai gọi hàm này.
+    // activateAccount: async (v) => {
+    //   const out = await apiFetch<AuthOut>("/api/v1/auth/activate", {
+    //     method: "POST",
+    //     auth: false,
+    //     body: { ...v, ...(await deviceFields()) },
+    //   });
+    //   await finishAuth(out);
+    // },
     signOut: async () => {
       const tokens = await getTokens();
       if (tokens?.refresh_token) {

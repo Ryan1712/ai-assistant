@@ -20,7 +20,7 @@ export default function Login() {
       await login(email.trim(), password);
     } catch (e: any) {
       if (e?.detail === "account_pending") {
-        setError("Tài khoản chưa kích hoạt — bạn cần nhập mã kích hoạt trước khi đăng nhập.");
+        setError("Tài khoản này không dùng để đăng nhập app — liên hệ CEO.");
       } else if (e?.status === 401) {
         setError("Email hoặc mật khẩu không đúng.");
       } else {
