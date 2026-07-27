@@ -37,6 +37,7 @@ import {
 } from "../../src/api/chat";
 import { WsEvent, openConversationStream } from "../../src/api/ws";
 import { ErrorText } from "../../src/ui/form";
+import { MessageErrorBoundary } from "../../src/ui/MessageErrorBoundary";
 import { colors, fonts, radius, shadow, spacing, type } from "../../src/ui/theme";
 
 type Row =
@@ -565,13 +566,33 @@ export default function Chat() {
   const queuedOnly = queue.filter((q) => q.status === "queued");
   const canSend = input.trim().length > 0 || !!attachedAudio;
 
-  const renderItem = ({ item }: { item: Row }) => {
-    if (item.kind === "assistant" || item.kind === "streaming") {
+  // Bọc mỗi dòng trong MessageErrorBoundary (xem component đó) — 1 dòng lỗi
+  // render không được kéo sập cả màn chat.
+  const renderItem = ({ item }: { item: Row }) => (
+    <MessageErrorBoundary>{renderRow(item)}</MessageErrorBoundary>
+  );
+
+  const renderRow = (item: Row) => {
+    if (item.kind === "streaming") {
+      // Text thô, KHÔNG qua Markdown — trong lúc stream, chuỗi thường xuyên ở
+      // trạng thái markdown chưa cân bằng (vd mới có 1 dấu "**" của in đậm,
+      // chưa có dấu đóng). react-native-markdown-display là CommonMark parser
+      // thường, không thiết kế cho input đang chạy dần — parse chuỗi lệch cú
+      // pháp có thể throw giữa chừng, và app không có ErrorBoundary nên bất kỳ
+      // exception nào lúc render đều crash toàn bộ app (bug thật gặp
+      // 2026-07-27: "bảo Duy tuần sau gửi proposal" có "**thứ Hai...**" làm
+      // app văng giữa lúc đang gõ chữ). Chỉ parse Markdown khi tin nhắn đã
+      // hoàn tất (kind chuyển thành "assistant" ở request_done).
       return (
         <View style={styles.assistantWrap}>
-          <Markdown style={mdStyles}>
-            {item.text + (item.kind === "streaming" ? " ▍" : "")}
-          </Markdown>
+          <Text style={mdStyles.body}>{item.text} ▍</Text>
+        </View>
+      );
+    }
+    if (item.kind === "assistant") {
+      return (
+        <View style={styles.assistantWrap}>
+          <Markdown style={mdStyles}>{item.text}</Markdown>
         </View>
       );
     }
