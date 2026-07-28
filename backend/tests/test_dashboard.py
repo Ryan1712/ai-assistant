@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
@@ -16,10 +16,18 @@ async def _setup_world(client):
     e1 = await _invite_and_join(client, ceo_h, "employee", "e1@a.vn", m1["user"]["id"])
     p = (await client.post("/api/v1/projects", headers=ceo_h, json={"name": "P"})).json()
     now = datetime.now(timezone.utc)
+    # Deadline "due hôm nay" phải neo theo GIỜ VN (UTC+7) — dashboard tính "hôm nay"
+    # theo ngày lịch VN. Nếu để (now + 2h) thì khi test chạy trong ~2 giờ cuối ngày
+    # VN (≈15:00–17:00 UTC) deadline tràn sang ngày VN kế tiếp → task rơi khỏi
+    # due_today → flaky đỏ (đã làm hỏng deploy run 30374986155). Neo 12:00 trưa VN
+    # hôm nay thì luôn nằm trong ngày VN bất kể test chạy vào giờ UTC nào.
+    vn = timezone(timedelta(hours=7))
+    today_vn = (now + timedelta(hours=7)).date()
+    due_deadline = datetime.combine(today_vn, time(12, 0), tzinfo=vn)
 
     due_today = (await client.post("/api/v1/tasks", headers=ceo_h, json={
         "project_id": p["id"], "title": "Due hom nay",
-        "deadline": (now + timedelta(hours=2)).isoformat()})).json()
+        "deadline": due_deadline.isoformat()})).json()
     overdue = (await client.post("/api/v1/tasks", headers=ceo_h, json={
         "project_id": p["id"], "title": "Qua han",
         "deadline": (now - timedelta(days=2)).isoformat()})).json()
