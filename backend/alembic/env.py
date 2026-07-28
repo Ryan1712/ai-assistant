@@ -72,10 +72,18 @@ async def run_async_migrations() -> None:
 
     """
 
+    # lock_timeout: fail-fast nếu một migration phải chờ khóa bảng (vd ALTER TABLE
+    # ADD COLUMN cần ACCESS EXCLUSIVE) mà app đang chạy giữ khóa. Thay vì treo vô
+    # thời hạn tới khi SSH deploy action hết command_timeout (đã làm hỏng deploy
+    # run 30290290185: ALTER conversations chờ khóa đúng 10 phút rồi bị giết), migrate
+    # bung lỗi "canceling statement due to lock timeout" sau 15s → deploy fail nhanh,
+    # log rõ nguyên nhân. server_settings là cơ chế của asyncpg (driver alembic dùng),
+    # set ở tầng connection nên áp cho toàn bộ migration của lần chạy này.
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"server_settings": {"lock_timeout": "15s"}},
     )
 
     async with connectable.connect() as connection:

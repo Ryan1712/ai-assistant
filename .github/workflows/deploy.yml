@@ -129,6 +129,12 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           envs: GHCR_TOKEN,IMAGE,ACTOR,APP_DIR
+          # Bound the remote command explicitly. Default is 10m, which silently
+          # capped deploy 30290290185 when a migration hung on a table lock. The
+          # migrate step now self-limits (lock_timeout 15s in alembic/env.py) and
+          # runs with api/worker stopped, so 15m is comfortable headroom for a slow
+          # image pull without letting any future hang eat the full default silently.
+          command_timeout: 15m
           script: |
             cd "$APP_DIR"
             chmod +x deploy.sh

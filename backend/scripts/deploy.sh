@@ -36,36 +36,49 @@ echo " Time  : $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 echo "========================================"
 
 # ── 1. Authenticate with GHCR ─────────────────────────────────────────────────
-echo "[1/6] Logging in to GHCR..."
+echo "[1/7] Logging in to GHCR..."
 echo "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
 
 # ── 2. Pull the new image ──────────────────────────────────────────────────────
 # Pull once; all compose services that use ${IMAGE} share the same layers.
-echo "[2/6] Pulling image: $IMAGE"
+echo "[2/7] Pulling image: $IMAGE"
 docker pull "$IMAGE"
 
-# ── 3. Run database migrations ────────────────────────────────────────────────
+# ── 3. Stop app containers before migrating ────────────────────────────────────
+# The old api + worker hold DB connections/locks on the very tables a migration may
+# need to ALTER: `ADD COLUMN` takes an ACCESS EXCLUSIVE lock on the table, and the
+# agent worker in particular keeps a transaction open across slow LLM calls — so an
+# otherwise-instant additive migration blocks on the table lock until the SSH step's
+# command_timeout fires (this hung deploy 30290290185 for 10 min).  Stopping api +
+# worker first releases those locks so migrate acquires the lock immediately.
+# postgres + redis stay up (not listed → untouched), so migrate can still connect.
+# `stop` on a not-yet-created service is a harmless no-op (covers the first deploy).
+echo "[3/7] Stopping api + worker to release table locks..."
+docker compose -f "$COMPOSE_FILE" stop api worker || true
+
+# ── 4. Run database migrations ────────────────────────────────────────────────
 # The migrate service is profile-gated ("migration") so `up -d` never starts it
 # automatically.  depends_on: condition: service_healthy ensures postgres is
 # ready before alembic connects.  If postgres is stopped (e.g. after a VPS
 # reboot), compose starts it and waits for the healthcheck before running migrate.
-echo "[3/6] Running alembic upgrade head..."
+echo "[4/7] Running alembic upgrade head..."
 docker compose -f "$COMPOSE_FILE" --profile migration run --rm migrate
 
-# ── 4. Bring services up (api + worker + postgres + redis) ─────────────────────
-# `up -d` is idempotent: recreates containers whose image/config changed, leaves
-# unchanged containers (postgres, redis) untouched.  The migration profile is NOT
-# activated here, so the migrate service is never started by this command.
-echo "[4/6] Starting / updating services..."
+# ── 5. Bring services up (api + worker + postgres + redis) ─────────────────────
+# `up -d` is idempotent: recreates containers whose image/config changed (and starts
+# the api + worker we stopped in step 3), leaves unchanged containers (postgres,
+# redis) untouched.  The migration profile is NOT activated here, so the migrate
+# service is never started by this command.
+echo "[5/7] Starting / updating services..."
 docker compose -f "$COMPOSE_FILE" up -d
 
-# ── 5. Health-check gate ───────────────────────────────────────────────────────
+# ── 6. Health-check gate ───────────────────────────────────────────────────────
 # Poll the API health endpoint until it returns 2xx (up to ~60s = 20 × 3s).
 # A bash loop instead of `curl --retry` so we retry on ANY failure — including
 # "connection reset by peer" (curl exit 56) while uvicorn is still booting, which
 # `--retry`/`--retry-connrefused` do NOT cover — and stay portable across curl
 # versions (curl < 7.71 has no --retry-all-errors).
-echo "[5/6] Waiting for API health check..."
+echo "[6/7] Waiting for API health check..."
 healthy=0
 for attempt in $(seq 1 20); do
   if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null 2>&1; then
@@ -83,8 +96,8 @@ else
   exit 1
 fi
 
-# ── 6. Prune dangling images ───────────────────────────────────────────────────
-echo "[6/6] Pruning unused images..."
+# ── 7. Prune dangling images ───────────────────────────────────────────────────
+echo "[7/7] Pruning unused images..."
 docker image prune -f
 
 echo "========================================"
