@@ -116,10 +116,15 @@ class AnthropicLLMClient(LLMClient):
 
         create_kwargs = dict(
             model=self.model, max_tokens=self._max_tokens,
-            system=system_payload, messages=messages_payload, tools=tools_payload,
-            tool_choice={"type": "auto", "disable_parallel_tool_use": True},
+            system=system_payload, messages=messages_payload,
             stream=True,
         )
+        if tools_payload:
+            # Anthropic API từ chối 400 invalid_request_error nếu tool_choice đi
+            # kèm tools rỗng (vd conversation_title_service gọi stream(tools=[])
+            # để đặt tên hội thoại) — chỉ gửi cả 2 key khi thực sự có tool.
+            create_kwargs["tools"] = tools_payload
+            create_kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
         if self._thinking_budget:
             create_kwargs["thinking"] = {"type": "enabled",
                                         "budget_tokens": self._thinking_budget}

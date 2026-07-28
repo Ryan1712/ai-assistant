@@ -149,13 +149,39 @@ async def test_anthropic_llm_client_disables_parallel_tool_use():
     ]
     sdk_client = _FakeAnthropicSDKClient(events)
     client = AnthropicLLMClient(sdk_client, model="claude-haiku-4-5")
+    tools = [{"name": "create_task", "description": "...", "input_schema": {}}]
     _ = [e async for e in client.stream(
-        system="sys", messages=[{"role": "user", "content": "hi"}], tools=[])]
+        system="sys", messages=[{"role": "user", "content": "hi"}], tools=tools)]
 
     assert sdk_client.messages.last_kwargs["tool_choice"] == {
         "type": "auto",
         "disable_parallel_tool_use": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_anthropic_llm_client_omits_tools_and_tool_choice_when_no_tools():
+    """conversation_title_service gọi stream(tools=[]) (đặt tên hội thoại không
+    cần tool) — Anthropic API từ chối 400 invalid_request_error khi tool_choice
+    được gửi kèm tools rỗng, làm retitle_pending_conversations fail 100% (bug
+    tìm ra qua log prod: mọi conversation đều "lỗi gọi LLM"). Không tools → không
+    gửi cả 2 key này lên API."""
+    from app.agent.llm_client import AnthropicLLMClient
+
+    events = [
+        _Obj(type="message_start", message=_Obj(usage=_usage(input_tokens=5))),
+        _Obj(type="content_block_start", index=0, content_block=_Obj(type="text", text="")),
+        _Obj(type="content_block_delta", index=0, delta=_Obj(type="text_delta", text="ok")),
+        _Obj(type="message_delta", delta=_Obj(type=None, stop_reason="end_turn"),
+             usage=_Obj(output_tokens=1)),
+        _Obj(type="message_stop"),
+    ]
+    sdk_client = _FakeAnthropicSDKClient(events)
+    client = AnthropicLLMClient(sdk_client, model="claude-haiku-4-5")
+    _ = [e async for e in client.stream(system="sys", messages=[{"role": "user"}], tools=[])]
+
+    assert "tool_choice" not in sdk_client.messages.last_kwargs
+    assert "tools" not in sdk_client.messages.last_kwargs
 
 
 def _thinking_stream_events():
