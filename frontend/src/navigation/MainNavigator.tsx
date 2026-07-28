@@ -17,6 +17,26 @@ import Reports from "../../app/main/reports";
 import ReportSchedules from "../../app/main/report-schedules";
 import AuditLog from "../../app/main/audit-log";
 import VoiceNotes from "../../app/main/voice-notes";
+import { makeScreen } from "../errors/ScreenErrorBoundary";
+
+// Khai báo ở mức module để đảm bảo stable reference — tránh tạo lại component
+// mỗi lần MainNavigator re-render (gây mất state điều hướng).
+const DrawerScreen = makeScreen(MainDrawer, "Drawer");
+const TaskDetailScreen = makeScreen(TaskDetail, "TaskDetail");
+const TeamScreen = makeScreen(Team, "Team");
+const TeamDetailScreen = makeScreen(TeamDetail, "TeamDetail");
+const NotesScreen = makeScreen(Notes, "Notes");
+const InstructionsScreen = makeScreen(Instructions, "Instructions");
+const SkillsScreen = makeScreen(Skills, "Skills");
+const EmailsScreen = makeScreen(Emails, "Emails");
+const PortalScreen = makeScreen(Portal, "Portal");
+const ConversationsScreen = makeScreen(Conversations, "Conversations");
+const ProjectsScreen = makeScreen(Projects, "Projects");
+const NotificationsScreen = makeScreen(Notifications, "Notifications");
+const ReportsScreen = makeScreen(Reports, "Reports");
+const ReportSchedulesScreen = makeScreen(ReportSchedules, "ReportSchedules");
+const AuditLogScreen = makeScreen(AuditLog, "AuditLog");
+const VoiceNotesScreen = makeScreen(VoiceNotes, "VoiceNotes");
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
@@ -27,22 +47,22 @@ export function MainNavigator() {
     <Stack.Navigator
       screenOptions={{ headerShown: false, animation: "slide_from_right", gestureEnabled: true }}
     >
-      <Stack.Screen name="Drawer" component={MainDrawer} />
-      <Stack.Screen name="TaskDetail" component={TaskDetail} />
-      <Stack.Screen name="Team" component={Team} />
-      <Stack.Screen name="TeamDetail" component={TeamDetail} />
-      <Stack.Screen name="Notes" component={Notes} />
-      <Stack.Screen name="Instructions" component={Instructions} />
-      <Stack.Screen name="Skills" component={Skills} />
-      <Stack.Screen name="Emails" component={Emails} />
-      <Stack.Screen name="Portal" component={Portal} />
-      <Stack.Screen name="Conversations" component={Conversations} />
-      <Stack.Screen name="Projects" component={Projects} />
-      <Stack.Screen name="Notifications" component={Notifications} />
-      <Stack.Screen name="Reports" component={Reports} />
-      <Stack.Screen name="ReportSchedules" component={ReportSchedules} />
-      <Stack.Screen name="AuditLog" component={AuditLog} />
-      <Stack.Screen name="VoiceNotes" component={VoiceNotes} />
+      <Stack.Screen name="Drawer" component={DrawerScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="Team" component={TeamScreen} />
+      <Stack.Screen name="TeamDetail" component={TeamDetailScreen} />
+      <Stack.Screen name="Notes" component={NotesScreen} />
+      <Stack.Screen name="Instructions" component={InstructionsScreen} />
+      <Stack.Screen name="Skills" component={SkillsScreen} />
+      <Stack.Screen name="Emails" component={EmailsScreen} />
+      <Stack.Screen name="Portal" component={PortalScreen} />
+      <Stack.Screen name="Conversations" component={ConversationsScreen} />
+      <Stack.Screen name="Projects" component={ProjectsScreen} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="Reports" component={ReportsScreen} />
+      <Stack.Screen name="ReportSchedules" component={ReportSchedulesScreen} />
+      <Stack.Screen name="AuditLog" component={AuditLogScreen} />
+      <Stack.Screen name="VoiceNotes" component={VoiceNotesScreen} />
     </Stack.Navigator>
   );
 }

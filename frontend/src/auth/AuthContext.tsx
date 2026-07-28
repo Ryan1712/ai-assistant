@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { apiFetch } from "../api/client";
 import { registerPushTokenBestEffort } from "../notifications/push";
 import { clearTokens, getDeviceUuid, getTokens, setTokens } from "./tokenStore";
+import { flush } from "../errors/crashReporter";
 
 export type User = {
   id: string;
@@ -72,6 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const finishAuth = async (out: AuthOut) => {
     await setTokens({ access_token: out.access_token, refresh_token: out.refresh_token });
     setUser(out.user);
+    // Gửi crash log tồn đọng ngay sau khi có token — tránh gọi apiFetch (ADR-002/004).
+    flush(out.access_token).catch(() => {});
   };
 
   const value: AuthState = {

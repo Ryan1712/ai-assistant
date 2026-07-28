@@ -2,22 +2,29 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
-    attachments, audit, auth, chat, dashboard, devices, directives, emails, instructions,
-    invites, notes, notifications, portal, projects, report_schedules, reports, search,
-    skills, subscription, tasks, traces, users, voice_notes, workspace, ws,
+    attachments, audit, auth, chat, crash_logs, dashboard, devices, directives, emails,
+    instructions, invites, notes, notifications, portal, projects, report_schedules,
+    reports, search, skills, subscription, tasks, traces, users, voice_notes, workspace, ws,
 )
 from app.config import assert_safe_config, get_settings
+from app.middleware.crash_capture import CrashCaptureMiddleware
 
 
 def create_app() -> FastAPI:
     assert_safe_config(get_settings())
     app = FastAPI(title="AI Assistant API", version="0.1.0", docs_url="/docs")
 
+    # Rate limit store cho crash-log ingest (in-memory, fresh mỗi create_app()).
+    # dict[user_id_str -> {"count": int, "start": float}]
+    app.state.crash_rate_limit = {}
+
     # Auth dùng Bearer token (Authorization header), không dùng cookie — cho phép mọi
     # origin an toàn vì không có rủi ro CSRF qua credential ngầm định của trình duyệt.
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
     )
+    # Crash capture middleware — stub; Task 1.2 sẽ implement dispatch thật.
+    app.add_middleware(CrashCaptureMiddleware)
 
     @app.get("/api/v1/health")
     async def health():
@@ -60,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(chat.chat_requests_router)
     app.include_router(ws.router)
+    app.include_router(crash_logs.router)
     return app
 
 

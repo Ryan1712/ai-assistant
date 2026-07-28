@@ -17,9 +17,21 @@ import { AuthProvider } from "./src/auth/AuthContext";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { applyGlobalFont } from "./src/ui/globalFont";
 import { colors } from "./src/ui/theme";
+import { ErrorBoundary } from "./src/errors/ErrorBoundary";
+import { initSentry } from "./src/errors/sentry";
+import { initGlobalHandlers } from "./src/errors/globalHandlers";
+import { initSessionSentinel } from "./src/errors/sessionSentinel";
 
 // Đặt Inter làm font mặc định cho mọi Text/TextInput (chạy 1 lần khi nạp module).
 applyGlobalFont();
+
+// Khởi tạo các dịch vụ báo cáo sự cố trước khi bất kỳ component nào được render.
+// initSentry: no-op khi thiếu EXPO_PUBLIC_SENTRY_DSN (ADR-003).
+// initGlobalHandlers: bắt lỗi JS và promise rejection toàn cục.
+// initSessionSentinel: theo dõi trạng thái app (foreground/background).
+initSentry().catch(() => {});
+initGlobalHandlers();
+initSessionSentinel();
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -39,17 +51,20 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <KeyboardProvider>
-          <AuthProvider>
-            <StatusBar style="dark" />
-            <NavigationContainer>
-              <RootNavigator />
-            </NavigationContainer>
-          </AuthProvider>
-        </KeyboardProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    // ErrorBoundary nằm ngoài cùng để bắt mọi crash — kể cả crash trong GestureHandler
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <KeyboardProvider>
+            <AuthProvider>
+              <StatusBar style="dark" />
+              <NavigationContainer>
+                <RootNavigator />
+              </NavigationContainer>
+            </AuthProvider>
+          </KeyboardProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }

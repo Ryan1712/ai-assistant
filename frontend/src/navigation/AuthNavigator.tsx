@@ -10,6 +10,14 @@ import ForgotPassword from "../../app/auth/forgot-password";
 // import SignupCode from "../../app/auth/signup-code";
 import SignupWorkspace from "../../app/auth/signup-workspace";
 import Activate from "../../app/auth/activate";
+import { makeScreen } from "../errors/ScreenErrorBoundary";
+
+// Khai báo ở mức module để đảm bảo stable reference — tránh tạo lại component
+// mỗi lần AuthNavigator re-render.
+const LoginScreen = makeScreen(Login, "Login");
+const ForgotPasswordScreen = makeScreen(ForgotPassword, "ForgotPassword");
+const SignupWorkspaceScreen = makeScreen(SignupWorkspace, "SignupWorkspace");
+const ActivateScreen = makeScreen(Activate, "Activate");
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
@@ -25,11 +33,11 @@ export function AuthNavigator() {
         headerTitleStyle: { fontFamily: fonts.bold, fontSize: 17, color: colors.text },
       }}
     >
-      <Stack.Screen name="Login" component={Login} options={{ title: "Đăng nhập" }} />
-      <Stack.Screen name="ForgotPassword" component={ForgotPassword} options={{ title: "Quên mật khẩu" }} />
-      {/* <Stack.Screen name="SignupCode" component={SignupCode} options={{ title: "Đăng ký bằng mã mời" }} /> */}
-      <Stack.Screen name="SignupWorkspace" component={SignupWorkspace} options={{ title: "Tạo công ty mới" }} />
-      <Stack.Screen name="Activate" component={Activate} options={{ title: "Kích hoạt tài khoản" }} />
+      <Stack.Screen name="Login" component={LoginScreen} options={{ title: "Đăng nhập" }} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: "Quên mật khẩu" }} />
+      {/* <Stack.Screen name="SignupCode" component={SignupCodeScreen} options={{ title: "Đăng ký bằng mã mời" }} /> */}
+      <Stack.Screen name="SignupWorkspace" component={SignupWorkspaceScreen} options={{ title: "Tạo công ty mới" }} />
+      <Stack.Screen name="Activate" component={ActivateScreen} options={{ title: "Kích hoạt tài khoản" }} />
     </Stack.Navigator>
   );
 }

@@ -9,18 +9,23 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": ""
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://ai-assistant.9learning.edu.vn"
+        "EXPO_PUBLIC_API_URL": "https://ai-assistant.9learning.edu.vn",
+        "EXPO_PUBLIC_SENTRY_DSN": ""
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://ai-assistant.9learning.edu.vn"
+        "EXPO_PUBLIC_API_URL": "https://ai-assistant.9learning.edu.vn",
+        "EXPO_PUBLIC_SENTRY_DSN": ""
       }
     }
   },

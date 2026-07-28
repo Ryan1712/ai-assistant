@@ -4299,6 +4299,185 @@
           }
         }
       }
+    },
+    "/api/v1/crash-logs": {
+      "post": {
+        "tags": [
+          "crash-logs"
+        ],
+        "summary": "Ingest Crash Logs",
+        "description": "Nh\u1eadn batch crash log t\u1eeb FE/BE agent.\n\nKh\u00f4ng c\u1ea7n quy\u1ec1n \u0111\u1eb7c bi\u1ec7t \u2014 m\u1ecdi user \u0111\u0103ng nh\u1eadp \u0111\u1ec1u g\u1eedi \u0111\u01b0\u1ee3c.\nworkspace_id/user_id l\u1ea5y t\u1eeb JWT c\u1ee7a actor, kh\u00f4ng tin body.\nRate limit: 60 b\u1ea3n ghi / user / 5 ph\u00fat (in-memory tr\u00ean app.state).",
+        "operationId": "ingest_crash_logs_api_v1_crash_logs_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrashLogBatchIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrashIngestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "crash-logs"
+        ],
+        "summary": "List Crash Logs",
+        "description": "Danh s\u00e1ch crash log chi ti\u1ebft \u2014 ch\u1ec9 CEO.\n\nLu\u00f4n l\u1ecdc theo workspace_id c\u1ee7a actor (JWT).\nH\u1ed7 tr\u1ee3 ph\u00e2n trang v\u00e0 l\u1ecdc theo source/platform/fingerprint.",
+        "operationId": "list_crash_logs_api_v1_crash_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Size"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Platform"
+            }
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fingerprint"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrashLogListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/crash-logs/summary": {
+      "get": {
+        "tags": [
+          "crash-logs"
+        ],
+        "summary": "Get Crash Summary",
+        "description": "T\u1ed5ng h\u1ee3p crash theo fingerprint \u2014 ch\u1ec9 CEO.\n\nTr\u1ea3 v\u1ec1: fingerprint, s\u1ed1 l\u1ea7n x\u1ea3y ra, s\u1ed1 user b\u1ecb \u1ea3nh h\u01b0\u1edfng,\nl\u1ea7n \u0111\u1ea7u, l\u1ea7n cu\u1ed1i, message m\u1eabu, source.",
+        "operationId": "get_crash_summary_api_v1_crash_logs_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrashSummaryOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -4781,6 +4960,592 @@
           "title"
         ],
         "title": "ConversationRenameIn"
+      },
+      "CrashIngestOut": {
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "title": "Accepted"
+          },
+          "duplicates": {
+            "type": "integer",
+            "title": "Duplicates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "duplicates"
+        ],
+        "title": "CrashIngestOut",
+        "description": "K\u1ebft qu\u1ea3 ingest batch: bao nhi\u00eau \u0111\u01b0\u1ee3c ch\u1ea5p nh\u1eadn, bao nhi\u00eau l\u00e0 tr\u00f9ng."
+      },
+      "CrashLogBatchIn": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CrashLogIn"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CrashLogBatchIn",
+        "description": "Batch t\u1ed1i \u0111a 20 b\u1ea3n ghi \u2014 v\u01b0\u1ee3t qu\u00e1 \u2192 422."
+      },
+      "CrashLogIn": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/CrashSource"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/CrashSeverity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "stack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stack"
+          },
+          "component_stack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Stack"
+          },
+          "screen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen"
+          },
+          "app_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Version"
+          },
+          "build_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Number"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "os_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Version"
+          },
+          "device_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Model"
+          },
+          "is_device": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Device"
+          },
+          "request_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Method"
+          },
+          "request_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Path"
+          },
+          "response_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Status"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "client_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Event Id"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "severity",
+          "message",
+          "occurred_at"
+        ],
+        "title": "CrashLogIn",
+        "description": "M\u1ed9t b\u1ea3n ghi crash log t\u1eeb client.\n\nextra=\"ignore\": tr\u01b0\u1eddng l\u1ea1 (workspace_id, user_id gi\u1ea3 m\u1ea1o\u2026) b\u1ecb b\u1ecf qua ho\u00e0n to\u00e0n.\nworkspace_id/user_id th\u1ef1c s\u1ef1 l\u1ea5y t\u1eeb JWT \u1edf service layer."
+      },
+      "CrashLogListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CrashLogOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "CrashLogListOut",
+        "description": "Danh s\u00e1ch crash log c\u00f3 ph\u00e2n trang."
+      },
+      "CrashLogOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Workspace Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "stack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stack"
+          },
+          "component_stack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Stack"
+          },
+          "screen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen"
+          },
+          "app_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Version"
+          },
+          "build_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Number"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "os_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Version"
+          },
+          "device_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Model"
+          },
+          "is_device": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Device"
+          },
+          "request_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Method"
+          },
+          "request_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Path"
+          },
+          "response_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Status"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "client_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Event Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "user_id",
+          "source",
+          "severity",
+          "fingerprint",
+          "message",
+          "stack",
+          "component_stack",
+          "screen",
+          "app_version",
+          "build_number",
+          "platform",
+          "os_version",
+          "device_model",
+          "is_device",
+          "request_method",
+          "request_path",
+          "response_status",
+          "context",
+          "client_event_id",
+          "occurred_at",
+          "created_at"
+        ],
+        "title": "CrashLogOut",
+        "description": "Chi ti\u1ebft 1 crash log \u2014 d\u00f9ng cho GET /crash-logs list."
+      },
+      "CrashSeverity": {
+        "type": "string",
+        "enum": [
+          "fatal",
+          "error",
+          "warning"
+        ],
+        "title": "CrashSeverity",
+        "description": "M\u1ee9c \u0111\u1ed9 nghi\u00eam tr\u1ecdng c\u1ee7a crash."
+      },
+      "CrashSource": {
+        "type": "string",
+        "enum": [
+          "fe_js",
+          "fe_api",
+          "fe_native_suspected",
+          "be_unhandled"
+        ],
+        "title": "CrashSource",
+        "description": "Ngu\u1ed3n g\u1ed1c crash log \u2014 x\u00e1c \u0111\u1ecbnh crash \u0111\u1ebfn t\u1eeb \u0111\u00e2u."
+      },
+      "CrashSummaryOut": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/CrashSummaryRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows"
+        ],
+        "title": "CrashSummaryOut",
+        "description": "K\u1ebft qu\u1ea3 GET /crash-logs/summary \u2014 CEO d\u00f9ng \u0111\u1ec3 bi\u1ebft 'app crash v\u1ec1 g\u00ec'."
+      },
+      "CrashSummaryRow": {
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "affected_users": {
+            "type": "integer",
+            "title": "Affected Users"
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen"
+          },
+          "sample_message": {
+            "type": "string",
+            "title": "Sample Message"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fingerprint",
+          "count",
+          "affected_users",
+          "first_seen",
+          "last_seen",
+          "sample_message",
+          "source"
+        ],
+        "title": "CrashSummaryRow",
+        "description": "M\u1ed9t nh\u00f3m crash trong summary \u2014 gom theo fingerprint."
       },
       "CreateDirectiveIn": {
         "properties": {

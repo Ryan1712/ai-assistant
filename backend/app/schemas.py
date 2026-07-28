@@ -4,7 +4,8 @@ import uuid
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models import (
-    ChatRequestStatus, MessageRole, Role, SkillKind, TaskPriority, TaskStatus, WorkspacePlan,
+    ChatRequestStatus, CrashSeverity, CrashSource, MessageRole, Role, SkillKind,
+    TaskPriority, TaskStatus, WorkspacePlan,
 )
 
 
@@ -529,3 +530,100 @@ class AgentTraceOut(BaseModel):
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}
+
+
+# ─── Crash Reporting (Sprint 1, Task 1.1) ────────────────────────────────────
+
+class CrashLogIn(BaseModel):
+    """Một bản ghi crash log từ client.
+
+    extra="ignore": trường lạ (workspace_id, user_id giả mạo…) bị bỏ qua hoàn toàn.
+    workspace_id/user_id thực sự lấy từ JWT ở service layer.
+    """
+    model_config = {"extra": "ignore"}
+
+    source: CrashSource
+    severity: CrashSeverity
+    message: str
+    stack: str | None = None
+    component_stack: str | None = None
+    screen: str | None = None
+    app_version: str | None = None
+    build_number: str | None = None
+    platform: str | None = None
+    os_version: str | None = None
+    device_model: str | None = None
+    is_device: bool | None = None
+    request_method: str | None = None
+    request_path: str | None = None
+    response_status: int | None = None
+    request_id: str | None = None
+    context: dict | None = None
+    occurred_at: dt.datetime
+    client_event_id: str | None = None
+    # fingerprint tuỳ chọn — nếu client không gửi, server tự tính từ source+message+stack.
+    fingerprint: str | None = None
+
+
+class CrashLogBatchIn(BaseModel):
+    """Batch tối đa 20 bản ghi — vượt quá → 422."""
+    items: list[CrashLogIn] = Field(..., max_length=20)
+
+
+class CrashIngestOut(BaseModel):
+    """Kết quả ingest batch: bao nhiêu được chấp nhận, bao nhiêu là trùng."""
+    accepted: int
+    duplicates: int
+
+
+class CrashLogOut(BaseModel):
+    """Chi tiết 1 crash log — dùng cho GET /crash-logs list."""
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    user_id: uuid.UUID
+    source: str
+    severity: str
+    fingerprint: str
+    message: str
+    stack: str | None
+    component_stack: str | None
+    screen: str | None
+    app_version: str | None
+    build_number: str | None
+    platform: str | None
+    os_version: str | None
+    device_model: str | None
+    is_device: bool | None
+    request_method: str | None
+    request_path: str | None
+    response_status: int | None
+    context: dict | None
+    client_event_id: str | None
+    occurred_at: dt.datetime
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CrashLogListOut(BaseModel):
+    """Danh sách crash log có phân trang."""
+    items: list[CrashLogOut]
+    total: int
+    page: int
+    size: int
+
+
+class CrashSummaryRow(BaseModel):
+    """Một nhóm crash trong summary — gom theo fingerprint."""
+    fingerprint: str
+    count: int
+    affected_users: int
+    first_seen: dt.datetime
+    last_seen: dt.datetime
+    sample_message: str
+    source: str
+
+
+class CrashSummaryOut(BaseModel):
+    """Kết quả GET /crash-logs/summary — CEO dùng để biết 'app crash về gì'."""
+    rows: list[CrashSummaryRow]

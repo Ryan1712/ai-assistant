@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from datetime import date
 
-from sqlalchemy import String, Boolean, ForeignKey, DateTime, Date, Enum, JSON, Uuid, Integer, Text, UniqueConstraint, Float
+from sqlalchemy import String, Boolean, ForeignKey, DateTime, Date, Enum, JSON, Uuid, Integer, Text, UniqueConstraint, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -597,6 +597,75 @@ class FewShotExample(Base):
         ForeignKey("workspaces.id"), nullable=True, index=True)
     user_text: Mapped[str] = mapped_column(Text)
     ideal_behavior: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+# ─── Crash Reporting (Sprint 1, Task 1.1) ────────────────────────────────────
+
+class CrashSource(str, enum.Enum):
+    """Nguồn gốc crash log — xác định crash đến từ đâu."""
+    fe_js = "fe_js"
+    fe_api = "fe_api"
+    fe_native_suspected = "fe_native_suspected"
+    be_unhandled = "be_unhandled"
+
+
+class CrashSeverity(str, enum.Enum):
+    """Mức độ nghiêm trọng của crash."""
+    fatal = "fatal"
+    error = "error"
+    warning = "warning"
+
+
+class CrashLog(Base):
+    """Bảng ghi nhận crash log từ FE và BE unhandled exception.
+
+    Đặc điểm quan trọng:
+    - workspace_id/user_id LUÔN lấy từ JWT (không tin body client).
+    - fingerprint gom nhóm crash cùng nguyên nhân → endpoint /summary đọc từ đây.
+    - UniqueConstraint(workspace_id, client_event_id) chống ghi trùng khi client retry.
+    - Dùng JSON (không JSONB) để test SQLite in-memory chạy được.
+    """
+    __tablename__ = "crash_logs"
+    __table_args__ = (
+        # Chống ghi trùng khi client retry — NULL != NULL nên bản ghi không có
+        # client_event_id không bao giờ vi phạm ràng buộc này.
+        UniqueConstraint("workspace_id", "client_event_id", name="uq_crash_log_workspace_event"),
+        # Index phục vụ list (lọc theo workspace + sắp xếp mới nhất trước)
+        Index("ix_crash_logs_workspace_created", "workspace_id", "created_at"),
+        # Index phục vụ summary (gom nhóm theo fingerprint trong workspace)
+        Index("ix_crash_logs_workspace_fingerprint", "workspace_id", "fingerprint"),
+        # Index phục vụ filter theo source
+        Index("ix_crash_logs_workspace_source", "workspace_id", "source"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    source: Mapped[CrashSource] = mapped_column(Enum(CrashSource))
+    severity: Mapped[CrashSeverity] = mapped_column(Enum(CrashSeverity))
+    # Hash 64 ký tự — dùng SHA-256 full hex khi server tự tính, client có thể gửi
+    # giá trị tuỳ ý (server tin tưởng fingerprint từ client nếu client gửi).
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    message: Mapped[str] = mapped_column(Text)
+    stack: Mapped[str | None] = mapped_column(Text, nullable=True)
+    component_stack: Mapped[str | None] = mapped_column(Text, nullable=True)
+    screen: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    app_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    build_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    os_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    device_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_device: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Chỉ dùng cho fe_api / be_unhandled
+    request_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    request_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # breadcrumbs + extra context — server cắt về ≤ 8 KB khi lưu
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    client_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

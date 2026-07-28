@@ -38,6 +38,8 @@ export const colors = {
   confirmBg: "#fbf3e8",
   confirmBorder: "#f0cfa0",
   dangerBg: "#fce9e9",
+  dangerBorder: "#f5b5b7", // viền danger — nhất quán với warningBorder/confirmBorder
+  dangerText: "#c0262b",   // chữ danger trên nền dangerBg: tương phản ~5.06:1 (đạt WCAG AA 4.5:1)
   // 10% — accent (Grammarly Green là accent DUY NHẤT)
   primary: "#15c39a",
   primaryDeep: "#11a683", // nhấn mạnh / gradient end

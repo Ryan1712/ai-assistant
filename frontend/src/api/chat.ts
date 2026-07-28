@@ -139,3 +139,8 @@ export const confirmRequest = (requestId: string, approved: boolean) =>
     method: "POST",
     body: { approved },
   });
+
+// Re-export openConversationStream từ ws.ts tại đây để chat.tsx import một chỗ →
+// test có thể mock toàn bộ '../src/api/chat' mà không cần mock ws riêng.
+export { openConversationStream } from "./ws";
+export type { WsEvent } from "./ws";

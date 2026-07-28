@@ -79,3 +79,62 @@ Trước khi sửa UI: đọc `frontend/DESIGN.md` (guideline) và dùng token t
 cd backend && pytest tests/ -v
 cd frontend && npx tsc --noEmit && npx expo export
 ```
+
+## Crash Reporting & Sentry
+
+### Cách xem crash log (CEO)
+
+Gọi `GET /api/v1/crash-logs/summary` bằng tài khoản CEO qua Swagger tại
+`https://ai-assistant.9learning.edu.vn/docs` — đây là nơi trả lời câu
+"app đang crash vì việc gì" mà không cần xem log server.
+
+Hoặc dùng curl (thay `<TOKEN>` bằng JWT của tài khoản CEO):
+
+```bash
+curl -s \
+  -H "Authorization: Bearer <TOKEN>" \
+  "https://ai-assistant.9learning.edu.vn/api/v1/crash-logs/summary" \
+  | python3 -m json.tool
+```
+
+Response trả về danh sách nhóm lỗi theo `fingerprint`: số lần xảy ra,
+số user bị ảnh hưởng, thời điểm đầu/cuối, và message mẫu.
+
+---
+
+### Cài đặt Sentry DSN (native crash)
+
+> **Lưu ý**: `@sentry/react-native` là **native module** — phải build lại
+> dev-client hoặc build EAS, **KHÔNG chạy được trên Expo Go**.
+> Thiếu DSN thì Sentry tự tắt, app vẫn chạy bình thường (ADR-003).
+
+**Bước 1 — Lấy DSN từ sentry.io**
+
+1. Đăng nhập [sentry.io](https://sentry.io) → tạo project (platform: React Native).
+2. Vào **Settings → Projects → {project} → Client Keys (DSN)**.
+3. Sao chép DSN dạng `https://<key>@o<org>.ingest.sentry.io/<project-id>`.
+
+**Bước 2 — Gắn DSN vào EAS (không commit vào repo)**
+
+```bash
+# Chạy một lần, DSN được lưu ở EAS server và tự inject khi build
+eas secret:create \
+  --scope project \
+  --name EXPO_PUBLIC_SENTRY_DSN \
+  --value "https://<key>@o<org>.ingest.sentry.io/<project-id>"
+```
+
+Khi build EAS (`eas build --profile preview` hoặc `--profile production`),
+giá trị secret tự ghi đè `EXPO_PUBLIC_SENTRY_DSN=""` trong `eas.json`.
+
+**Kiểm tra secrets hiện có:**
+
+```bash
+eas secret:list
+```
+
+**Dev local** — không cần Sentry, để biến rỗng trong `frontend/.env`:
+
+```
+EXPO_PUBLIC_SENTRY_DSN=
+```

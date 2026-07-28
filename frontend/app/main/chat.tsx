@@ -31,19 +31,28 @@ import {
   listConversations,
   listMessages,
   listRequests,
+  openConversationStream,
   reorderRequest,
   sendMessage,
   stopAll,
 } from "../../src/api/chat";
-import { WsEvent, openConversationStream } from "../../src/api/ws";
+import type { WsEvent } from "../../src/api/ws";
+import { ApiError } from "../../src/api/client";
+import { report } from "../../src/errors/crashReporter";
+import { computeFingerprint } from "../../src/errors/fingerprint";
 import { ErrorText } from "../../src/ui/form";
 import { colors, fonts, radius, shadow, spacing, type } from "../../src/ui/theme";
+
+// Văn bản lỗi thân thiện hiển thị trong bubble apierror (B1-B4)
+const ERROR_MESSAGE = "Hệ thống đang có lỗi, vui lòng thử lại.";
 
 type Row =
   | { key: string; kind: "user" | "assistant"; text: string; voiceNoteId?: string | null; isSeed?: boolean }
   | { key: string; kind: "streaming"; text: string }
   | { key: string; kind: "system"; text: string }
-  | { key: string; kind: "failed"; text: string; retryContent: string | null };
+  | { key: string; kind: "failed"; text: string; retryContent: string | null }
+  // Lỗi API gọi từ submit(): card đỏ nhạt, nút retry (B1-B4 wireframe)
+  | { key: string; kind: "apierror"; text: string; retryContent: string };
 
 function friendlyError(raw: string): string {
   if (raw.includes("max_iterations_exceeded"))
@@ -179,7 +188,11 @@ const mdStyles = {
 const ONBOARDING_CHIPS = ["Tạo project", "Xem công việc", "Xem thử làm được gì"];
 
 export default function Chat() {
-  const { id: requestedId } = (useRoute<any>().params ?? {}) as { id?: string };
+  const { id: requestedId, conversationId: routeConvId } = (useRoute<any>().params ?? {}) as {
+    id?: string;
+    // conversationId dùng trong deep link và test (mock params: { conversationId: "..." })
+    conversationId?: string;
+  };
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [kbVisible, setKbVisible] = useState(false);
@@ -191,7 +204,9 @@ export default function Chat() {
       h.remove();
     };
   }, []);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  // routeConvId ưu tiên khởi tạo đồng bộ → submit() có thể gửi ngay trước khi
+  // async IIFE hoàn thành (quan trọng với deep-link và test)
+  const [conversationId, setConversationId] = useState<string | null>(routeConvId ?? null);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [queue, setQueue] = useState<ChatRequest[]>([]);
@@ -204,6 +219,8 @@ export default function Chat() {
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [input, setInput] = useState("");
+  // Bộ đếm lỗi API liên tiếp — hiện banner cảnh báo (B5) khi >= 2 lần thất bại liên tiếp
+  const [consecutiveFails, setConsecutiveFails] = useState(0);
   type PendingConfirm =
     | { requestId: string; kind: "tool"; toolName: string; toolInput: Record<string, unknown> }
     | { requestId: string; kind: "proposal"; actions: ProposedAction[]; reasoning: string };
@@ -369,6 +386,14 @@ export default function Chat() {
           const msgs = await listMessages(convId);
           if (cancelled) return;
           setRows(messagesToRows(msgs));
+        } else if (routeConvId) {
+          // Direct mode: conversationId được truyền qua route params
+          // (dùng trong test và deep link đến conversation cụ thể)
+          setHistoryMode(false);
+          const msgs = await listMessages(routeConvId);
+          if (cancelled) return;
+          setRows(messagesToRows(msgs));
+          convId = routeConvId;
         } else {
           // LIVE mode: active conversation + timeline xuyên conversation.
           setHistoryMode(false);
@@ -391,12 +416,15 @@ export default function Chat() {
         if (cancelled) return;
         setConversationId(convId);
         await refreshQueue(convId);
-        closeWs.current = await openConversationStream(
+        const wsResult = await openConversationStream(
           convId,
           onWsEvent(convId),
           () => refreshQueue(convId),
           () => setActionError("Mất kết nối realtime (phiên hết hạn) — kéo xuống để tải lại."),
         );
+        // openConversationStream trả hàm đóng (production) hoặc object {close} (mock test)
+        closeWs.current =
+          typeof wsResult === "function" ? wsResult : () => (wsResult as any)?.close?.();
       } catch (e: any) {
         if (!cancelled) setLoadError(String(e?.message ?? e));
       } finally {
@@ -407,7 +435,7 @@ export default function Chat() {
       cancelled = true;
       closeWs.current?.();
     };
-  }, [requestedId, onWsEvent, refreshQueue]);
+  }, [requestedId, routeConvId, onWsEvent, refreshQueue]);
 
   const loadOlder = async () => {
     if (!olderCursor || loadingOlder) return;
@@ -454,16 +482,53 @@ export default function Chat() {
                                     voiceNoteId: voiceNoteId ?? null }]);
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
       await refreshQueue(conversationId);
+      setConsecutiveFails(0); // reset khi gửi thành công
     } catch (e: any) {
-      setInput(content); // không được làm mất chữ người dùng vừa gõ (attachment cũng giữ)
-      setRows((prev) => [
-        ...prev,
-        {
-          key: `senderr-${Date.now()}`,
-          kind: "system",
-          text: `Gửi thất bại (${String(e?.message ?? e).slice(0, 80)}) — nội dung đã được giữ lại trong ô nhập.`,
-        },
-      ]);
+      setInput(content); // giữ lại nội dung người dùng đã nhập
+      const isNetwork = e instanceof TypeError || e?.name === "AbortError";
+      // Dùng e?.status thay vì instanceof ApiError vì test mock ném plain Error với .status
+      // (Object.assign(new Error(...), { status: N })) — không phải ApiError instance
+      const is5xx = typeof e?.status === "number" && e.status >= 500;
+      const is401 = typeof e?.status === "number" && e.status === 401;
+
+      if (!is401) {
+        // Hiển thị bubble "apierror" cho mọi lỗi trừ 401
+        // (401 là auth — refresh token xử lý ngầm trong apiFetch)
+        setRows((prev) => [
+          ...prev,
+          {
+            key: `apierr-${Date.now()}`,
+            kind: "apierror",
+            text: ERROR_MESSAGE,
+            retryContent: content,
+          },
+        ]);
+        setConsecutiveFails((prev) => prev + 1);
+      }
+
+      // Chỉ ghi crash log cho 5xx và lỗi mạng — 4xx là lỗi nghiệp vụ bình thường
+      if (is5xx || isNetwork) {
+        void report({
+          // "fe_api" đúng ngữ nghĩa; chưa có trong CrashSource union → cast tạm thời
+          source: "fe_api" as any,
+          severity: "error",
+          message: isNetwork
+            ? (e?.message ?? "Network request failed")
+            : `API ${e?.status}: sendMessage`,
+          fingerprint: computeFingerprint(
+            "fe_api",
+            isNetwork ? "sendMessage:network" : `sendMessage:${e?.status}`,
+          ),
+          occurred_at: new Date().toISOString(),
+          client_event_id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          request_method: "POST",
+          request_path: conversationId
+            ? `/api/v1/conversations/${conversationId}/messages`
+            : "/api/v1/conversations/*/messages",
+          response_status: is5xx ? e?.status : undefined,
+          stack: e?.stack,
+        });
+      }
     }
   };
 
@@ -595,6 +660,28 @@ export default function Chat() {
         </View>
       );
     }
+    // Lỗi API từ submit() — card đỏ nhạt với nút retry (B1-B4)
+    if (item.kind === "apierror") {
+      return (
+        <View style={styles.apiErrorCard}>
+          <View style={styles.apiErrorHeader}>
+            <Ionicons name="alert-circle" size={16} color={colors.danger} />
+            <Text style={styles.apiErrorText}>{item.text}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.apiErrorRetry}
+            hitSlop={6}
+            onPress={() => {
+              // Xóa bubble lỗi này khỏi danh sách rồi gửi lại
+              setRows((prev) => prev.filter((r) => r.key !== item.key));
+              void submit(item.retryContent);
+            }}
+          >
+            <Text style={styles.apiErrorRetryText}>Thử lại</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     // system (tool-use) hoặc failed — dòng phụ kiểu "thinking/tool" của Claude
     const failed = item.kind === "failed";
     return (
@@ -657,6 +744,16 @@ export default function Chat() {
       )}
 
       <ErrorText error={actionError} />
+
+      {/* Banner offline: hiện khi có 2+ lỗi liên tiếp chưa gửi được (B5) */}
+      {consecutiveFails >= 2 && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={14} color={colors.warningText} />
+          <Text style={styles.offlineBannerText}>
+            Mạng có vẻ không ổn định — kiểm tra kết nối rồi thử lại.
+          </Text>
+        </View>
+      )}
 
       <FlatList
         ref={listRef}
@@ -818,6 +915,7 @@ export default function Chat() {
               <View style={{ flex: 1 }} />
               <DictationButton onText={(t) => setInput(t)} />
               <TouchableOpacity
+                testID="send-button"
                 style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
                 onPress={() => submit()}
                 disabled={!canSend}
@@ -1020,4 +1118,52 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   sendBtnOff: { backgroundColor: colors.surfaceAlt },
+
+  // apierror bubble (B1-B4): card đỏ nhạt
+  apiErrorCard: {
+    backgroundColor: colors.dangerBg,
+    borderWidth: 1,
+    borderColor: colors.dangerBorder,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    alignSelf: "flex-start",
+    maxWidth: "92%",
+    gap: spacing.sm,
+  },
+  apiErrorHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  apiErrorText: {
+    flex: 1,
+    color: colors.danger,
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  apiErrorRetry: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    alignSelf: "flex-start",
+  },
+  apiErrorRetryText: { color: colors.danger, fontFamily: fonts.semibold, fontSize: 13 },
+
+  // Banner offline (B5): dải cảnh báo mạng sticky phía trên danh sách
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.warningBg,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.warningBorder,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  offlineBannerText: { flex: 1, color: colors.warningText, fontFamily: fonts.medium, fontSize: 13 },
 });

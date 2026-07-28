@@ -1,4 +1,7 @@
 import { getTokens, setTokens, clearTokens } from "../auth/tokenStore";
+import { addBreadcrumb } from "../errors/breadcrumbs";
+import { report } from "../errors/crashReporter";
+import { computeFingerprint } from "../errors/fingerprint";
 
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -70,15 +73,73 @@ export async function apiFetch<T>(
     });
   };
 
-  let resp = await doFetch();
+  // --- Gửi request và bắt lỗi network/timeout ---
+  let resp: Response;
+  try {
+    resp = await doFetch();
+  } catch (netErr: any) {
+    // Lỗi network (TypeError: "Network request failed") hoặc timeout (AbortError)
+    addBreadcrumb({
+      type: "api",
+      message: `${method} ${path} → ${netErr?.name ?? "NetworkError"}: ${netErr?.message ?? ""}`,
+      timestamp: new Date().toISOString(),
+    });
+    // Ghi crash log cho lỗi mạng/timeout — dùng "fe_network" (có sẵn trong CrashSource)
+    if (netErr instanceof TypeError || netErr?.name === "AbortError") {
+      void report({
+        source: "fe_network",
+        severity: "error",
+        message: netErr?.message ?? "Network request failed",
+        fingerprint: computeFingerprint("fe_network", `${method}:${path}`),
+        occurred_at: new Date().toISOString(),
+        client_event_id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        request_method: method,
+        request_path: path,
+        stack: netErr?.stack,
+      });
+    }
+    throw netErr;
+  }
+
+  // --- Breadcrumb cho mỗi response (cả thành công lẫn lỗi HTTP) ---
+  addBreadcrumb({
+    type: "api",
+    message: `${method} ${path} → ${resp.status}`,
+    timestamp: new Date().toISOString(),
+  });
+
+  // GIỮ NGUYÊN luồng refresh token: 401 → tryRefresh() → thử lại 1 lần
   if (resp.status === 401 && auth && (await tryRefresh())) {
     resp = await doFetch();
+    addBreadcrumb({
+      type: "api",
+      message: `${method} ${path} → ${resp.status} (retry after token refresh)`,
+      timestamp: new Date().toISOString(),
+    });
   }
+
   if (!resp.ok) {
     let detail: unknown = resp.statusText;
     try {
       detail = (await resp.json()).detail ?? detail;
     } catch {}
+
+    // Chỉ ghi crash log cho 5xx (lỗi hệ thống) — 4xx là lỗi nghiệp vụ bình thường
+    if (resp.status >= 500) {
+      void report({
+        // "fe_api" đúng về nghiệp vụ; chưa có trong CrashSource → cast tạm thời
+        source: "fe_network" as "fe_network",
+        severity: "error",
+        message: `API ${resp.status}: ${method} ${path}`,
+        fingerprint: computeFingerprint("fe_network", `${method}:${path}:${resp.status}`),
+        occurred_at: new Date().toISOString(),
+        client_event_id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        request_method: method,
+        request_path: path,
+        response_status: resp.status,
+      });
+    }
+
     throw new ApiError(resp.status, detail);
   }
   if (resp.status === 204) return undefined as T;
