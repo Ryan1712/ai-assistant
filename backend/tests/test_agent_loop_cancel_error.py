@@ -70,19 +70,26 @@ async def test_cancelled_mid_stream_keeps_partial_tokens_and_stops(db_session):
 
 @pytest.mark.asyncio
 async def test_llm_error_marks_request_failed_without_raising(db_session):
+    """req.error KHÔNG BAO GIỜ được chứa nguyên văn str(exc) — exception của SDK
+    bên thứ 3 (vd anthropic.APIError) có thể lộ chi tiết nội bộ, và FE hiển thị
+    thẳng field này ra màn hình nếu không khớp pattern lỗi đã biết nào (dev report
+    thật: người dùng thấy nguyên object lỗi Anthropic trong chat). Chỉ trả mã lỗi
+    chung an toàn — chi tiết thật chỉ nằm trong log server."""
     req = await _world(db_session)
 
     class _RaisingLLMClient(LLMClient):
         async def stream(self, *, system, messages, tools):
-            raise RuntimeError("rate_limited_429")
+            raise RuntimeError("rate_limited_429 kem chi tiet noi bo nhay cam")
             yield  # pragma: no cover - giữ hàm là generator
 
     pub = FakeEventPublisher()
     await run_agent_loop(db_session, req, _RaisingLLMClient(), pub)
 
     assert req.status == ChatRequestStatus.failed
-    assert "rate_limited_429" in req.error
-    assert any(e["type"] == "request_failed" for _, e in pub.events)
+    assert req.error == "internal_error"
+    assert "rate_limited_429" not in req.error
+    failed_event = next(e for _, e in pub.events if e["type"] == "request_failed")
+    assert failed_event["error"] == "internal_error"
 
 
 @pytest.mark.asyncio

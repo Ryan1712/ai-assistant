@@ -544,3 +544,18 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   đã có sẵn ranh giới 2 dòng `user` liền nhau ở mỗi chu kỳ mà trước giờ chưa ai
   phát hiện. Full pytest 813 pass/4 skip (1 fail còn lại `test_chat_settings_defaults`
   là biến môi trường sandbox, không liên quan). Không đổi API contract REST.
+- 2026-07-29 (cùng ngày, follow-up từ user sau khi thấy ảnh lỗi ở trên): **fix(agent):
+  không lộ nguyên văn exception cho người dùng qua `req.error`**. `_mark_failed()`
+  (`run_agent_loop` + `run_deep_ack_turn`) trước đây gọi `str(exc)` — bất kỳ
+  exception hạ tầng nào (vd `anthropic.APIError`, lỗi mạng...) đều bị nhét NGUYÊN
+  VĂN vào `req.error`, publish qua event `request_failed`, rồi FE
+  (`chat.tsx::friendlyError`) hiển thị thẳng ra màn hình nếu không khớp pattern lỗi
+  đã biết nào — người dùng thấy cả object lỗi nội bộ của SDK bên thứ 3 (đúng thứ
+  trong ảnh dev báo). Fix: 2 chỗ gọi `_mark_failed(..., str(exc))` đổi thành mã lỗi
+  chung cố định `"internal_error"` (cùng họ với các mã đã có sẵn
+  `max_iterations_exceeded`/`job_cancelled`/`stuck_timeout` — FE vẫn hiển thị được
+  qua fallback chung, không lộ chi tiết), kèm `logger.exception(...)` ghi đầy đủ
+  exception thật vào log server để debug — không mất thông tin, chỉ không đưa cho
+  client. **Chỉ sửa backend theo đúng yêu cầu** (FE `friendlyError` fallback vẫn giữ
+  nguyên, chưa đổi). Test `test_llm_error_marks_request_failed_without_raising` cập
+  nhật lại kỳ vọng: `req.error == "internal_error"`, không còn chứa chuỗi lỗi gốc.

@@ -590,7 +590,13 @@ async def run_agent_loop(
                 # AI vừa đổi dữ liệu → lượt sau phải thấy ngay (không chờ TTL)
                 await snapshot_service.invalidate(req.workspace_id)
     except Exception as exc:
-        await _mark_failed(db, req, publisher, str(exc))
+        # KHÔNG BAO GIỜ đưa str(exc) nguyên văn cho người dùng — exception của SDK
+        # bên thứ 3 (vd anthropic.APIError) có thể lộ chi tiết nội bộ (payload
+        # request, thông tin provider...) qua req.error/event request_failed, và FE
+        # (friendlyError) sẽ hiển thị thẳng ra màn hình nếu không khớp pattern đã
+        # biết nào. Log đầy đủ để debug, chỉ trả mã lỗi chung an toàn cho client.
+        logger.exception("run_agent_loop lỗi hạ tầng cho request %s", req.id)
+        await _mark_failed(db, req, publisher, "internal_error")
         await _write_trace("error")
     except BaseException:
         # arq job_timeout giết job bằng asyncio.CancelledError — BaseException, lọt
@@ -653,7 +659,9 @@ async def run_deep_ack_turn(
                                         {"type": "token", "chat_request_id": str(req.id),
                                          "text": event.text})
     except Exception as exc:
-        await _mark_failed(db, req, publisher, str(exc))
+        # Cùng lý do run_agent_loop — không lộ str(exc) nguyên văn ra req.error/FE.
+        logger.exception("run_deep_ack_turn lỗi hạ tầng cho request %s", req.id)
+        await _mark_failed(db, req, publisher, "internal_error")
         return
 
     ack_text = "".join(text_parts).strip() or _ACK_FALLBACK_TEXT
