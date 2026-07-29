@@ -153,6 +153,26 @@ MAX_TOTAL_TOKENS = 200_000
 MAX_HISTORY_MESSAGES = 80
 
 
+def _merge_consecutive_roles(msgs: list[dict]) -> list[dict]:
+    """Anthropic bắt buộc role phải xen kẽ NGHIÊM NGẶT ở cấp độ TỪNG PHẦN TỬ trong
+    mảng `messages` gửi lên API — không liên quan gì tới việc có bao nhiêu dòng
+    `Message` trong DB. 2 dòng Message role giống nhau nằm LIỀN NHAU (vd: message
+    tool_result đóng 1 request kết thúc bằng suggest_replies, rồi message text của
+    request KẾ TIẾP — cả 2 đều role=user) tạo ra 2 phần tử 'user' liền nhau trong
+    `messages` → Anthropic từ chối thẳng 400 "roles must alternate between user
+    and assistant" (bug thật, tái hiện qua tình huống: AI hỏi lại kèm gợi ý rồi
+    người dùng gõ tay câu khác thay vì bấm chip). Gộp content của các dòng CÙNG
+    role LIỀN NHAU thành 1 phần tử `messages` duy nhất — hợp lệ vì Anthropic chỉ
+    đòi hỏi role của TỪNG PHẦN TỬ xen kẽ, không giới hạn số content block/1 phần tử."""
+    merged: list[dict] = []
+    for m in msgs:
+        if merged and merged[-1]["role"] == m["role"]:
+            merged[-1]["content"] = merged[-1]["content"] + m["content"]
+        else:
+            merged.append({"role": m["role"], "content": list(m["content"])})
+    return merged
+
+
 def _tool_specs_for_api(tool_names: set[str] | None = None) -> list[dict]:
     """tool_names=None -> full toolset (mặc định/fallback an toàn khi Router
     Phase 4 không chắc route). Có tool_names -> chỉ nạp đúng tập đó (core +
@@ -203,7 +223,7 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
         # bằng msgs[-1:] (message đó chưa chắc an toàn), trả rỗng còn hơn gửi lên
         # Anthropic 1 message mở đầu bằng tool_result mồ côi.
         msgs = msgs[start:] if start is not None else []
-    return msgs
+    return _merge_consecutive_roles(msgs)
 
 
 async def _never_cancelled(_request_id: uuid.UUID) -> bool:

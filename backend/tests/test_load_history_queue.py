@@ -98,7 +98,13 @@ async def test_history_bi_cat_truot_qua_tool_result_mo_coi(db_session):
     await db_session.commit()
 
     history = await _load_history(db_session, conv.id, marker_req.id)
-    assert len(history) == 79  # 80 - 1 (message tool_result index 11 bi truot qua)
+    # 80 - 1 (tool_result mo coi index 11 bi truot qua) = 79 dong DB, nhung chu ky
+    # user(text)->assistant(tool_use)->user(tool_result)->user(text)... co 2 dong
+    # user LIEN NHAU o moi ranh gioi chu ky (tool_result cua chu ky truoc + text mo
+    # dau chu ky sau) — _load_history gop chung lai (xem
+    # test_load_history_gop_2_message_role_giong_nhau_lien_nhau) nen so PHAN TU
+    # messages con lai it hon so dong DB.
+    assert len(history) == 53
     first = history[0]
     assert first["role"] == "user"
     assert first["content"][0]["type"] == "text"
@@ -183,6 +189,39 @@ async def test_history_khong_co_diem_bat_dau_an_toan_tra_ve_rong(db_session):
 
     history = await _load_history(db_session, conv.id, marker_req.id)
     assert history == []
+
+
+async def test_load_history_gop_2_message_role_giong_nhau_lien_nhau(db_session):
+    """Bug thật (dev report kèm ảnh chụp màn hình): 1 request kết thúc bằng
+    suggest_replies ghi 1 Message role=user (tool_result) làm dòng CUỐI CÙNG;
+    người dùng gõ tay câu khác (không bấm chip) tạo request MỚI với Message
+    role=user riêng ngay sau đó — 2 dòng Message role=user LIỀN NHAU trong DB.
+    _load_history phải GỘP 2 dòng đó thành 1 phần tử `messages` (Anthropic đòi
+    hỏi role xen kẽ ở cấp phần tử, không phải cấp dòng DB) — nếu không, Anthropic
+    trả 400 "roles must alternate" (invalid_request_error) ngay khi gửi câu tiếp
+    theo, y hệt lỗi trong ảnh chụp màn hình."""
+    conv = await _mk_conv(db_session)
+    req1 = await _mk_req(db_session, conv, "hoi lai co goi y", 1.0,
+                         status=ChatRequestStatus.done)
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           chat_request_id=req1.id, role=MessageRole.assistant,
+                           content=[{"type": "text", "text": "Ban muon lam gi?"},
+                                   {"type": "tool_use", "id": "t1", "name": "suggest_replies",
+                                    "input": {"options": ["A", "B"]}}]))
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           chat_request_id=req1.id, role=MessageRole.user,
+                           content=[{"type": "tool_result", "tool_use_id": "t1",
+                                    "content": '{"shown": true}'}]))
+    req2 = await _mk_req(db_session, conv, "xin chao ban la ai vay", 2.0)
+    await db_session.commit()
+
+    history = await _load_history(db_session, conv.id, req2.id)
+    roles = [m["role"] for m in history]
+    assert roles == ["user", "assistant", "user"]  # 2 dong user cuoi da gop lam 1
+    last = history[-1]
+    types = [b["type"] for b in last["content"]]
+    assert types == ["tool_result", "text"]  # gop dung thu tu, khong mat block nao
+    assert last["content"][1]["text"] == "xin chao ban la ai vay"
 
 
 async def test_load_history_since_bo_message_cu(db_session):

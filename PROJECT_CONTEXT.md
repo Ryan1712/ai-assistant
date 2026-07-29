@@ -518,3 +518,29 @@ Frontend (`frontend/`): **không có test suite tự động** — xác minh duy
   CEO" (bản cũ trỏ vào màn kích hoạt đã tắt — dead-end); `AuthContext.activateAccount()`
   và màn `activate.tsx` gọi nó comment out (route BE đã tắt từ trước, giờ FE nhất
   quán theo).
+- 2026-07-29: **fix(agent) CRITICAL: `_load_history` gộp 2 message role giống nhau
+  liền nhau** — bug thật do dev test thấy trên app (báo qua ảnh chụp màn hình:
+  "Có lỗi khi xử lý ... invalid_request_error" ngay sau câu hỏi bình thường,
+  KHÔNG liên quan gì tool). Nguyên nhân: nhánh `reply_gate`/`suggest_replies`
+  (`run_agent_loop`) kết thúc 1 request bằng 1 `Message` role=`user` (tool_result
+  giả `{"shown": true}`) rồi return NGAY — nếu người dùng gõ tay câu khác thay vì
+  bấm chip gợi ý, request MỚI tạo thêm 1 `Message` role=`user` NGAY SAU đó → 2
+  dòng `Message` role=`user` LIÊN TIẾP trong DB → `_load_history` (cũ) trả về 2
+  phần tử `role: "user"` liên tiếp trong mảng `messages` gửi Anthropic → Anthropic
+  từ chối thẳng 400 "roles must alternate between user and assistant" — mọi tin
+  nhắn SAU đó của conversation đều fail vĩnh viễn cho tới khi hội thoại bị xoay.
+  Tái hiện được 100% qua test trực tiếp gọi `_load_history` (roles trả về
+  `['user','assistant','user','user']`) trước khi sửa. **Fix tận gốc, không phải
+  vá theo từng nhánh gây bug**: `_load_history` giờ gọi `_merge_consecutive_roles()`
+  làm bước cuối — gộp content của các dòng `Message` CÙNG role LIỀN NHAU thành 1
+  phần tử `messages` duy nhất trước khi trả về (Anthropic chỉ đòi hỏi role xen kẽ
+  ở cấp PHẦN TỬ trong mảng, không giới hạn số content block/1 phần tử, nên gộp là
+  hợp lệ) — chặn được TOÀN BỘ lớp bug này bất kể nguyên nhân cụ thể nào tạo ra 2
+  dòng Message cùng role liền nhau trong tương lai, không chỉ riêng ca
+  `suggest_replies`. Test mới `test_load_history_gop_2_message_role_giong_nhau_lien_nhau`
+  (`test_load_history_queue.py`) tái hiện đúng luồng dev report; test cũ
+  `test_history_bi_cat_truot_qua_tool_result_mo_coi` phải cập nhật lại số lượng kỳ
+  vọng (79→53 phần tử `messages`) vì cùng lý do — cửa sổ cắt 80 message của nó vốn
+  đã có sẵn ranh giới 2 dòng `user` liền nhau ở mỗi chu kỳ mà trước giờ chưa ai
+  phát hiện. Full pytest 813 pass/4 skip (1 fail còn lại `test_chat_settings_defaults`
+  là biến môi trường sandbox, không liên quan). Không đổi API contract REST.
