@@ -193,8 +193,10 @@ async def send_message(conversation_id: uuid.UUID, body: MessageSendIn,
     await db.commit()
     # Phase 6 §10.3: index nguyên văn (không kèm note_line đính kèm ghi âm) —
     # "ký ức xuyên session" qua semantic_search, best-effort không chặn gửi tin.
-    await embedding_service.index_content(db, actor.workspace_id, "chat_message",
-                                          user_msg.id, body.content)
+    # Sprint 1 Task 1.1: enqueue arq job (session riêng trong worker) thay vì
+    # await đồng bộ — Voyage 150-600ms không còn chặn response FE.
+    await arq_pool.enqueue_job("index_chat_message",
+                               actor.workspace_id, user_msg.id, body.content)
     await enqueue_conversation(arq_pool, conv.id)
     return req
 

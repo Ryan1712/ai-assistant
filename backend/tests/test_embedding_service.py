@@ -4,6 +4,7 @@ embedding_service.MockEmbeddingClient dùng hashing bag-of-words (KHÔNG phải
 ngữ nghĩa thật) — đủ để cosine similarity phản ánh đúng số từ trùng nhau,
 dùng cho test không cần API key thật.
 """
+import uuid
 import httpx
 import pytest
 from sqlalchemy import select
@@ -236,12 +237,23 @@ async def test_semantic_search_chat_message_scoped_to_own_conversations(chat_cli
     ceo_h = await _ceo_headers(client)
     conv = await client.post("/api/v1/conversations", headers=ceo_h, json={})
     conv_id = conv.json()["id"]
+    content = "Nho tuan sau ky hop dong voi doi tac XYZ"
     await client.post(f"/api/v1/conversations/{conv_id}/messages", headers=ceo_h,
-                      json={"content": "Nho tuan sau ky hop dong voi doi tac XYZ"})
+                      json={"content": content})
 
     m1 = await _invite_and_join(client, ceo_h, "manager", "m1@a.vn")
     manager = (await db_session.execute(select(User).where(User.email == "m1@a.vn"))).scalar_one()
     ceo = (await db_session.execute(select(User).where(User.email == "ceo@a.vn"))).scalar_one()
+
+    # Embedding nay chay trong arq job rieng (index_chat_message) — test phai
+    # trigger thu cong de kiem tra semantic_search (FakeArqPool khong thuc thi job).
+    msg = (await db_session.execute(
+        select(Message).where(Message.conversation_id == uuid.UUID(conv_id),
+                              Message.role == MessageRole.user)
+        .order_by(Message.created_at.desc())
+    )).scalar_one()
+    await embedding_service.index_content(db_session, ceo.workspace_id, "chat_message",
+                                          msg.id, content)
 
     ceo_results = await embedding_service.semantic_search(
         db_session, ceo, "hop dong doi tac XYZ", source_types=["chat_message"])

@@ -294,6 +294,19 @@ async def distill_workspace_memories(ctx: dict) -> None:
         await distiller_service.distill_workspace_memories(db, ctx["llm_client"])
 
 
+async def index_chat_message(ctx: dict, workspace_id: uuid.UUID,
+                             source_id: uuid.UUID, content: str) -> None:
+    """arq job: index embedding cho 1 chat_message sau khi send_message đã commit.
+
+    Chạy nền — không chặn response FE (Sprint 1 Task 1.1). Mở session riêng vì
+    session của request đã bị đóng/trả về pool ngay khi response trả xong.
+    index_content tự bọc try/except, không bao giờ raise — lỗi Voyage/DB chỉ
+    ghi log, không ảnh hưởng gửi tin nhắn chính."""
+    async with ctx["session_factory"]() as db:
+        await embedding_service.index_content(db, workspace_id, "chat_message",
+                                              source_id, content)
+
+
 async def transcribe_voice_note(ctx: dict, voice_note_id: uuid.UUID) -> None:
     """arq job: chạy STT cho 1 voice note (enqueue sau upload hoặc từ POST
     /voice-notes/{id}/transcribe — Task 16)."""
@@ -329,7 +342,7 @@ async def _shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [process_conversation, transcribe_voice_note,
+    functions = [process_conversation, transcribe_voice_note, index_chat_message,
                 func(run_deep_analysis, timeout=900)]
     cron_jobs = [cron(check_report_schedules, second=0), cron(check_task_deadlines, second=0),
                 cron(check_directive_escalations, second=0), cron(send_morning_briefs, second=0),
