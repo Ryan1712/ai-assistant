@@ -36,3 +36,19 @@ Scenario dừng ở awaiting_confirmation sẽ bị runner TỪ CHỐI sau khi c
       notes: "vì sao scenario tồn tại"
 
 Grader: `evals/grader.py` (unit test: `tests/test_eval_grader.py`).
+
+## `scenarios/comprehensive.yaml`
+
+Bộ scenario "cover đủ thể loại" (theo yêu cầu người dùng, khác `core.yaml` vốn
+bám sát acceptance từng Phase): nhóm theo tiền tố id —
+`dg-` đơn giản, `pt-` phức tạp, `hb-` hóc búa (mơ hồ/mâu thuẫn/thiếu tin),
+`ec-` edge case (ngoài kịch bản, prompt injection, ngôn ngữ khác, quyền hạn...).
+Dùng chung seed với `core.yaml` (cùng `seed()`, `run_evals.py` gộp mọi file
+`*.yaml` trong 1 lượt chạy) — `seed()` có thêm actor `manager` (Hà Trần) + 1
+skill đã grant cho Duy + 1 instruction để mở khóa các scenario cần.
+
+Nhiều scenario ghi `notes: "CẦN ĐỌC TAY: ..."` — grader chỉ chấm được tool gọi/
+status/route, KHÔNG đọc được nội dung câu trả lời bằng lời của model (vd có lộ
+system prompt không, có tự bịa deadline không) — PASS của grader không đồng
+nghĩa scenario đó thật sự đúng, phải đọc tay câu trả lời qua
+`GET /admin/traces/{chat_request_id}` hoặc UI sau khi chạy.
