@@ -13,7 +13,6 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Markdown from "react-native-markdown-display";
 import * as DocumentPicker from "expo-document-picker";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { uploadVoiceNote, voiceNoteAudioSource } from "../../src/api/voice";
@@ -39,13 +38,8 @@ import { WsEvent, openConversationStream } from "../../src/api/ws";
 import { ErrorText } from "../../src/ui/form";
 import { MessageErrorBoundary } from "../../src/ui/MessageErrorBoundary";
 import { colors, fonts, radius, shadow, spacing, type } from "../../src/ui/theme";
-
-type Row =
-  | { key: string; kind: "user" | "assistant"; text: string; voiceNoteId?: string | null; isSeed?: boolean }
-  | { key: string; kind: "streaming"; text: string }
-  | { key: string; kind: "system"; text: string }
-  | { key: string; kind: "choices"; options: string[] }
-  | { key: string; kind: "failed"; text: string; retryContent: string | null };
+import type { Row } from "./chatTypes";
+import ChatRow from "./ChatRow";
 
 function friendlyError(raw: string): string {
   if (raw.includes("max_iterations_exceeded"))
@@ -172,20 +166,196 @@ function messagesToRows(msgs: Message[]): Row[] {
   return out;
 }
 
-const mdStyles = {
-  body: { color: colors.text, fontSize: 16, lineHeight: 26, fontFamily: fonts.regular },
-  strong: { fontFamily: fonts.bold },
-  heading1: { fontFamily: fonts.bold, color: colors.text },
-  heading2: { fontFamily: fonts.bold, color: colors.text },
-  heading3: { fontFamily: fonts.semibold, color: colors.text },
-  code_inline: { backgroundColor: colors.surfaceAlt, color: colors.text, borderRadius: 4 },
-  fence: { backgroundColor: colors.surfaceAlt, borderColor: colors.divider, color: colors.text, borderRadius: radius.md },
-  code_block: { backgroundColor: colors.surfaceAlt, borderColor: colors.divider, color: colors.text, borderRadius: radius.md },
-  table: { borderColor: colors.divider },
-  link: { color: colors.primary },
-} as const;
-
 const ONBOARDING_CHIPS = ["Tạo project", "Xem công việc", "Xem thử làm được gì"];
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, textAlign: "center", fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
+
+  listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, gap: spacing.lg },
+
+  // Tin nhắn AI: chữ thuần, full-width (không bong bóng) — như Claude
+  assistantWrap: { paddingRight: spacing.sm },
+
+  // Tin nhắn người dùng: bong bóng xám trung tính, canh phải
+  userWrap: { alignItems: "flex-end" },
+  userBubble: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    maxWidth: "88%",
+  },
+  userText: { color: colors.text, fontSize: 16, lineHeight: 23, fontFamily: fonts.regular },
+  audioChip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.sm },
+  audioChipText: { color: colors.text, fontFamily: fonts.semibold, fontSize: 13 },
+
+  // Dòng tool-use / lỗi — nhỏ, mờ, kiểu "thinking row"
+  systemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    alignSelf: "flex-start",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    maxWidth: "92%",
+  },
+  systemRowFailed: { backgroundColor: colors.dangerBg },
+  systemText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13, flexShrink: 1 },
+  retryLink: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 13 },
+
+  empty: { alignItems: "center", gap: spacing.md, marginTop: spacing.xxxl, paddingHorizontal: spacing.xl },
+  emptyText: { color: colors.textMuted, textAlign: "center", fontSize: 15, lineHeight: 22, fontFamily: fonts.regular },
+
+  working: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  workingText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 14 },
+
+  heldBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.warningBg,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.warningBorder,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  heldText: { flex: 1, color: colors.warningText, fontFamily: fonts.medium, fontSize: 13 },
+
+  loadOlder: { alignItems: "center", paddingVertical: spacing.md },
+  loadOlderText: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 14 },
+
+  onboardingChipsRow: {
+    flexDirection: "row", flexWrap: "wrap", gap: spacing.sm,
+    paddingHorizontal: spacing.lg, paddingBottom: spacing.sm,
+  },
+  onboardingChip: {
+    backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.borderStrong,
+    borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+  },
+  onboardingChipText: { color: colors.text, fontFamily: fonts.semibold, fontSize: 13 },
+
+  readonlyBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  readonlyText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13 },
+
+  queueBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  queueList: {
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderColor: colors.divider,
+  },
+  queueTitle: { ...type.caption, fontFamily: fonts.bold, color: colors.textSecondary, marginBottom: spacing.xs },
+  queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs, gap: spacing.sm },
+  queueBtn: { padding: spacing.xs },
+  dangerLink: { color: colors.danger, fontFamily: fonts.semibold, fontSize: 14 },
+
+  confirmBar: {
+    backgroundColor: colors.confirmBg,
+    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderColor: colors.confirmBorder,
+  },
+  confirmTitle: { fontFamily: fonts.bold, fontSize: 15, marginBottom: spacing.xs, color: colors.text },
+  confirmDetail: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  confirmAsk: { marginVertical: spacing.sm, color: colors.text, fontFamily: fonts.medium },
+
+  // Nút pill dùng chung
+  pillPrimary: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillPrimaryText: { color: colors.onPrimary, fontFamily: fonts.bold, fontSize: 14 },
+  pillGhostDanger: {
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm - 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillGhostDangerText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 14 },
+
+  // Composer
+  composerWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.xs, backgroundColor: colors.surface },
+  composerCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    ...shadow.soft,
+  },
+  attachChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  input: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.text,
+    fontFamily: fonts.regular,
+    maxHeight: 140,
+    paddingHorizontal: spacing.xs,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
+  },
+  composerRow: { flexDirection: "row", alignItems: "center", marginTop: spacing.xs },
+  plusBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  sendBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: spacing.xs,
+  },
+  sendBtnOff: { backgroundColor: colors.surfaceAlt },
+});
 
 export default function Chat() {
   const { id: requestedId } = (useRoute<any>().params ?? {}) as { id?: string };
@@ -199,6 +369,10 @@ export default function Chat() {
       s.remove();
       h.remove();
     };
+  }, []);
+  // Cleanup deferred scroll timer khi unmount
+  useEffect(() => () => {
+    if (scrollDeferred.current) clearTimeout(scrollDeferred.current);
   }, []);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
@@ -231,6 +405,11 @@ export default function Chat() {
   const listRef = useRef<FlatList>(null);
   const closeWs = useRef<(() => void) | null>(null);
   const suppressAutoScroll = useRef(false);
+  // Throttle scrollToEnd: tối đa 1 lần / 100ms, trailing call để không bỏ sót
+  // lần cuối khi stream kết thúc.
+  const SCROLL_THROTTLE_MS = 100;
+  const lastScrollTime = useRef<number>(0);
+  const scrollDeferred = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshQueue = useCallback(async (cid: string) => {
     const reqs = await listRequests(cid);
@@ -459,7 +638,7 @@ export default function Chat() {
     }
   };
 
-  const submit = async (overrideText?: string) => {
+  const submit = useCallback(async (overrideText?: string) => {
     if (archived) return;
     if (!conversationId) return;
     const content = (overrideText ?? input).trim()
@@ -493,7 +672,7 @@ export default function Chat() {
         },
       ]);
     }
-  };
+  }, [archived, conversationId, input, attachedAudio, held, refreshQueue]);
 
   const pickAudio = async () => {
     try {
@@ -509,7 +688,7 @@ export default function Chat() {
     }
   };
 
-  const toggleAudioBubble = async (voiceNoteId: string) => {
+  const toggleAudioBubble = useCallback(async (voiceNoteId: string) => {
     try {
       if (audioPlayingId === voiceNoteId) {
         if (audioStatus.playing) audioPlayer.pause();
@@ -523,7 +702,7 @@ export default function Chat() {
     } catch {
       setActionError("Không phát được ghi âm — thử lại.");
     }
-  };
+  }, [audioPlayingId, audioStatus.playing, audioPlayer]);
 
   const resumeQueue = async () => {
     if (archived) return;
@@ -592,92 +771,24 @@ export default function Chat() {
   const running = queue.find((q) => q.status === "running" || q.status === "deep_running");
   const queuedOnly = queue.filter((q) => q.status === "queued");
   const canSend = input.trim().length > 0 || !!attachedAudio;
+  const { playing: audioPlaying } = audioStatus;
 
-  // Bọc mỗi dòng trong MessageErrorBoundary (xem component đó) — 1 dòng lỗi
-  // render không được kéo sập cả màn chat.
-  const renderItem = ({ item }: { item: Row }) => (
-    <MessageErrorBoundary>{renderRow(item)}</MessageErrorBoundary>
-  );
-
-  const renderRow = (item: Row) => {
-    if (item.kind === "streaming") {
-      // Text thô, KHÔNG qua Markdown — trong lúc stream, chuỗi thường xuyên ở
-      // trạng thái markdown chưa cân bằng (vd mới có 1 dấu "**" của in đậm,
-      // chưa có dấu đóng). react-native-markdown-display là CommonMark parser
-      // thường, không thiết kế cho input đang chạy dần — parse chuỗi lệch cú
-      // pháp có thể throw giữa chừng, và app không có ErrorBoundary nên bất kỳ
-      // exception nào lúc render đều crash toàn bộ app (bug thật gặp
-      // 2026-07-27: "bảo Duy tuần sau gửi proposal" có "**thứ Hai...**" làm
-      // app văng giữa lúc đang gõ chữ). Chỉ parse Markdown khi tin nhắn đã
-      // hoàn tất (kind chuyển thành "assistant" ở request_done).
-      return (
-        <View style={styles.assistantWrap}>
-          <Text style={mdStyles.body}>{item.text} ▍</Text>
-        </View>
-      );
-    }
-    if (item.kind === "assistant") {
-      return (
-        <View style={styles.assistantWrap}>
-          <Markdown style={mdStyles}>{item.text}</Markdown>
-        </View>
-      );
-    }
-    if (item.kind === "user") {
-      const playing = audioPlayingId === item.voiceNoteId && audioStatus.playing;
-      return (
-        <View style={styles.userWrap}>
-          <View style={styles.userBubble}>
-            <Text style={styles.userText}>{item.text}</Text>
-            {item.voiceNoteId && (
-              <TouchableOpacity
-                onPress={() => toggleAudioBubble(item.voiceNoteId!)}
-                style={styles.audioChip}
-                accessibilityLabel="Phát ghi âm đính kèm"
-              >
-                <Ionicons name={playing ? "pause" : "play"} size={14} color={colors.text} />
-                <Text style={styles.audioChipText}>Ghi âm đính kèm</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      );
-    }
-    if (item.kind === "choices") {
-      return (
-        <View style={styles.onboardingChipsRow}>
-          {item.options.map((opt, i) => (
-            <TouchableOpacity
-              key={`${item.key}-${i}`}
-              style={styles.onboardingChip}
-              onPress={() => submit(opt)}
-            >
-              <Text style={styles.onboardingChipText}>{opt}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      );
-    }
-    // system (tool-use) hoặc failed — dòng phụ kiểu "thinking/tool" của Claude
-    const failed = item.kind === "failed";
-    return (
-      <View style={[styles.systemRow, failed && styles.systemRowFailed]}>
-        <Ionicons
-          name={failed ? "alert-circle-outline" : "sparkles-outline"}
-          size={15}
-          color={failed ? colors.danger : colors.textSecondary}
-        />
-        <Text style={[styles.systemText, failed && { color: colors.danger }]} numberOfLines={2}>
-          {item.text}
-        </Text>
-        {failed && item.retryContent && (
-          <TouchableOpacity onPress={() => setInput(item.retryContent!)}>
-            <Text style={styles.retryLink}>Gửi lại</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    );
-  };
+  // Stable callback — chỉ tạo lại khi audioPlayingId/audioPlaying/submit/toggleAudioBubble đổi.
+  // Khi token streaming, không có state nào trong dependencies thay đổi → FlatList
+  // giữ nguyên renderItem reference → ChatRow memo skip re-render các dòng không đổi.
+  const onRetry = useCallback((text: string) => setInput(text), []);
+  const renderItem = useCallback(({ item }: { item: Row }) => (
+    <MessageErrorBoundary>
+      <ChatRow
+        item={item}
+        audioPlayingId={audioPlayingId}
+        audioPlaying={audioPlaying}
+        onSubmit={submit}
+        onToggleAudio={toggleAudioBubble}
+        onRetry={onRetry}
+      />
+    </MessageErrorBoundary>
+  ), [audioPlayingId, audioPlaying, submit, toggleAudioBubble, onRetry]);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.surface }} behavior="padding">
@@ -756,9 +867,28 @@ export default function Chat() {
             suppressAutoScroll.current = false;
             return;
           }
-          listRef.current?.scrollToEnd({ animated: false });
+          // Throttle: tối đa 1 scroll / 100ms. Trailing call đảm bảo không bỏ sót
+          // lần cuối khi stream kết thúc (content thay đổi nhỏ do mất cursor ▍).
+          const now = Date.now();
+          if (now - lastScrollTime.current >= SCROLL_THROTTLE_MS) {
+            lastScrollTime.current = now;
+            if (scrollDeferred.current) {
+              clearTimeout(scrollDeferred.current);
+              scrollDeferred.current = null;
+            }
+            listRef.current?.scrollToEnd({ animated: false });
+          } else {
+            if (scrollDeferred.current) clearTimeout(scrollDeferred.current);
+            scrollDeferred.current = setTimeout(() => {
+              lastScrollTime.current = Date.now();
+              scrollDeferred.current = null;
+              listRef.current?.scrollToEnd({ animated: false });
+            }, SCROLL_THROTTLE_MS);
+          }
         }}
         renderItem={renderItem}
+        maxToRenderPerBatch={10}
+        windowSize={5}
       />
 
       {!historyMode && rows.length === 1 && rows[0].kind === "assistant" && rows[0].isSeed && (
@@ -895,192 +1025,3 @@ export default function Chat() {
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.sm,
-    paddingBottom: spacing.sm,
-    backgroundColor: colors.surface,
-  },
-  headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, textAlign: "center", fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
-
-  listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, gap: spacing.lg },
-
-  // Tin nhắn AI: chữ thuần, full-width (không bong bóng) — như Claude
-  assistantWrap: { paddingRight: spacing.sm },
-
-  // Tin nhắn người dùng: bong bóng xám trung tính, canh phải
-  userWrap: { alignItems: "flex-end" },
-  userBubble: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.xl,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    maxWidth: "88%",
-  },
-  userText: { color: colors.text, fontSize: 16, lineHeight: 23, fontFamily: fonts.regular },
-  audioChip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.sm },
-  audioChipText: { color: colors.text, fontFamily: fonts.semibold, fontSize: 13 },
-
-  // Dòng tool-use / lỗi — nhỏ, mờ, kiểu "thinking row"
-  systemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    alignSelf: "flex-start",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    maxWidth: "92%",
-  },
-  systemRowFailed: { backgroundColor: colors.dangerBg },
-  systemText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13, flexShrink: 1 },
-  retryLink: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 13 },
-
-  empty: { alignItems: "center", gap: spacing.md, marginTop: spacing.xxxl, paddingHorizontal: spacing.xl },
-  emptyText: { color: colors.textMuted, textAlign: "center", fontSize: 15, lineHeight: 22, fontFamily: fonts.regular },
-
-  working: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  workingText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 14 },
-
-  heldBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.warningBg,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.warningBorder,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  heldText: { flex: 1, color: colors.warningText, fontFamily: fonts.medium, fontSize: 13 },
-
-  loadOlder: { alignItems: "center", paddingVertical: spacing.md },
-  loadOlderText: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 14 },
-
-  onboardingChipsRow: {
-    flexDirection: "row", flexWrap: "wrap", gap: spacing.sm,
-    paddingHorizontal: spacing.lg, paddingBottom: spacing.sm,
-  },
-  onboardingChip: {
-    backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.borderStrong,
-    borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-  },
-  onboardingChipText: { color: colors.text, fontFamily: fonts.semibold, fontSize: 13 },
-
-  readonlyBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.surfaceAlt,
-  },
-  readonlyText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13 },
-
-  queueBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  queueList: {
-    backgroundColor: colors.surfaceAlt,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderColor: colors.divider,
-  },
-  queueTitle: { ...type.caption, fontFamily: fonts.bold, color: colors.textSecondary, marginBottom: spacing.xs },
-  queueItem: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs, gap: spacing.sm },
-  queueBtn: { padding: spacing.xs },
-  dangerLink: { color: colors.danger, fontFamily: fonts.semibold, fontSize: 14 },
-
-  confirmBar: {
-    backgroundColor: colors.confirmBg,
-    padding: spacing.lg,
-    borderTopWidth: 1,
-    borderColor: colors.confirmBorder,
-  },
-  confirmTitle: { fontFamily: fonts.bold, fontSize: 15, marginBottom: spacing.xs, color: colors.text },
-  confirmDetail: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  confirmAsk: { marginVertical: spacing.sm, color: colors.text, fontFamily: fonts.medium },
-
-  // Nút pill dùng chung
-  pillPrimary: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pillPrimaryText: { color: colors.onPrimary, fontFamily: fonts.bold, fontSize: 14 },
-  pillGhostDanger: {
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
-    borderColor: colors.danger,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm - 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pillGhostDangerText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 14 },
-
-  // Composer
-  composerWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.xs, backgroundColor: colors.surface },
-  composerCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    ...shadow.soft,
-  },
-  attachChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  input: {
-    fontSize: 16,
-    lineHeight: 22,
-    color: colors.text,
-    fontFamily: fonts.regular,
-    maxHeight: 140,
-    paddingHorizontal: spacing.xs,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
-  },
-  composerRow: { flexDirection: "row", alignItems: "center", marginTop: spacing.xs },
-  plusBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: spacing.xs,
-  },
-  sendBtnOff: { backgroundColor: colors.surfaceAlt },
-});
