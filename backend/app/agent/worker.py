@@ -129,6 +129,7 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                     await run_agent_loop(db, req, llm, publisher, is_cancelled=is_cancelled,
                                          tool_names=None, rag_context=rag_context,
                                          example_context=example_context)
+                    await conversation_title_service.maybe_generate_title(db, conv, llm)
                 continue
             # Router (Phase 4 §8.1) - chi phan loai 1 lan luc pickup dau tien cua
             # request nay (status queued -> chuyen ngay khoi queued ben trong
@@ -145,6 +146,7 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                 group = None
             if group == "deep":
                 await run_deep_ack_turn(db, req, llm, publisher, is_cancelled=is_cancelled)
+                await conversation_title_service.maybe_generate_title(db, conv, llm)
                 await ctx["arq_pool"].enqueue_job(
                     "run_deep_analysis", req.id, _job_id=f"deep:{req.id}")
             else:
@@ -160,6 +162,7 @@ async def process_conversation(ctx: dict, conversation_id: uuid.UUID) -> None:
                                      tool_names=tool_names_for_route(group),
                                      rag_context=rag_context,
                                      example_context=example_context)
+                await conversation_title_service.maybe_generate_title(db, conv, llm)
 
 
 async def run_deep_analysis(ctx: dict, chat_request_id: uuid.UUID) -> None:

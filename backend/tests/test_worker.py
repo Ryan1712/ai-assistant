@@ -32,8 +32,10 @@ async def test_process_conversation_runs_queued_requests_in_order_then_stops(eng
               role=Role.ceo, is_root=True)
     db_session.add(ceo)
     await db_session.flush()
-    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
-    other_conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    # title_locked=True: test này không liên quan maybe_generate_title, tránh
+    # tốn thêm 1 turn FakeLLMClient ngoài ý muốn.
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
+    other_conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
     db_session.add_all([conv, other_conv])
     await db_session.flush()
 
@@ -240,7 +242,7 @@ async def test_process_conversation_routes_deep_request_to_ack_then_enqueues_job
               role=Role.ceo, is_root=True)
     db_session.add(ceo)
     await db_session.flush()
-    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
     db_session.add(conv)
     await db_session.flush()
     req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
@@ -290,6 +292,50 @@ async def test_process_conversation_routes_deep_request_to_ack_then_enqueues_job
 
 
 @pytest.mark.asyncio
+async def test_process_conversation_dat_ten_sau_luot_ack_route_deep(engine, db_session):
+    """Route "deep" cũng phải đặt tên ngay sau lượt ack — nếu chỉ làm ở fast-path
+    thì conversation có lượt đầu rơi vào deep sẽ kẹt title tạm 60 ký tự mãi mãi."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)  # title_locked=False mac dinh
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="phan tich rui ro du an thang nay", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[
+        [TextDelta(text="Da nhan, dang phan tich sau..."),
+         StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+        [TextDelta(text="Phan tich rui ro du an"),  # lượt sinh title, sau lượt ack
+         StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ])
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": FakeEventPublisher(),
+        "is_cancelled": lambda _id: _false(),
+        "arq_pool": _RecordingPool(),
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(conv)
+    assert conv.title == "Phan tich rui ro du an"
+    assert conv.title_locked is True
+    assert len(llm.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_process_conversation_filters_toolset_by_classified_route(engine, db_session):
     """Task 8: request KHONG khop "deep" van chay run_agent_loop nhu cu, nhung
     toolset da bi loc theo group phan loai duoc (an toan: fallback full toolset
@@ -303,7 +349,7 @@ async def test_process_conversation_filters_toolset_by_classified_route(engine, 
               role=Role.ceo, is_root=True)
     db_session.add(ceo)
     await db_session.flush()
-    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
     db_session.add(conv)
     await db_session.flush()
     req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
@@ -401,7 +447,7 @@ async def test_requeue_after_confirm_fast_request_uses_full_toolset_no_reclassif
               role=Role.ceo, is_root=True)
     db_session.add(ceo)
     await db_session.flush()
-    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
     db_session.add(conv)
     await db_session.flush()
     from datetime import datetime, timezone
@@ -452,7 +498,7 @@ async def test_process_conversation_survives_classify_route_error(engine, db_ses
               role=Role.ceo, is_root=True)
     db_session.add(ceo)
     await db_session.flush()
-    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
     db_session.add(conv)
     await db_session.flush()
     # Nội dung KHÔNG khớp heuristic tier 1 nào → classify_route buộc phải gọi tier 2.
@@ -514,7 +560,7 @@ async def test_process_conversation_injects_rag_context_once_before_loop(engine,
     db_session.add(ceo)
     await db_session.flush()
     await note_service.create_note(db_session, ceo, content="Nho ky hop dong doi tac XYZ")
-    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
     db_session.add(conv)
     await db_session.flush()
     # "tinh trang cong ty" khớp heuristic tier 1 (nhóm insight) -> khỏi tốn 1
@@ -567,7 +613,7 @@ async def test_process_conversation_injects_example_context_once_before_loop(eng
         db_session, ceo, user_text="khoa tai khoan nhan vien Nam",
         ideal_behavior="gọi lock_user ngay, không hỏi xác nhận bằng lời")
 
-    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id, title_locked=True)
     db_session.add(conv)
     await db_session.flush()
     # "khoa tai khoan" khớp heuristic tier 1 (nhóm admin) -> khỏi tốn 1 lượt LLM
@@ -601,6 +647,54 @@ async def test_process_conversation_injects_example_context_once_before_loop(eng
     text = system if isinstance(system, str) else "\n".join(b["text"] for b in system)
     assert "Ví dụ xử lý đúng" in text
     assert "lock_user" in text
+
+
+@pytest.mark.asyncio
+async def test_process_conversation_dat_ten_conversation_ngay_sau_luot_dau(engine, db_session):
+    """Thay cron retitle_conversations đã bỏ (2026-07-30, tốn LLM call vô hạn khi
+    lỗi — xem feedback-vps-log-debug-workflow): process_conversation phải tự đặt
+    tên NGAY sau khi run_agent_loop hoàn tất lượt đầu, không cần cron nền."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)  # title_locked=False mac dinh
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="xem dashboard hom nay", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    llm = FakeLLMClient(turns=[
+        [TextDelta(text="Day la dashboard hom nay"),
+         StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+        [TextDelta(text="Xem dashboard hang ngay"),  # lượt gọi title, ngay sau lượt chat
+         StreamDone(tool_uses=[], stop_reason="end_turn", input_tokens=1, output_tokens=1)],
+    ])
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": FakeEventPublisher(),
+        "is_cancelled": never_cancelled,
+    }
+
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(conv)
+    assert conv.title == "Xem dashboard hang ngay"
+    assert conv.title_locked is True
+    assert len(llm.calls) == 2  # 1 lượt chat + 1 lượt sinh title, không hơn
 
 
 async def _watchdog_world(db, *, status, started_ago_minutes=None, created_ago_minutes=0):
