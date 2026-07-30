@@ -36,17 +36,24 @@ Each task has deliverables, acceptance criteria, and time tracking
 
 ---
 
-### Task 1.2: {Task Name} [{Assignee}]
-**Status**: [NOT STARTED]
-**Estimated**: TBD hours | **Actual**: - hours
-**Story Points**: {1-8}
-**Wireframe**: {filename.md | - }
+### Task 1.2: Fix: React.memo renderItem/renderRow + throttle scrollToEnd ở màn chat [Frontend]
+**Status**: [COMPLETE]
+**Estimated**: 3 hours | **Actual**: ~2 hours
+**Story Points**: 3
+**Wireframe**: -
 
 **Deliverables**:
-- [ ] {file path 1}
+- [x] `frontend/app/main/ChatRow.tsx` — React.memo component cho 6 loại row
+- [x] `frontend/app/main/chatTypes.ts` — kiểu Row dùng chung, tránh circular import
+- [x] `frontend/app/main/chat.tsx` — useCallback handlers + throttle scrollToEnd 100ms
+- [x] `frontend/__tests__/ChatRow.test.tsx` — 9 test XANH
 
 **Acceptance Criteria**:
-- [ ] [FR-XXX] {Requirement}
+- [x] Chỉ streaming row re-render khi nhận token mới
+- [x] scrollToEnd throttle 100ms + trailing call, không bỏ sót cuộn cuối
+- [x] Không đổi hành vi/API/UI
+- [x] 9/9 jest tests PASS
+- [x] npx tsc --noEmit sạch lỗi
 
 ---
 
@@ -70,7 +77,7 @@ DO NOT change column order! Scripts depend on exact format.
 | ID | Task | Points | Status | Assignee | Wireframe |
 |----|------|--------|--------|----------|-----------|
 | 1.1 | Fix: đẩy Voyage embedding ra khỏi luồng send_message (không await trong request) | 3 | [COMPLETE] | Backend | - |
-| 1.2 | Fix: React.memo renderItem/renderRow + throttle scrollToEnd ở màn chat | 3 | [IN PROGRESS] | Frontend | - |
+| 1.2 | Fix: React.memo renderItem/renderRow + throttle scrollToEnd ở màn chat | 3 | [COMPLETE] | Frontend | - |
 | 1.R | Code Review (google-code-reviewer) | 1 | | QA | - |
 | 1.Q | QA Verification (backend pytest + FE jest, regression, no API contract change) | 2 | | QA | - |
 
