@@ -191,9 +191,7 @@ async def test_maybe_generate_title_bo_qua_conversation_chua_co_ai_tra_loi(db_se
 
 async def test_maybe_generate_title_loi_llm_giu_nguyen_title_tam_khong_lock(db_session):
     """Best-effort — lỗi gọi LLM thì GIỮ NGUYÊN title tạm 60 ký tự đã có sẵn từ
-    send_message, KHÔNG lock. Không còn cron thử lại vô hạn nữa: cơ hội thử lại
-    tiếp theo (nếu có) chỉ tới khi user thật sự nhắn thêm 1 lượt chat mới —
-    không phải cron nền chạy mỗi phút bất kể có ai dùng app hay không."""
+    send_message, KHÔNG lock."""
     conv = await _mk_conv_with_reply(db_session)
 
     class _BoomLLM:
@@ -208,6 +206,60 @@ async def test_maybe_generate_title_loi_llm_giu_nguyen_title_tam_khong_lock(db_s
     await db_session.refresh(conv)
     assert conv.title == "tin nhan dau tien cat 60 ky tu"
     assert conv.title_locked is False
+
+
+async def test_maybe_generate_title_khong_thu_lai_o_luot_chat_thu_2(db_session):
+    """Edge case tìm thấy 2026-07-30 (sau khi bỏ cron): worker.py gọi
+    maybe_generate_title ở MỌI lượt chat (không chỉ lượt đầu), miễn
+    title_locked vẫn False. Nếu LLM lỗi liên tục (vd hết tiền kéo dài) và
+    user gửi NHIỀU tin nhắn trong cùng conversation, mỗi tin lại kích hoạt
+    thêm 1 lần gọi LLM đặt tên — nhẹ hơn bug cron cũ (bị chặn bởi hành vi
+    user thật, không phải vô hạn tự động) nhưng vẫn lãng phí không cần
+    thiết. Chỉ được thử NHIỀU NHẤT 1 lần/conversation — nhận diện "đã qua
+    lượt đầu" bằng cách đếm ChatRequest không còn queued của conversation:
+    nếu có từ 2 trở lên (lượt đầu + lượt hiện tại), không thử lại nữa."""
+    from app.models import ChatRequest, ChatRequestStatus
+
+    conv = await _mk_conv_with_reply(db_session)
+    # Mô phỏng: lượt đầu đã chạy xong (done) nhưng maybe_generate_title lỗi
+    # (title vẫn chưa lock) — rồi lượt 2 bắt đầu.
+    req1 = ChatRequest(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                       user_id=uuid.uuid4(), content="giao task cho Nam",
+                       queue_position=1.0, status=ChatRequestStatus.done)
+    req2 = ChatRequest(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                       user_id=uuid.uuid4(), content="con gi nua khong",
+                       queue_position=2.0, status=ChatRequestStatus.done)
+    db_session.add_all([req1, req2])
+    await db_session.commit()
+    llm = _fake_title_llm()
+
+    await maybe_generate_title(db_session, conv, llm)
+
+    assert len(llm.calls) == 0  # đã qua lượt đầu, không thử lại nữa
+    await db_session.refresh(conv)
+    assert conv.title == "tin nhan dau tien cat 60 ky tu"
+    assert conv.title_locked is False
+
+
+async def test_maybe_generate_title_van_thu_o_luot_dau_du_co_1_chat_request(db_session):
+    """Đối chứng test trên: nếu conversation CHỈ có 1 ChatRequest (đúng lượt
+    đầu, đang xử lý), vẫn phải thử gọi LLM bình thường — không bị chặn nhầm."""
+    from app.models import ChatRequest, ChatRequestStatus
+
+    conv = await _mk_conv_with_reply(db_session)
+    req1 = ChatRequest(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                       user_id=uuid.uuid4(), content="giao task cho Nam",
+                       queue_position=1.0, status=ChatRequestStatus.done)
+    db_session.add(req1)
+    await db_session.commit()
+    llm = _fake_title_llm("Giao task quy 3 cho Nam")
+
+    await maybe_generate_title(db_session, conv, llm)
+
+    assert len(llm.calls) == 1
+    await db_session.refresh(conv)
+    assert conv.title == "Giao task quy 3 cho Nam"
+    assert conv.title_locked is True
 
 
 async def test_maybe_generate_title_conv_none_khong_lam_gi(db_session):

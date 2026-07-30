@@ -1,11 +1,18 @@
 """Tự đặt tên cuộc trò chuyện bằng AI (model_fast), sau khi AI trả lời xong tin đầu.
 
-`maybe_generate_title` được gọi TRỰC TIẾP từ app/agent/worker.py ngay sau lượt đầu
-tiên hoàn tất (không còn cron nền — bỏ 2026-07-30: cron mỗi phút quét
-title_locked=False từng khiến 1 conversation lỗi gọi LLM 1 lần bị thử lại VÔ HẠN,
-mỗi phút, kể cả khi không ai dùng app — tốn credit LLM gateway hàng nghìn lần/ngày
-ngoài ý muốn). Lỗi gọi LLM giờ chỉ bỏ qua 1 lần, best-effort — cơ hội thử lại (nếu
-có) chỉ tới khi user thật sự nhắn thêm 1 lượt chat mới, không phải cron tự lặp.
+`maybe_generate_title` được gọi TRỰC TIẾP từ app/agent/worker.py sau MỌI lượt chat
+(không chỉ lượt đầu — worker.py không biết đây có phải lượt đầu hay không), nhưng
+tự giới hạn CHỈ THỬ Ở LƯỢT ĐẦU TIÊN của conversation (không còn cron nền — bỏ
+2026-07-30: cron mỗi phút quét title_locked=False từng khiến 1 conversation lỗi
+gọi LLM 1 lần bị thử lại VÔ HẠN, mỗi phút, kể cả khi không ai dùng app — tốn
+credit LLM gateway hàng nghìn lần/ngày ngoài ý muốn).
+
+Edge case tìm thấy sau khi bỏ cron (cùng ngày): nếu KHÔNG giới hạn ở lượt đầu, và
+LLM lỗi kéo dài (vd hết tiền), mỗi lượt chat tiếp theo của user trong CÙNG
+conversation sẽ lại thử gọi LLM đặt tên — nhẹ hơn bug cron cũ (bị chặn bởi hành vi
+user thật, không phải vô hạn tự động) nhưng vẫn lãng phí. Nên chỉ thử ĐÚNG 1 LẦN
+DUY NHẤT/conversation — lỗi thì bỏ qua vĩnh viễn (giữ title tạm), không phải chỉ
+"tạm thời tới lượt sau".
 
 `retitle_pending_conversations` (sweep theo batch) vẫn giữ lại cho mục đích khác:
 backfill title cho conversation cũ tạo trước khi cơ chế này tồn tại. Không còn cron
@@ -19,7 +26,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.llm_client import LLMClient, TextDelta
-from app.models import Conversation, Message, MessageRole
+from app.models import ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +113,21 @@ async def retitle_pending_conversations(db: AsyncSession, llm: LLMClient, *,
 
 async def maybe_generate_title(db: AsyncSession, conv: Conversation | None,
                                llm: LLMClient) -> None:
-    """Đặt tên MỘT LẦN DUY NHẤT ngay sau lượt chat đầu tiên hoàn tất — gọi từ
-    worker.py, không phải cron. Best-effort: lỗi gọi LLM thì giữ nguyên title tạm
-    (60 ký tự đầu tin nhắn, gán sẵn ở send_message) và title_locked=False, KHÔNG
-    tự retry — không còn cron nào lặp lại việc này."""
+    """Đặt tên MỘT LẦN DUY NHẤT ở lượt chat đầu tiên — gọi từ worker.py sau MỌI
+    lượt (worker không biết đây có phải lượt đầu), tự giới hạn bằng cách đếm
+    ChatRequest không còn queued: >=2 nghĩa là đã qua lượt đầu, không thử lại nữa
+    dù title_locked vẫn False (tránh edge case gọi LLM thừa mỗi lượt chat khi lỗi
+    kéo dài — xem module docstring). Best-effort: lỗi gọi LLM thì giữ nguyên title
+    tạm (60 ký tự đầu tin nhắn, gán sẵn ở send_message) và title_locked=False,
+    KHÔNG tự retry — không còn cron nào lặp lại việc này."""
     if conv is None or conv.title_locked:
+        return
+    past_requests = (await db.execute(
+        select(ChatRequest.id).where(
+            ChatRequest.conversation_id == conv.id,
+            ChatRequest.status != ChatRequestStatus.queued,
+        ).limit(2))).scalars().all()
+    if len(past_requests) >= 2:
         return
     msgs = (await db.execute(
         select(Message).where(Message.conversation_id == conv.id)
