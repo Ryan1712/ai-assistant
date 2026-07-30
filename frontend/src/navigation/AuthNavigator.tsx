@@ -28,7 +28,8 @@ export function AuthNavigator() {
         headerTitleStyle: { fontFamily: fonts.bold, fontSize: 17, color: colors.text },
       }}
     >
-      <Stack.Screen name="Login" component={Login} options={{ title: "Đăng nhập" }} />
+      {/* Login: ẩn header (logo app đã là nhận diện; không cần tiêu đề "Đăng nhập"). */}
+      <Stack.Screen name="Login" component={Login} options={{ headerShown: false }} />
       <Stack.Screen name="ForgotPassword" component={ForgotPassword} options={{ title: "Quên mật khẩu" }} />
       {/* <Stack.Screen name="SignupCode" component={SignupCode} options={{ title: "Đăng ký bằng mã mời" }} /> */}
       <Stack.Screen name="SignupWorkspace" component={SignupWorkspace} options={{ title: "Tạo công ty mới" }} />
