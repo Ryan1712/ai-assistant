@@ -167,6 +167,7 @@ function messagesToRows(msgs: Message[]): Row[] {
 }
 
 const ONBOARDING_CHIPS = ["Tạo project", "Xem công việc", "Xem thử làm được gì"];
+const SCROLL_THROTTLE_MS = 100;
 
 const styles = StyleSheet.create({
   header: {
@@ -180,38 +181,6 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, textAlign: "center", fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
 
   listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, gap: spacing.lg },
-
-  // Tin nhắn AI: chữ thuần, full-width (không bong bóng) — như Claude
-  assistantWrap: { paddingRight: spacing.sm },
-
-  // Tin nhắn người dùng: bong bóng xám trung tính, canh phải
-  userWrap: { alignItems: "flex-end" },
-  userBubble: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.xl,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    maxWidth: "88%",
-  },
-  userText: { color: colors.text, fontSize: 16, lineHeight: 23, fontFamily: fonts.regular },
-  audioChip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.sm },
-  audioChipText: { color: colors.text, fontFamily: fonts.semibold, fontSize: 13 },
-
-  // Dòng tool-use / lỗi — nhỏ, mờ, kiểu "thinking row"
-  systemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    alignSelf: "flex-start",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    maxWidth: "92%",
-  },
-  systemRowFailed: { backgroundColor: colors.dangerBg },
-  systemText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 13, flexShrink: 1 },
-  retryLink: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 13 },
 
   empty: { alignItems: "center", gap: spacing.md, marginTop: spacing.xxxl, paddingHorizontal: spacing.xl },
   emptyText: { color: colors.textMuted, textAlign: "center", fontSize: 15, lineHeight: 22, fontFamily: fonts.regular },
@@ -387,6 +356,10 @@ export default function Chat() {
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [input, setInput] = useState("");
+  // inputRef giữ giá trị input mới nhất để submit đọc mà không cần input trong deps
+  // → submit có ref ổn định → renderItem ổn định khi người dùng đang gõ.
+  const inputRef = useRef<string>("");
+  useEffect(() => { inputRef.current = input; }, [input]);
   type PendingConfirm =
     | { requestId: string; kind: "tool"; toolName: string; toolInput: Record<string, unknown> }
     | { requestId: string; kind: "proposal"; actions: ProposedAction[]; reasoning: string };
@@ -405,9 +378,8 @@ export default function Chat() {
   const listRef = useRef<FlatList>(null);
   const closeWs = useRef<(() => void) | null>(null);
   const suppressAutoScroll = useRef(false);
-  // Throttle scrollToEnd: tối đa 1 lần / 100ms, trailing call để không bỏ sót
-  // lần cuối khi stream kết thúc.
-  const SCROLL_THROTTLE_MS = 100;
+  // Throttle scrollToEnd: tối đa 1 lần / SCROLL_THROTTLE_MS, trailing call để
+  // không bỏ sót lần cuối khi stream kết thúc.
   const lastScrollTime = useRef<number>(0);
   const scrollDeferred = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -641,7 +613,8 @@ export default function Chat() {
   const submit = useCallback(async (overrideText?: string) => {
     if (archived) return;
     if (!conversationId) return;
-    const content = (overrideText ?? input).trim()
+    // Đọc từ inputRef để không cần input trong deps → submit ref ổn định.
+    const content = (overrideText ?? inputRef.current).trim()
       || (attachedAudio ? "Xử lý file ghi âm này giúp tôi" : "");
     if (!content) return;
     setInput("");
@@ -672,7 +645,7 @@ export default function Chat() {
         },
       ]);
     }
-  }, [archived, conversationId, input, attachedAudio, held, refreshQueue]);
+  }, [archived, conversationId, attachedAudio, held, refreshQueue]); // input bỏ khỏi deps (dùng inputRef)
 
   const pickAudio = async () => {
     try {
