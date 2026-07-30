@@ -2,7 +2,9 @@ import uuid
 
 from app.agent.llm_client import FakeLLMClient, StreamDone, TextDelta
 from app.models import Conversation, Message, MessageRole
-from app.services.conversation_title_service import retitle_pending_conversations
+from app.services.conversation_title_service import (
+    maybe_generate_title, retitle_pending_conversations,
+)
 
 
 def _fake_title_llm(text="Giao task quy 3 cho Nam"):
@@ -143,3 +145,75 @@ async def test_retitle_loi_llm_khong_lock_thu_lai_luot_sau(db_session, monkeypat
     assert processed == 0
     await db_session.refresh(conv)
     assert conv.title_locked is False
+
+
+async def test_maybe_generate_title_dat_ten_va_lock_ngay_sau_luot_dau(db_session):
+    """Thay cron quét mỗi phút (đã bỏ vì retry vô hạn tốn LLM call — xem
+    feedback 2026-07-30): đặt tên NGAY, gọi 1 lần duy nhất từ worker.py sau khi
+    run_agent_loop/run_deep_ack_turn hoàn tất lượt đầu tiên."""
+    conv = await _mk_conv_with_reply(db_session)
+    llm = _fake_title_llm("Giao task quy 3 cho Nam")
+
+    await maybe_generate_title(db_session, conv, llm)
+
+    await db_session.refresh(conv)
+    assert conv.title == "Giao task quy 3 cho Nam"
+    assert conv.title_locked is True
+    assert len(llm.calls) == 1
+
+
+async def test_maybe_generate_title_bo_qua_conversation_da_locked(db_session):
+    conv = await _mk_conv_with_reply(db_session, title_locked=True)
+    llm = _fake_title_llm()
+
+    await maybe_generate_title(db_session, conv, llm)
+
+    assert len(llm.calls) == 0
+    await db_session.refresh(conv)
+    assert conv.title == "tin nhan dau tien cat 60 ky tu"
+
+
+async def test_maybe_generate_title_bo_qua_conversation_chua_co_ai_tra_loi(db_session):
+    conv = Conversation(workspace_id=uuid.uuid4(), user_id=uuid.uuid4(), title="cho AI tra loi")
+    db_session.add(conv)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=conv.workspace_id, conversation_id=conv.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": "hoi gi do"}]))
+    await db_session.commit()
+    llm = _fake_title_llm()
+
+    await maybe_generate_title(db_session, conv, llm)
+
+    assert len(llm.calls) == 0
+    await db_session.refresh(conv)
+    assert conv.title == "cho AI tra loi"
+
+
+async def test_maybe_generate_title_loi_llm_giu_nguyen_title_tam_khong_lock(db_session):
+    """Best-effort — lỗi gọi LLM thì GIỮ NGUYÊN title tạm 60 ký tự đã có sẵn từ
+    send_message, KHÔNG lock. Không còn cron thử lại vô hạn nữa: cơ hội thử lại
+    tiếp theo (nếu có) chỉ tới khi user thật sự nhắn thêm 1 lượt chat mới —
+    không phải cron nền chạy mỗi phút bất kể có ai dùng app hay không."""
+    conv = await _mk_conv_with_reply(db_session)
+
+    class _BoomLLM:
+        model = "fake"
+
+        async def stream(self, *, system, messages, tools):
+            raise RuntimeError("gateway loi")
+            yield  # pragma: no cover - làm hàm thành async generator hợp lệ
+
+    await maybe_generate_title(db_session, conv, _BoomLLM())
+
+    await db_session.refresh(conv)
+    assert conv.title == "tin nhan dau tien cat 60 ky tu"
+    assert conv.title_locked is False
+
+
+async def test_maybe_generate_title_conv_none_khong_lam_gi(db_session):
+    """worker.py có thể gọi với conv=None (route hiếm/edge) — không được raise."""
+    llm = _fake_title_llm()
+
+    await maybe_generate_title(db_session, None, llm)
+
+    assert len(llm.calls) == 0

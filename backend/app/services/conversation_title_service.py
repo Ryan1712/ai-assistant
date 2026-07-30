@@ -1,8 +1,15 @@
 """Tự đặt tên cuộc trò chuyện bằng AI (model_fast), sau khi AI trả lời xong tin đầu.
 
-Chạy từ cron (app/agent/worker.py::retitle_conversations, mỗi phút). Quét tối đa
-`batch_size` cuộc/lượt để tránh dồn cục chi phí LLM ngay sau khi deploy — sweep toàn
-bộ lịch sử cũ trải dần qua nhiều lượt cron (spec 2026-07-27 §2.4).
+`maybe_generate_title` được gọi TRỰC TIẾP từ app/agent/worker.py ngay sau lượt đầu
+tiên hoàn tất (không còn cron nền — bỏ 2026-07-30: cron mỗi phút quét
+title_locked=False từng khiến 1 conversation lỗi gọi LLM 1 lần bị thử lại VÔ HẠN,
+mỗi phút, kể cả khi không ai dùng app — tốn credit LLM gateway hàng nghìn lần/ngày
+ngoài ý muốn). Lỗi gọi LLM giờ chỉ bỏ qua 1 lần, best-effort — cơ hội thử lại (nếu
+có) chỉ tới khi user thật sự nhắn thêm 1 lượt chat mới, không phải cron tự lặp.
+
+`retitle_pending_conversations` (sweep theo batch) vẫn giữ lại cho mục đích khác:
+backfill title cho conversation cũ tạo trước khi cơ chế này tồn tại. Không còn cron
+nào gọi nó tự động — chỉ dùng thủ công/script nếu cần.
 """
 from __future__ import annotations
 
@@ -95,3 +102,37 @@ async def retitle_pending_conversations(db: AsyncSession, llm: LLMClient, *,
         if result.rowcount:
             processed += 1
     return processed
+
+
+async def maybe_generate_title(db: AsyncSession, conv: Conversation | None,
+                               llm: LLMClient) -> None:
+    """Đặt tên MỘT LẦN DUY NHẤT ngay sau lượt chat đầu tiên hoàn tất — gọi từ
+    worker.py, không phải cron. Best-effort: lỗi gọi LLM thì giữ nguyên title tạm
+    (60 ký tự đầu tin nhắn, gán sẵn ở send_message) và title_locked=False, KHÔNG
+    tự retry — không còn cron nào lặp lại việc này."""
+    if conv is None or conv.title_locked:
+        return
+    msgs = (await db.execute(
+        select(Message).where(Message.conversation_id == conv.id)
+        .order_by(Message.created_at.asc()).limit(4))).scalars().all()
+    if not any(m.role == MessageRole.assistant for m in msgs):
+        return
+    transcript = _render_for_title(msgs)
+    if not transcript:
+        return
+    try:
+        title = await _generate_title(llm, transcript)
+    except Exception:
+        logger.warning("maybe_generate_title: lỗi gọi LLM cho conversation %s, "
+                       "giữ title tạm", conv.id)
+        return
+    if not title:
+        return
+    result = await db.execute(
+        update(Conversation)
+        .where(Conversation.id == conv.id, Conversation.title_locked.is_(False))
+        .values(title=title, title_locked=True))
+    await db.commit()
+    if result.rowcount:
+        conv.title = title
+        conv.title_locked = True
