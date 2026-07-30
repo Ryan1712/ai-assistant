@@ -1214,31 +1214,12 @@ def test_worker_settings_registers_run_deep_analysis_with_extended_timeout():
     assert entry.timeout_s == 900
 
 
-def test_worker_settings_registers_retitle_conversations_cron():
-    from app.agent.worker import retitle_conversations
-
+def test_worker_settings_khong_con_cron_retitle_conversations():
+    """2026-07-30: bỏ cron retitle_conversations (mỗi phút) — không lock
+    conversation lỗi gọi LLM khiến bị thử lại VÔ HẠN mỗi phút, tốn credit LLM
+    gateway hàng nghìn lần/ngày kể cả khi không ai dùng app (root cause hết
+    tiền). Thay bằng maybe_generate_title gọi 1 lần từ process_conversation —
+    xem test_process_conversation_dat_ten_conversation_ngay_sau_luot_dau."""
     names = [j.name for j in WorkerSettings.cron_jobs]
-    assert "cron:retitle_conversations" in names
-    job = next(j for j in WorkerSettings.cron_jobs if j.name == "cron:retitle_conversations")
-    assert job.coroutine is retitle_conversations
-
-
-@pytest.mark.asyncio
-async def test_retitle_conversations_calls_service(engine, monkeypatch):
-    from app.agent import worker as worker_module
-
-    called = {}
-
-    async def fake_retitle(db, llm, **kwargs):
-        called["db"] = db
-        called["llm"] = llm
-        return 0
-
-    monkeypatch.setattr(worker_module.conversation_title_service,
-                        "retitle_pending_conversations", fake_retitle)
-    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False),
-          "llm_client": "fake-llm-marker"}
-
-    await worker_module.retitle_conversations(ctx)
-
-    assert called["llm"] == "fake-llm-marker"
+    assert "cron:retitle_conversations" not in names
+    assert not hasattr(__import__("app.agent.worker", fromlist=["x"]), "retitle_conversations")
