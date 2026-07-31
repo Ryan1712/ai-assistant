@@ -45,3 +45,25 @@ def test_prompt_cam_lo_ten_tool_noi_bo():
     prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
     assert "chi tiết kỹ thuật nội bộ" in prompt
     assert "không viết tên tool" in prompt
+
+
+def test_prompt_ranh_gioi_pham_vi_ngoai_quan_ly_cong_viec():
+    """Smoke test production 2026-07-31: 31 case, AI từ chối câu hỏi thời tiết
+    (đúng) nhưng lại vui vẻ viết hẳn 1 hàm Python đầy đủ cho câu hỏi 'viết giúp
+    hàm tính giai thừa' (ngoài phạm vi tương tự) — ranh giới không nhất quán.
+    Prompt phải nói rõ: câu hỏi ngoài phạm vi quản lý công việc thì trả lời
+    NGẮN GỌN rồi hướng lại vai trò, không làm hẳn việc thay (như viết code đầy
+    đủ nhiều đoạn) — tránh lạc đề khỏi vai trò chính."""
+    prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
+    assert "ngoài phạm vi quản lý công việc" in prompt
+    assert "ngắn gọn" in prompt
+
+
+def test_prompt_hoi_lai_ngan_gon_khi_mo_ho():
+    """Smoke test production 2026-07-31: khi input mơ hồ (vd 'Lam cai do di'),
+    AI liệt kê 3-4 giả thuyết dài dòng thay vì hỏi thẳng 1 câu ngắn. Prompt phải
+    yêu cầu hỏi lại ĐÚNG MỘT câu ngắn gọn khi ý định không rõ, không liệt kê
+    nhiều khả năng."""
+    prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
+    assert "ý định không rõ" in prompt
+    assert "đúng một câu ngắn gọn" in prompt.lower()
