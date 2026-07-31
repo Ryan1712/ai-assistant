@@ -113,14 +113,22 @@ async def retitle_pending_conversations(db: AsyncSession, llm: LLMClient, *,
 
 async def maybe_generate_title(db: AsyncSession, conv: Conversation | None,
                                llm: LLMClient) -> None:
-    """Đặt tên MỘT LẦN DUY NHẤT ở lượt chat đầu tiên — gọi từ worker.py sau MỌI
-    lượt (worker không biết đây có phải lượt đầu), tự giới hạn bằng cách đếm
-    ChatRequest không còn queued: >=2 nghĩa là đã qua lượt đầu, không thử lại nữa
-    dù title_locked vẫn False (tránh edge case gọi LLM thừa mỗi lượt chat khi lỗi
+    """Đặt tên MỘT LẦN DUY NHẤT ở lượt chat đầu tiên — gọi từ worker.py NGAY SAU
+    run_agent_loop/run_deep_ack_turn. Nếu lượt đó lỗi (vd gateway/model 404),
+    run_agent_loop tự rollback() bên trong _mark_failed rồi commit lại — EXPIRE
+    mọi object trong session, kể cả `conv` đã load từ trước ở process_conversation
+    (bug thật tìm thấy 2026-07-31: đọc conv.title_locked ngay sau đó kích hoạt
+    lazy-load trên object expired → MissingGreenlet, job chết). refresh() lại
+    trước khi đọc bất kỳ thuộc tính nào, tự giới hạn bằng cách đếm ChatRequest
+    không còn queued: >=2 nghĩa là đã qua lượt đầu, không thử lại nữa dù
+    title_locked vẫn False (tránh edge case gọi LLM thừa mỗi lượt chat khi lỗi
     kéo dài — xem module docstring). Best-effort: lỗi gọi LLM thì giữ nguyên title
     tạm (60 ký tự đầu tin nhắn, gán sẵn ở send_message) và title_locked=False,
     KHÔNG tự retry — không còn cron nào lặp lại việc này."""
-    if conv is None or conv.title_locked:
+    if conv is None:
+        return
+    await db.refresh(conv)
+    if conv.title_locked:
         return
     past_requests = (await db.execute(
         select(ChatRequest.id).where(

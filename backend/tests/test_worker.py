@@ -548,6 +548,64 @@ async def test_process_conversation_survives_classify_route_error(engine, db_ses
 
 
 @pytest.mark.asyncio
+async def test_process_conversation_maybe_generate_title_khong_crash_sau_khi_run_agent_loop_fail(
+        engine, db_session):
+    """Bug thật tìm thấy 2026-07-31 (smoke test đổi model sang Gemini gây lỗi
+    404 upstream): khi run_agent_loop bắt exception, nó tự rollback() bên trong
+    _mark_failed rồi commit lại (loop.py) — mọi object trong session (kể cả
+    `conv` đã load từ trước ở process_conversation) bị EXPIRE bởi rollback.
+    maybe_generate_title gọi ngay sau đó, dòng đầu tiên `conv.title_locked`
+    kích hoạt lazy-load trên object đã expire → MissingGreenlet (SQLAlchemy
+    async không cho phép IO ngầm ở chỗ này) — job chết, request kẹt vĩnh viễn
+    dù run_agent_loop đã xử lý lỗi LLM đúng cách (status=failed thành công)."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    conv = Conversation(workspace_id=ws.id, user_id=ceo.id)  # title_locked=False mac dinh
+    db_session.add(conv)
+    await db_session.flush()
+    req = ChatRequest(workspace_id=ws.id, conversation_id=conv.id, user_id=ceo.id,
+                      content="xem dashboard hom nay", queue_position=1.0)
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(Message(workspace_id=ws.id, conversation_id=conv.id, chat_request_id=req.id,
+                           role=MessageRole.user, content=[{"type": "text", "text": req.content}]))
+    await db_session.commit()
+
+    class _AlwaysFailLLM:
+        model = "fake"
+
+        async def stream(self, *, system, messages, tools):
+            raise RuntimeError("upstream_error: model not found")
+            yield  # pragma: no cover - làm hàm thành async generator hợp lệ
+
+    llm = _AlwaysFailLLM()
+    pub = FakeEventPublisher()
+
+    async def never_cancelled(_id):
+        return False
+
+    ctx = {
+        "session_factory": async_sessionmaker(engine, expire_on_commit=False),
+        "llm_client": llm,
+        "event_publisher": pub,
+        "is_cancelled": never_cancelled,
+    }
+
+    # Không được raise — trước fix, dòng này ném MissingGreenlet.
+    await process_conversation(ctx, conv.id)
+
+    await db_session.refresh(req)
+    assert req.status == ChatRequestStatus.failed
+    await db_session.refresh(conv)
+    assert conv.title_locked is False  # giữ nguyên title tạm, không crash giữa chừng
+
+
+@pytest.mark.asyncio
 async def test_process_conversation_injects_rag_context_once_before_loop(engine, db_session):
     """Phase 6 §10.3 fast-follow: worker tính rag_context ĐÚNG MỘT LẦN lúc pickup
     (giống Router) rồi truyền vào run_agent_loop — không phải loop tự gọi lại
