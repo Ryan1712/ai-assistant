@@ -151,6 +151,7 @@ class TaskCreateIn(BaseModel):
     description: str = ""
     deadline: dt.datetime | None = None
     priority: TaskPriority = TaskPriority.medium
+    status: TaskStatus = TaskStatus.todo
 
 
 class TaskPatchIn(BaseModel):

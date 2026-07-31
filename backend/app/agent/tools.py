@@ -180,7 +180,11 @@ async def _unassign_task(db, actor, body: UnassignTaskToolIn) -> dict:
 _register("create_project", "Tạo project mới (chỉ CEO).", ProjectCreateIn, _create_project)
 _register("update_project", "Sửa project theo id (chỉ CEO).", UpdateProjectToolIn, _update_project)
 _register("list_projects", "Liệt kê project mà actor được thấy.", NoArgsIn, _list_projects)
-_register("create_task", "Tạo task trong 1 project (chỉ CEO).", TaskCreateIn, _create_task)
+_register("create_task",
+          "Tạo task trong 1 project (chỉ CEO). Nếu người dùng nói rõ trạng thái ngay lúc "
+          "giao việc (vd 'đang làm', 'đã xong', 'chưa bắt đầu'), truyền đúng `status` NGAY "
+          "trong lệnh này — KHÔNG tạo xong rồi gọi thêm update_task để sửa status, làm "
+          "trong 1 lần gọi duy nhất.", TaskCreateIn, _create_task)
 _register("update_task", "Sửa task theo id (chỉ CEO).", UpdateTaskToolIn, _update_task)
 _register("list_tasks", "Liệt kê task mà actor được thấy.", NoArgsIn, _list_tasks)
 _register("get_task", "Xem chi tiết 1 task theo id.", GetTaskToolIn, _get_task)

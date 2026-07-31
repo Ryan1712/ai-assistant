@@ -94,3 +94,44 @@ def test_all_9_project_task_tools_registered():
     expected = {"create_project", "update_project", "list_projects", "create_task",
                "update_task", "list_tasks", "get_task", "assign_task", "unassign_task"}
     assert expected <= TOOLS.keys()
+
+
+@pytest.mark.asyncio
+async def test_create_task_tool_nhan_status_ngay_luc_tao(db_session):
+    """Bug thật CEO báo 2026-07-31: nhờ AI 'tạo task đang làm', task lại nằm ở
+    todo (mặc định) — model chỉ gọi create_task rồi dừng, không tự gọi thêm
+    update_task để set in_progress vì TaskCreateIn không có field status (không
+    cách nào set ngay lúc tạo) và description tool quá tối giản, không hướng
+    dẫn model gọi 2 bước. Sửa CẤU TRÚC (không chỉ vá description): thêm status
+    vào TaskCreateIn để model set đúng trạng thái NGAY trong 1 lần gọi, loại
+    bỏ khả năng quên bước 2 — không phụ thuộc model có nhớ đọc hướng dẫn hay
+    không."""
+    from app.models import TaskStatus
+
+    ws, ceo = await _ceo(db_session)
+    project = Project(workspace_id=ws.id, name="P", created_by=ceo.id)
+    db_session.add(project)
+    await db_session.flush()
+    await db_session.commit()
+
+    created = await call_tool(db_session, ceo, "create_task",
+                              {"project_id": str(project.id), "title": "Dang lam viec X",
+                               "status": "in_progress"})
+    assert created["status"] == TaskStatus.in_progress.value
+
+
+@pytest.mark.asyncio
+async def test_create_task_tool_status_mac_dinh_van_la_todo(db_session):
+    """Đối chứng: không truyền status thì vẫn mặc định todo như cũ — không đổi
+    hành vi hiện có, chỉ mở rộng thêm lựa chọn."""
+    from app.models import TaskStatus
+
+    ws, ceo = await _ceo(db_session)
+    project = Project(workspace_id=ws.id, name="P", created_by=ceo.id)
+    db_session.add(project)
+    await db_session.flush()
+    await db_session.commit()
+
+    created = await call_tool(db_session, ceo, "create_task",
+                              {"project_id": str(project.id), "title": "Task moi"})
+    assert created["status"] == TaskStatus.todo.value

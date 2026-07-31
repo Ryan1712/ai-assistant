@@ -80,14 +80,15 @@ async def _task_out(db: AsyncSession, task: Task) -> dict:
 
 async def create_task(db: AsyncSession, actor: User, *, project_id: uuid.UUID,
                       title: str, description: str = "", deadline=None,
-                      priority=None) -> dict:
+                      priority=None, status=None) -> dict:
     require_ceo(actor)
     project = await db.get(Project, project_id)
     if project is None or project.workspace_id != actor.workspace_id:
         raise HTTPException(404, "project_not_found")
     task = Task(workspace_id=actor.workspace_id, project_id=project_id, title=title,
                 description=description, deadline=deadline, created_by=actor.id,
-                **({"priority": priority} if priority else {}))
+                **({"priority": priority} if priority else {}),
+                **({"status": status} if status is not None else {}))
     db.add(task)
     await db.commit()
     return await _task_out(db, task)

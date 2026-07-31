@@ -6222,6 +6222,10 @@
           "priority": {
             "$ref": "#/components/schemas/TaskPriority",
             "default": "medium"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus",
+            "default": "todo"
           }
         },
         "type": "object",
