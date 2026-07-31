@@ -67,3 +67,15 @@ def test_prompt_hoi_lai_ngan_gon_khi_mo_ho():
     prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
     assert "ý định không rõ" in prompt
     assert "đúng một câu ngắn gọn" in prompt.lower()
+
+
+def test_prompt_cam_lo_uuid_cho_nguoi_dung():
+    """CEO báo 2026-07-31: câu trả lời lộ UUID kỹ thuật (vd "Project ID:
+    b59e00bf-8070-4dff-95b1-6e7d54139472") cho người dùng khi tạo task/project/
+    nhân viên — tool_result CẦN id để model tham chiếu ở lượt gọi tool tiếp
+    theo (vd assign_task cần task_id), nhưng KHÔNG được copy nguyên UUID đó vào
+    câu trả lời text. Prompt phải cấm rõ, cùng tinh thần với quy tắc cấm lộ tên
+    tool đã có (test_prompt_cam_lo_ten_tool_noi_bo)."""
+    prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
+    assert "UUID" in prompt
+    assert "không viết id kỹ thuật" in prompt.lower()
