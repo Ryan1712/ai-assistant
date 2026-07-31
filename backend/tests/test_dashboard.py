@@ -75,15 +75,20 @@ async def test_employee_scope_limited_to_own_tasks(client):
 
 @pytest.mark.asyncio
 async def test_basic_plan_gets_abbreviated_dashboard(client):
+    """CEO báo 2026-07-31: tạo task 'đang làm' qua AI xong reload dashboard
+    không thấy — root cause thật là in_progress bị ẩn ở gói Basic (đúng thiết
+    kế cũ funtional-plan 6.10), nhưng "Đang làm" là thông tin cơ bản NÊN hiện
+    ở mọi gói — chỉ recent_updates (tổng hợp cả đội, tính năng quản lý nâng
+    cao) mới hợp lý giữ riêng cho Advanced."""
     ceo_h, m1, e1, due_today, overdue, doing = await _setup_world(client)
     d = (await client.get("/api/v1/dashboard/today", headers=ceo_h)).json()
-    # Basic (mac dinh): van co due_today/overdue/counters/notes day du (tien ich
-    # ca nhan), nhung rut gon in_progress/recent_updates (tong hop toan doi —
-    # tinh nang gan voi "Dashboard day du" chi Advanced moi co, funtional-plan 6.10).
+    # Basic (mac dinh): due_today/overdue/counters/notes/in_progress day du (tien
+    # ich ca nhan + thong tin task co ban), chi rut gon recent_updates (tong hop
+    # toan doi — tinh nang quan ly nang cao, funtional-plan 6.10).
     assert len(d["due_today"]) == 1
     assert len(d["overdue"]) == 1
     assert d["counters"]["overdue"] == 1
-    assert d["in_progress"] == []
+    assert [t["title"] for t in d["in_progress"]] == ["Dang lam"]
     assert d["recent_updates"] == []
 
     await client.patch("/api/v1/subscription", headers=ceo_h, json={"plan": "advanced"})

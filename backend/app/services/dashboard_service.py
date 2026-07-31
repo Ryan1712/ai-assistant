@@ -79,8 +79,11 @@ async def today_dashboard(db: AsyncSession, actor: User, *, now: datetime | None
     )
     waiting_on_me = len(list(my_open.scalars()))
 
-    # Dashboard đầy đủ (in_progress + cập nhật đội) chỉ gói Advanced (funtional-plan
-    # 6.10); due_today/overdue/counters/notes là tiện ích cá nhân, luôn đầy đủ.
+    # recent_updates (tổng hợp cập nhật của cả đội) chỉ gói Advanced (funtional-plan
+    # 6.10) — tính năng quản lý nâng cao. in_progress/due_today/overdue/counters/
+    # notes là thông tin task cơ bản, luôn đầy đủ ở mọi gói (CEO báo 2026-07-31:
+    # ẩn in_progress ở Basic khiến task "đang làm" mới tạo tưởng như không cập
+    # nhật, dù dữ liệu đúng — quyết định lại: chỉ ẩn recent_updates).
     ws = await db.get(Workspace, actor.workspace_id)
     full = plans.plan_allows(ws, "full_dashboard")
 
@@ -106,7 +109,7 @@ async def today_dashboard(db: AsyncSession, actor: User, *, now: datetime | None
         "latest_note": latest_note,
         "due_today": [_task_out(t) for t in due_today],
         "overdue": [_task_out(t) for t in overdue],
-        "in_progress": [_task_out(t) for t in in_progress] if full else [],
+        "in_progress": [_task_out(t) for t in in_progress],
         "recent_updates": recent_updates if full else [],
         "notes_today": notes_today,
         "counters": {"overdue": len(overdue), "waiting_on_me": waiting_on_me,
