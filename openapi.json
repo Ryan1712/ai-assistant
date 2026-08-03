@@ -4572,7 +4572,6 @@
           "pending_action": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5101,6 +5100,18 @@
             ],
             "title": "Conversation Id"
           },
+          "chat_request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Request Id"
+          },
           "role": {
             "$ref": "#/components/schemas/MessageRole"
           },
@@ -5304,7 +5315,6 @@
             "title": "Type"
           },
           "payload": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           },
@@ -5575,12 +5585,10 @@
             "title": "Kind"
           },
           "filters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Filters"
           },
           "summary": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Summary"
           },
