@@ -8,3 +8,4 @@ __pycache__/
 backend/storage/
 .DS_Store
 .superpowers/
+.worktrees/
