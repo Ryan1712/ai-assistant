@@ -274,15 +274,17 @@ export default function Chat() {
         msgs.filter((m) => m.chat_request_id && missedIds.has(m.chat_request_id)),
       );
       setRows((prev) => {
-        const existingKeys = new Set(prev.map((r) => r.key));
-        const toAdd = newRows.filter((r) => !existingKeys.has(r.key));
-        if (toAdd.length === 0) return prev;
         // Xoá dòng "streaming" tạm của các request vừa bù (nếu còn sót do
-        // race giữa reconnect và event token cuối cùng bị lỡ).
+        // race giữa reconnect và event token cuối cùng bị lỡ) — PHẢI chạy
+        // dù message bù lại có sinh row mới hay không (vd content rỗng),
+        // nếu không dòng "đang gõ" cũ sẽ kẹt vĩnh viễn trên màn hình.
         const withoutStreaming = prev.filter(
           (r) => !(r.kind === "streaming"
                    && missedDone.some((req) => r.key === `stream-${req.id}`)),
         );
+        const existingKeys = new Set(withoutStreaming.map((r) => r.key));
+        const toAdd = newRows.filter((r) => !existingKeys.has(r.key));
+        if (toAdd.length === 0 && withoutStreaming.length === prev.length) return prev;
         return [...withoutStreaming, ...toAdd];
       });
       missedDone.forEach((r) => {
