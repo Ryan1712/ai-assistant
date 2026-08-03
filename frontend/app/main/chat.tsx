@@ -228,6 +228,10 @@ export default function Chat() {
   // Request đã thấy đang chạy/xếp hàng trong phiên này — để phát hiện failed mà
   // FE lỡ mất event request_failed (WS rớt đúng lúc).
   const watchedRequests = useRef<Set<string>>(new Set());
+  // Request đã nhận đúng event request_done qua WS trong phiên này — dùng
+  // để phát hiện request "done" mà FE CHƯA từng thấy kết quả thật (WS rớt
+  // đúng lúc route "deep" publish, xem refreshQueue bên dưới).
+  const doneSeen = useRef<Set<string>>(new Set());
   const listRef = useRef<FlatList>(null);
   const closeWs = useRef<(() => void) | null>(null);
   const suppressAutoScroll = useRef(false);
@@ -308,6 +312,7 @@ export default function Chat() {
           return next;
         });
       } else if (e.type === "request_done") {
+        doneSeen.current.add(e.chat_request_id);
         setRunningTool(null);
         streamingText.current.delete(e.chat_request_id);
         setRows((prev) =>
