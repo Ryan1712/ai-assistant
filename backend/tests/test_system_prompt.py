@@ -79,3 +79,19 @@ def test_prompt_cam_lo_uuid_cho_nguoi_dung():
     prompt = _build_system_prompt(_actor(), now=datetime(2026, 7, 19, 4, 0, tzinfo=timezone.utc))
     assert "UUID" in prompt
     assert "không viết id kỹ thuật" in prompt.lower()
+
+
+def test_prompt_cam_bia_ten_tool():
+    """Log thật 2026-08-03: model gọi 'add_member'/'create_user' (không tồn
+    tại) thay vì tool thật 'add_employee' — prompt phải cấm tường minh việc
+    suy đoán/bịa tên tool."""
+    prompt = _build_system_prompt(_actor(), now=datetime(2026, 8, 3, tzinfo=timezone.utc))
+    assert "không suy đoán/bịa tên tool" in prompt
+
+
+def test_prompt_cam_ke_lai_loi_da_tu_sua():
+    """Cùng log 2026-08-03: sau khi tool lỗi rồi tự sửa, model kể lại nguyên
+    văn quá trình lỗi/retry cho người dùng — prompt phải cấm việc này, chỉ
+    báo kết quả cuối."""
+    prompt = _build_system_prompt(_actor(), now=datetime(2026, 8, 3, tzinfo=timezone.utc))
+    assert "không kể lại việc vừa gặp lỗi" in prompt
