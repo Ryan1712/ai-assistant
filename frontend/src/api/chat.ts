@@ -74,6 +74,7 @@ export type ContentBlock =
 export type Message = {
   id: string;
   conversation_id: string | null;
+  chat_request_id: string | null;
   role: "user" | "assistant";
   content: ContentBlock[];
   voice_note_id: string | null;

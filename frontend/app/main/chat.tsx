@@ -263,6 +263,33 @@ export default function Chat() {
       });
       missedFails.forEach((r) => watchedRequests.current.delete(r.id));
     }
+    const missedDone = reqs.filter(
+      (r) => r.status === "done" && watchedRequests.current.has(r.id)
+             && !doneSeen.current.has(r.id),
+    );
+    if (missedDone.length > 0) {
+      const missedIds = new Set(missedDone.map((r) => r.id));
+      const msgs = await listMessages(cid);
+      const newRows = messagesToRows(
+        msgs.filter((m) => m.chat_request_id && missedIds.has(m.chat_request_id)),
+      );
+      setRows((prev) => {
+        const existingKeys = new Set(prev.map((r) => r.key));
+        const toAdd = newRows.filter((r) => !existingKeys.has(r.key));
+        if (toAdd.length === 0) return prev;
+        // Xoá dòng "streaming" tạm của các request vừa bù (nếu còn sót do
+        // race giữa reconnect và event token cuối cùng bị lỡ).
+        const withoutStreaming = prev.filter(
+          (r) => !(r.kind === "streaming"
+                   && missedDone.some((req) => r.key === `stream-${req.id}`)),
+        );
+        return [...withoutStreaming, ...toAdd];
+      });
+      missedDone.forEach((r) => {
+        doneSeen.current.add(r.id);
+        watchedRequests.current.delete(r.id);
+      });
+    }
     setQueue(reqs.filter(
       (r) => r.status === "queued" || r.status === "running" || r.status === "deep_running",
     ));
