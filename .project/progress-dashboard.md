@@ -1,19 +1,19 @@
 # Progress Dashboard: 
 
-**Sprint**: 1 of 1
-**Status**: 🔵 In Progress
-**Last Updated**: 2026-07-30 23:02:32
+**Sprint**: 2 of 2
+**Status**: 🟡 At Risk
+**Last Updated**: 2026-08-02 20:50:59
 
 ---
 
 ## Overall Progress
 
 ```
-[█░░░░░░░░░░░░░░░░░░░] 7% Complete
+[███████████░░░░░░░░░] 57% Complete
 
 Phase 1: Planning      [███░░░░░░░]  30% 🟠
-Phase 2: Development   [░░░░░░░░░░]   0% 🔵
-Phase 3: Testing       [░░░░░░░░░░]   0% 🔵
+Phase 2: Development   [██████████] 100% ✅
+Phase 3: Testing       [██████████] 100% ✅
 Phase 4: Deployment    [░░░░░░░░░░]   0% 🔵
 ```
 
@@ -23,9 +23,10 @@ Phase 4: Deployment    [░░░░░░░░░░]   0% 🔵
 
 | Sprint | Goal | Tasks | Status |
 |--------|------|-------|--------|
-| Sprint 1 | {One-line sprint goal - what user can do after this sprint} | 0/2 | 🔵 Not Started |
+| Sprint 1 | Giảm độ trễ cảm nhận (treo 400–800ms) khi dùng màn chat — bỏ chặn embedding phía BE và cắt re-render/scroll thừa phía FE, KHÔNG đổi hành vi/API. | 4/4 | ✅ Complete |
+| Sprint 2 | {One-line sprint goal - what user can do after this sprint} | 0/2 | 🔵 Not Started |
 
-**Velocity**: 0% average
+**Velocity**: 66% average
 
 ---
 
@@ -33,9 +34,10 @@ Phase 4: Deployment    [░░░░░░░░░░]   0% 🔵
 
 | Sprint | Completed | Total | Progress |
 |--------|-----------|-------|----------|
-| Sprint 1 | 0 | 2 | 0% |
+| Sprint 1 | 4 | 4 | 100% |
+| Sprint 2 | 0 | 2 | 0% |
 
-**Total**: 0/2 tasks (0%)
+**Total**: 4/6 tasks (66%)
 
 ---
 
@@ -45,10 +47,11 @@ Phase 4: Deployment    [░░░░░░░░░░]   0% 🔵
 Story Points Remaining
 
   0 | (S1)
+  0 | (S2)
   0 |_______________
 ```
 
-**Total**: 0 | **Completed**: 0 | **Remaining**: 0
+**Total**: 9 | **Completed**: 9 | **Remaining**: 0
 
 ---
 
@@ -56,7 +59,10 @@ Story Points Remaining
 
 | Specialist | Current Task | Status |
 |------------|--------------|--------|
-| (No active specialists) | - | - |
+| expo-mobile-lead | Cắt re-render và scroll thừa khi AI streaming token | ✅ Done |
+| fastapi-backend-lead | Bỏ chặn embedding trong luồng gửi tin nhắn chat | ✅ Done |
+| vfm-agent-company:google-code-reviewer | Code Review Sprint 1 Perf Quick Wins | ✅ Done |
+| vfm-agent-company:google-qa-engineer | Regression Verification — Sprint 1 Perf Quick Wins | 🟢 Available |
 
 ---
 
@@ -66,8 +72,9 @@ Story Points Remaining
 |-----------|--------|
 | Requirements | ✅ Done |
 | Architecture | ✅ Done |
-| Sprint 1 | 🔵 Not Started |
-| Testing | 🔵 0% |
+| Sprint 1 | ✅ Complete |
+| Sprint 2 | 🔵 Not Started |
+| Testing | ✅ 100% |
 | Deployment | 🔵 0% |
 
 ---
@@ -75,13 +82,13 @@ Story Points Remaining
 ## Highlights
 
 ### Completed
-- (none yet)
+- ✅ Sprint 1: Giảm độ trễ cảm nhận (treo 400–800ms) khi dùng màn chat — bỏ chặn embedding phía BE và cắt re-render/scroll thừa phía FE, KHÔNG đổi hành vi/API.
 
 ### In Progress
 - (none)
 
 ### Next Up
-- 🔵 Sprint 1: {One-line sprint goal - what user can do after this sprint}
+- 🔵 Sprint 2: {One-line sprint goal - what user can do after this sprint}
 
 ---
 

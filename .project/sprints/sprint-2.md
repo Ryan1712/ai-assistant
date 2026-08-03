@@ -1,9 +1,10 @@
-# Sprint 1: Perf Quick Wins - Chat Latency
+# Sprint 2: New Chat Entry + Global FAB
 
-**Sprint**: 1 of 1
-**Duration**: 2026-07-30 (single-day quick-win sprint)
-**Goal**: Giảm độ trễ cảm nhận ("treo" 400–800ms) khi dùng màn chat — bỏ chặn embedding phía BE và cắt re-render/scroll thừa phía FE, KHÔNG đổi hành vi/API.
+**Sprint**: 2 of 2
+**Duration**: 2026-08-02 (single-day feature-change sprint)
+**Goal**: Người dùng luôn có lối vào "Cuộc trò chuyện mới": một entry rõ ràng trong drawer + một Floating Action Button ở góc phải-dưới trên MỌI màn không phải Chat; bấm vào mở một cuộc chat mới trống.
 **Status**: COMPLETE
+**Type**: Feature Change (BDD required)
 
 ---
 
@@ -14,50 +15,66 @@ DETAILED SECTIONS: Human-readable task breakdown
 Each task has deliverables, acceptance criteria, and time tracking
 -->
 
-### Task 1.1: Bỏ chặn embedding trong luồng send_message [Backend]
+### Task 2.S: BDD Scenarios — New Chat entry + Global FAB [QA]
+**Status**: [COMPLETE] (user approved 2026-08-02)
+**Story Points**: 1
+**Wireframe**: -
+
+**Deliverables**:
+- [ ] `.project/scenarios/sprint-2/new-chat-fab.feature`
+
+**Acceptance Criteria**:
+- [ ] Scenario mô tả entry "Cuộc trò chuyện mới" trong drawer
+- [ ] Scenario mô tả FAB hiện trên mọi màn KHÔNG phải Chat, ẩn trên Chat
+- [ ] Scenario mô tả bấm FAB/entry → mở Chat mới trống
+- [ ] **User đã duyệt** scenarios
+
+---
+
+### Task 2.1: New Chat drawer entry + Global New-Chat FAB [Frontend]
 **Status**: [COMPLETE]
-**Estimated**: 2 hours | **Actual**: ~1 hour
+**Estimated**: 3 hours | **Actual**: 2 hours
 **Story Points**: 3
 **Wireframe**: -
 
 **Deliverables**:
-- [x] `backend/app/agent/worker.py` — arq job `index_chat_message`
-- [x] `backend/app/api/chat.py` — enqueue_job thay vì await đồng bộ
-- [x] Tests: test_chat_api.py, test_embedding_service.py, test_worker.py
+- [ ] `frontend/src/ui/NewChatFab.tsx` — component FAB dùng chung (tokens từ theme.ts)
+- [ ] `frontend/src/navigation/DrawerContent.tsx` — thêm entry "Cuộc trò chuyện mới" ở đầu drawer
+- [ ] Wiring FAB global: render 1 lần trong `MainNavigator`/`RootNavigator`, tự ẩn khi route đang active là `Chat`, dựa trên navigation state (không nhét FAB vào từng screen)
+- [ ] Unit test cho NewChatFab (visibility theo route + onPress điều hướng)
 
 **Acceptance Criteria**:
-- [x] `send_message` không còn await Voyage AI trong đường xử lý request
-- [x] Embedding vẫn xảy ra (arq job chạy nền với session riêng)
-- [x] Lỗi embedding vẫn nuốt, không phá gửi tin
-- [x] API contract không đổi (response schema/status y hệt)
-- [x] 825 tests PASS, 0 failed
+- [ ] Drawer có nút "Cuộc trò chuyện mới" nổi bật; bấm → navigate `Chat` không kèm `id` + đóng drawer
+- [ ] FAB hiển thị góc phải-dưới trên MỌI màn khác Chat (Dashboard, Công việc, Cài đặt + các màn push: Team, Notes, Conversations, ...)
+- [ ] FAB KHÔNG hiển thị khi đang ở màn Chat
+- [ ] Bấm FAB → mở Chat với cuộc trò chuyện mới trống (navigate `Chat`, không `id`)
+- [ ] Không inline hex/spacing lệch grid — dùng tokens `src/ui/theme.ts`; tôn trọng safe-area insets
+- [ ] `npx tsc --noEmit` sạch; jest GREEN
 
-**Notes**: Chọn option (a) arq job vì index_content ghi DB. Job mở session riêng qua ctx["session_factory"], khớp pattern repo (transcribe_voice_note, run_deep_analysis). Không cần export_openapi.py.
+**Notes**: FAB dùng chung được đặt ở tầng navigator để "global". Đọc `DESIGN.md` + `theme.ts` trước khi code. Điều hướng từ màn push (stack) về Chat: `navigation.navigate("Drawer", { screen: "Chat" })`; từ màn drawer: `navigation.navigate("Chat")`.
 
 ---
 
-### Task 1.2: Fix: React.memo renderItem/renderRow + throttle scrollToEnd ở màn chat [Frontend]
+### Task 2.R: Code Review [Code Review]
 **Status**: [COMPLETE]
-**Estimated**: 3 hours | **Actual**: ~2 hours
-**Story Points**: 3
+**Story Points**: 1
 **Wireframe**: -
 
-**Deliverables**:
-- [x] `frontend/app/main/ChatRow.tsx` — React.memo component cho 6 loại row
-- [x] `frontend/app/main/chatTypes.ts` — kiểu Row dùng chung, tránh circular import
-- [x] `frontend/app/main/chat.tsx` — useCallback handlers + throttle scrollToEnd 100ms
-- [x] `frontend/__tests__/ChatRow.test.tsx` — 9 test XANH
-
 **Acceptance Criteria**:
-- [x] Chỉ streaming row re-render khi nhận token mới
-- [x] scrollToEnd throttle 100ms + trailing call, không bỏ sót cuộn cuối
-- [x] Không đổi hành vi/API/UI
-- [x] 9/9 jest tests PASS
-- [x] npx tsc --noEmit sạch lỗi
+- [ ] LGTM từ google-code-reviewer (đúng tokens, không regress UX, đúng RN/Expo patterns)
 
 ---
 
-<!-- Add more tasks as needed -->
+### Task 2.Q: QA Verification [QA]
+**Status**: [COMPLETE]
+**Story Points**: 1
+**Wireframe**: -
+
+**Acceptance Criteria**:
+- [ ] tsc + jest GREEN, không regress
+- [ ] Scenarios 2.S thỏa mãn (verify hành vi hiển thị/ẩn FAB + điều hướng)
+
+---
 
 ---
 
@@ -76,10 +93,10 @@ DO NOT change column order! Scripts depend on exact format.
 
 | ID | Task | Points | Status | Assignee | Wireframe |
 |----|------|--------|--------|----------|-----------|
-| 1.1 | Fix: đẩy Voyage embedding ra khỏi luồng send_message (không await trong request) | 3 | [COMPLETE] | Backend | - |
-| 1.2 | Fix: React.memo renderItem/renderRow + throttle scrollToEnd ở màn chat | 3 | [COMPLETE] | Frontend | - |
-| 1.R | Code Review (google-code-reviewer) | 1 | [COMPLETE] | QA | - |
-| 1.Q | QA Verification (backend pytest + FE jest, regression, no API contract change) | 2 | [COMPLETE] | QA | - |
+| 2.S | BDD Scenarios: New chat entry + FAB | 1 | [COMPLETE] | QA | - |
+| 2.1 | New chat drawer entry + global FAB | 3 | [COMPLETE] | Frontend | - |
+| 2.R | Code Review | 1 | [COMPLETE] | QA | - |
+| 2.Q | QA Verification | 1 | [COMPLETE] | QA | - |
 
 ---
 
@@ -110,9 +127,9 @@ NOT generic checkboxes - actual testable outcomes
 -->
 
 ### Functional Criteria
-- [ ] {Specific feature works: e.g., "User can view family tree with 50+ nodes"}
-- [ ] {Another feature: e.g., "Clicking node opens detail panel"}
-- [ ] {Another feature: e.g., "Zoom in/out works with mouse wheel"}
+- [x] Drawer có entry "Cuộc trò chuyện mới" → mở Chat mới trống + đóng drawer
+- [x] FAB góc phải-dưới hiển thị trên MỌI màn khác Chat, ẩn trên Chat
+- [x] Bấm FAB → mở Chat mới trống (navigate `Chat`, không `id`); tôn trọng safe-area
 
 ### Technical Criteria
 - [ ] All tasks marked [COMPLETE] in Sprint Backlog
@@ -135,7 +152,7 @@ NOTE: Use "Task X.Y" format (not bare "X.Y") to avoid false parsing by progress 
 
 | Dependency | Reason | Status |
 |------------|--------|--------|
-| Task 1.X → {M}.Y | {Why dependency exists} | Resolved / Pending |
+| Task 2.X → {M}.Y | {Why dependency exists} | Resolved / Pending |
 
 ---
 
