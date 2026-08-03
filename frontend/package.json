@@ -35,11 +35,13 @@
     "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
-    "react-native-web": "^0.21.2"
+    "react-native-reanimated": "4.5.0",
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "^0.10.0"
   },
   "overrides": {
-    "react-native-worklets": "0.10.0",
-    "react-native-reanimated": "4.5.0"
+    "react-native-worklets": "$react-native-worklets",
+    "react-native-reanimated": "$react-native-reanimated"
   },
   "devDependencies": {
     "@expo/ngrok": "^4.1.3",
