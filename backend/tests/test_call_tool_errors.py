@@ -27,3 +27,15 @@ async def test_loi_bat_ngo_trong_handler_thanh_tool_result(actor, monkeypatch):
     result = await call_tool(None, actor, "boom_tool", {})
     assert result["error"] == "tool_failed"
     assert "something exploded" in result["message"]
+
+
+async def test_ten_tool_sai_gan_dung_goi_y_candidate_that(actor):
+    result = await call_tool(None, actor, "add_member", {})
+    assert result["error"] == "not_found"
+    assert "add_employee" in result["candidates"]
+
+
+async def test_ten_tool_sai_hoan_toan_khong_co_candidate(actor):
+    result = await call_tool(None, actor, "xyz_khong_lien_quan_gi_ca", {})
+    assert result["error"] == "not_found"
+    assert result["candidates"] == []

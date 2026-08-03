@@ -22,6 +22,7 @@ from app.services import (
     report_schedule_service, report_service, resolver_service, search_service, skill_service,
     voice_service, work_service,
 )
+from app.services.fuzzy_match import trigram_similarity
 
 
 @dataclass
@@ -61,10 +62,29 @@ _ERROR_HINTS = {
 }
 
 
+_TOOL_NAME_HINT_THRESHOLD = 0.2
+_TOOL_NAME_HINT_MAX = 3
+
+
+def _tool_name_candidates(tool_name: str) -> list[str]:
+    """Gợi ý tên tool thật gần giống — CHỈ để model đọc và tự chọn gọi lại,
+    KHÔNG dùng để auto-redirect (trigram không phân biệt được create_task/
+    delete_task về mặt AN TOÀN dữ liệu — xem spec 2026-08-03)."""
+    scored = [(name, trigram_similarity(tool_name, name)) for name in TOOLS]
+    scored = [(name, s) for name, s in scored if s >= _TOOL_NAME_HINT_THRESHOLD]
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    return [name for name, _ in scored[:_TOOL_NAME_HINT_MAX]]
+
+
 async def call_tool(db: AsyncSession, actor: User, tool_name: str, tool_input: dict) -> dict:
     """Gọi 1 tool theo tên; lỗi service (HTTPException) bọc thành tool_result lỗi, không raise ra ngoài."""
     if tool_name not in TOOLS:
-        return {"error": "not_found", "hint": f"Tool '{tool_name}' không tồn tại — gọi lại với tên tool đúng."}
+        candidates = _tool_name_candidates(tool_name)
+        hint = (f"Tool '{tool_name}' không tồn tại — có thể bạn muốn gọi 1 trong: "
+                f"{', '.join(candidates)}. Kiểm tra đúng tên trong danh sách tools trước khi gọi."
+                if candidates else
+                f"Tool '{tool_name}' không tồn tại — gọi lại với tên tool đúng.")
+        return {"error": "not_found", "hint": hint, "candidates": candidates}
     spec = TOOLS[tool_name]
     try:
         parsed = spec.input_model(**tool_input)
