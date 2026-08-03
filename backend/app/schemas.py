@@ -420,6 +420,7 @@ class ChatRequestOut(BaseModel):
 class MessageOut(BaseModel):
     id: uuid.UUID
     conversation_id: uuid.UUID | None = None
+    chat_request_id: uuid.UUID | None = None
     role: MessageRole
     content: list
     voice_note_id: uuid.UUID | None = None
