@@ -5,7 +5,7 @@ import { DrawerContentComponentProps, useDrawerStatus } from "@react-navigation/
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Conversation, listConversations } from "../api/chat";
 import { useAuth } from "../auth/AuthContext";
-import { colors, fonts, radius, spacing } from "../ui/theme";
+import { colors, fonts, radius, spacing, type } from "../ui/theme";
 
 const MENU: { label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { label: "Chat", icon: "chatbubble-ellipses-outline", route: "Chat" },
@@ -45,6 +45,18 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
       {/* Nhóm menu trên */}
       <View style={{ paddingTop: insets.top + spacing.md, paddingHorizontal: spacing.sm }}>
         <Text style={styles.brand}>Trợ lý AI</Text>
+
+        {/* Nút "Cuộc trò chuyện mới" — nổi bật, đặt trên nhóm menu */}
+        <TouchableOpacity
+          style={styles.newChatBtn}
+          onPress={() => openChat()}
+          accessibilityLabel="Cuộc trò chuyện mới"
+          accessibilityRole="button"
+        >
+          <Ionicons name="add" size={20} color={colors.onPrimary} />
+          <Text style={styles.newChatBtnLabel}>Cuộc trò chuyện mới</Text>
+        </TouchableOpacity>
+
         {MENU.map((m) => {
           const active = activeRoute === m.route;
           return (
@@ -131,6 +143,21 @@ const styles = StyleSheet.create({
   recentText: { color: colors.text, fontFamily: fonts.regular, fontSize: 15 },
   seeAllRow: { paddingVertical: spacing.md, paddingHorizontal: spacing.md },
   seeAll: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 14 },
+  newChatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    marginHorizontal: spacing.xs,
+  },
+  newChatBtnLabel: {
+    ...type.bodyStrong,
+    color: colors.onPrimary,
+  },
   bottomBar: {
     flexDirection: "row",
     alignItems: "center",

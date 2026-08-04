@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.agent.llm_client import FakeLLMClient, StreamDone, TextDelta
@@ -1270,6 +1271,45 @@ def test_worker_settings_registers_run_deep_analysis_with_extended_timeout():
     assert entry is not None, "run_deep_analysis chưa đăng ký trong WorkerSettings.functions"
     assert entry.coroutine is run_deep_analysis
     assert entry.timeout_s == 900
+
+
+@pytest.mark.asyncio
+async def test_index_chat_message_job_tao_embedding_voi_session_rieng(engine, db_session):
+    """Sprint 1 Task 1.1: job arq index_chat_message phải mở session riêng (không
+    dùng session của request đã đóng) và gọi index_content để tạo row Embedding."""
+    from app.agent.worker import index_chat_message
+    from app.models import Embedding
+
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db_session.add(ceo)
+    await db_session.flush()
+    await db_session.commit()
+
+    source_id = uuid.uuid4()
+    content = "Nho tuan sau ky hop dong voi doi tac XYZ"
+
+    ctx = {"session_factory": async_sessionmaker(engine, expire_on_commit=False)}
+
+    await index_chat_message(ctx, ws.id, source_id, content)
+
+    rows = (await db_session.execute(
+        select(Embedding).where(Embedding.source_id == source_id)
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].source_type == "chat_message"
+    assert rows[0].workspace_id == ws.id
+    assert rows[0].content == content
+
+
+def test_worker_settings_dang_ky_index_chat_message():
+    """Sprint 1 Task 1.1: index_chat_message phải có trong WorkerSettings.functions."""
+    from app.agent.worker import index_chat_message
+
+    assert index_chat_message in WorkerSettings.functions
 
 
 def test_worker_settings_khong_con_cron_retitle_conversations():

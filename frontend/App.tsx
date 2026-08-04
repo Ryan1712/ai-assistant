@@ -15,6 +15,7 @@ import {
 } from "@expo-google-fonts/inter";
 import { AuthProvider } from "./src/auth/AuthContext";
 import { RootNavigator } from "./src/navigation/RootNavigator";
+import { navigationRef } from "./src/navigation/navigationRef";
 import { applyGlobalFont } from "./src/ui/globalFont";
 import { colors } from "./src/ui/theme";
 
@@ -44,7 +45,7 @@ export default function App() {
         <KeyboardProvider>
           <AuthProvider>
             <StatusBar style="dark" />
-            <NavigationContainer>
+            <NavigationContainer ref={navigationRef}>
               <RootNavigator />
             </NavigationContainer>
           </AuthProvider>

@@ -94,10 +94,40 @@ async def test_send_message_enqueues_job_and_creates_queued_request(chat_client)
                              json={"content": "tao task X"})
     assert resp.status_code == 201
     assert resp.json()["status"] == "queued"
-    assert len(fake_pool.enqueued) == 1
-    name, args, kwargs = fake_pool.enqueued[0]
-    assert name == "process_conversation"
-    assert kwargs["_job_id"] == f"conv:{conv['id']}"
+    # Phải có đúng 2 jobs: index_chat_message (embedding nền) + process_conversation (AI)
+    job_names = [name for name, _args, _kw in fake_pool.enqueued]
+    assert "index_chat_message" in job_names
+    assert "process_conversation" in job_names
+    proc_job = next(j for j in fake_pool.enqueued if j[0] == "process_conversation")
+    assert proc_job[2]["_job_id"] == f"conv:{conv['id']}"
+
+
+@pytest.mark.asyncio
+async def test_send_message_khong_await_embedding_dong_bo(chat_client, monkeypatch):
+    """Chứng minh send_message không còn await index_content đồng bộ — embedding
+    được enqueue vào arq, kể cả khi index_content sẽ treo/lỗi thì response vẫn
+    trả 201 ngay lập tức và job index_chat_message vẫn được enqueue."""
+    import asyncio
+    from app.services import embedding_service
+
+    async def _buoc_treo_va_no(*args, **kwargs):
+        # Nếu endpoint còn await trực tiếp, test sẽ treo ≥ 10s / raise RuntimeError
+        await asyncio.sleep(10)
+        raise RuntimeError("Voyage down — không được gọi trực tiếp trong request")
+
+    monkeypatch.setattr(embedding_service, "index_content", _buoc_treo_va_no)
+
+    client, fake_pool = chat_client
+    ceo_h = await _ceo_headers(client)
+    conv = (await client.post("/api/v1/conversations", headers=ceo_h, json={})).json()
+
+    resp = await client.post(f"/api/v1/conversations/{conv['id']}/messages", headers=ceo_h,
+                             json={"content": "test khong chặn embedding"})
+    # Phải trả ngay 201 — index_content không được await trong đường xử lý request
+    assert resp.status_code == 201
+    # Job embedding vẫn được enqueue (sẽ chạy trong worker riêng)
+    job_names = [name for name, _args, _kw in fake_pool.enqueued]
+    assert "index_chat_message" in job_names
 
 
 @pytest.mark.asyncio
