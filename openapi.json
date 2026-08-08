@@ -3752,6 +3752,7 @@
           "chat"
         ],
         "summary": "Rename Conversation",
+        "description": "PO #2: c\u00f9ng route nh\u1eadn C\u1ea2 title l\u1eabn project_id (spec \u00a7Backend m\u1ee5c 2) --\n\"rename\" trong t\u00ean h\u00e0m gi\u1eef nguy\u00ean \u0111\u1ec3 kh\u00f4ng \u0111\u1ed5i route path, d\u00f9 gi\u1edd l\u00e0m\nnhi\u1ec1u h\u01a1n \u0111\u1ed5i t\u00ean.",
         "operationId": "rename_conversation_api_v1_conversations__conversation_id__patch",
         "security": [
           {
@@ -4724,6 +4725,29 @@
             ],
             "title": "Title"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
           "queue_held": {
             "type": "boolean",
             "title": "Queue Held",
@@ -4758,15 +4782,32 @@
       "ConversationRenameIn": {
         "properties": {
           "title": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Title"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           }
         },
         "type": "object",
-        "required": [
-          "title"
-        ],
-        "title": "ConversationRenameIn"
+        "title": "ConversationRenameIn",
+        "description": "PO #2: m\u1edf r\u1ed9ng nh\u1eadn project_id c\u00f9ng payload \u0111\u1ed5i t\u00ean, kh\u00f4ng t\u00e1ch route\nri\u00eang (spec \u00a7Backend m\u1ee5c 2). title=None ngh\u0129a l\u00e0 \"kh\u00f4ng \u0111\u1ed5i t\u00ean\"; project_id\nd\u00f9ng model_fields_set (xem route rename_conversation) \u0111\u1ec3 ph\u00e2n bi\u1ec7t \"kh\u00f4ng\ng\u1eedi field n\u00e0y\" (gi\u1eef nguy\u00ean) v\u1edbi \"g\u1eedi project_id=null\" (g\u1ee1 project)."
       },
       "CreateDirectiveIn": {
         "properties": {

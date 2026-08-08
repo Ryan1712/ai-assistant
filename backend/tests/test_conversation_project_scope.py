@@ -92,3 +92,20 @@ async def test_patch_conversation_rejects_project_from_other_workspace(client):
     resp = await client.patch(f"/api/v1/conversations/{conv['id']}",
                               json={"project_id": fake_project_id}, headers=ceo_h)
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_includes_project_name(client):
+    ceo_h = await _ceo_headers(client)
+    proj = (await client.post("/api/v1/projects", json={"name": "P1", "goal": "g"},
+                              headers=ceo_h)).json()
+    conv = (await client.get("/api/v1/conversations/active", headers=ceo_h)).json()
+    await client.patch(f"/api/v1/conversations/{conv['id']}",
+                       json={"project_id": proj["id"]}, headers=ceo_h)
+
+    listed = (await client.get("/api/v1/conversations", headers=ceo_h)).json()
+    found = next(c for c in listed if c["id"] == conv["id"])
+    assert found["project_name"] == "P1"
+
+    active = (await client.get("/api/v1/conversations/active", headers=ceo_h)).json()
+    assert active["project_name"] == "P1"

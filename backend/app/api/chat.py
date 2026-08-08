@@ -93,7 +93,7 @@ async def create_conversation(body: ConversationCreateIn,
                         title_locked=body.title is not None)
     db.add(conv)
     await db.commit()
-    return conv
+    return await _conversation_out(db, conv)
 
 
 @router.get("", response_model=list[ConversationOut])
@@ -102,7 +102,7 @@ async def list_conversations(actor: User = Depends(get_current_user),
     rows = await db.execute(select(Conversation).where(
         Conversation.workspace_id == actor.workspace_id, Conversation.user_id == actor.id,
     ).order_by(Conversation.created_at.desc()))
-    return list(rows.scalars())
+    return [await _conversation_out(db, c) for c in rows.scalars()]
 
 
 @router.get("/active", response_model=ConversationOut)
@@ -113,7 +113,7 @@ async def active_conversation(actor: User = Depends(get_current_user),
     # không dựng client thật, nên test /active không cần ANTHROPIC_API_KEY.
     conv = await session_service.get_or_rotate_active_conversation(
         db, actor, get_llm_client)
-    return conv
+    return await _conversation_out(db, conv)
 
 
 @router.get("/timeline", response_model=list[MessageOut])
