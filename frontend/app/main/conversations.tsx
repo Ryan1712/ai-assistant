@@ -15,8 +15,9 @@ import {
   Conversation,
   deleteConversation,
   listConversations,
-  renameConversation,
+  updateConversation,
 } from "../../src/api/chat";
+import { listProjects, Project } from "../../src/api/projects";
 import { BackHeader } from "../../src/ui/BackHeader";
 import { ErrorText, Field } from "../../src/ui/form";
 import { colors, fonts, radius, shadow, spacing, type } from "../../src/ui/theme";
@@ -81,6 +82,11 @@ function ConversationRow({
             {new Date(c.created_at).toLocaleString("vi-VN")}
             {c.queue_held ? " — ⏸ có việc dang dở" : ""}
           </Text>
+          {c.project_name && (
+            <Text style={styles.projectBadge} numberOfLines={1}>
+              📁 {c.project_name}
+            </Text>
+          )}
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
       </TouchableOpacity>
@@ -94,11 +100,13 @@ export default function Conversations() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
-  // Modal sửa tên
+  // Modal sửa tên + gắn project
   const [editing, setEditing] = useState<Conversation | null>(null);
   const [draft, setDraft] = useState("");
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[] | null>(null);
 
   useEffect(() => {
     listConversations()
@@ -106,8 +114,15 @@ export default function Conversations() {
       .catch((e: any) => setError(String(e?.message ?? e)));
   }, []);
 
+  useEffect(() => {
+    listProjects()
+      .then(setProjects)
+      .catch(() => setProjects([]));
+  }, []);
+
   const openEdit = (c: Conversation) => {
     setDraft(c.title ?? "");
+    setDraftProjectId(c.project_id ?? null);
     setEditError(null);
     setEditing(c);
   };
@@ -119,9 +134,12 @@ export default function Conversations() {
     setEditBusy(true);
     setEditError(null);
     try {
-      await renameConversation(editing.id, title);
+      const updated = await updateConversation(editing.id, {
+        title,
+        project_id: draftProjectId,
+      });
       setConversations((prev) =>
-        prev ? prev.map((x) => (x.id === editing.id ? { ...x, title } : x)) : prev,
+        prev ? prev.map((x) => (x.id === editing.id ? updated : x)) : prev,
       );
       setEditing(null);
     } catch (e: any) {
@@ -200,6 +218,44 @@ export default function Conversations() {
               placeholder="Tên cuộc trò chuyện"
               style={{ marginBottom: spacing.sm }}
             />
+            <Text style={styles.pickerLabel}>Project (tùy chọn)</Text>
+            <View style={styles.projectChips}>
+              <TouchableOpacity
+                style={[
+                  styles.projectChip,
+                  draftProjectId === null && styles.projectChipActive,
+                ]}
+                onPress={() => setDraftProjectId(null)}
+              >
+                <Text
+                  style={[
+                    styles.projectChipText,
+                    draftProjectId === null && styles.projectChipTextActive,
+                  ]}
+                >
+                  Không gắn
+                </Text>
+              </TouchableOpacity>
+              {(projects ?? []).map((p) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[
+                    styles.projectChip,
+                    draftProjectId === p.id && styles.projectChipActive,
+                  ]}
+                  onPress={() => setDraftProjectId(p.id)}
+                >
+                  <Text
+                    style={[
+                      styles.projectChipText,
+                      draftProjectId === p.id && styles.projectChipTextActive,
+                    ]}
+                  >
+                    {p.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <ErrorText error={editError} />
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -244,6 +300,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   meta: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
+  projectBadge: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   empty: { color: colors.textMuted, textAlign: "center", marginTop: spacing.xl },
 
   // Nút lộ ra khi swipe
@@ -267,6 +324,38 @@ const styles = StyleSheet.create({
     ...shadow.card,
   },
   modalTitle: { fontFamily: fonts.bold, fontSize: 18, color: colors.text, marginBottom: spacing.md },
+  pickerLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  projectChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  projectChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+  },
+  projectChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  projectChipText: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  projectChipTextActive: {
+    color: colors.onPrimary,
+  },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm, marginTop: spacing.xs },
   modalCancel: {
     paddingHorizontal: spacing.lg,

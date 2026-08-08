@@ -3,6 +3,8 @@ import { apiFetch } from "./client";
 export type Conversation = {
   id: string;
   title: string | null;
+  project_id: string | null;
+  project_name: string | null;
   queue_held: boolean;
   archived_at: string | null;
   created_at: string;
@@ -88,10 +90,13 @@ export const listConversations = () =>
 export const createConversation = (title?: string) =>
   apiFetch<Conversation>("/api/v1/conversations", { method: "POST", body: { title } });
 
-export const renameConversation = (conversationId: string, title: string) =>
+export const updateConversation = (
+  conversationId: string,
+  body: { title?: string; project_id?: string | null },
+) =>
   apiFetch<Conversation>(`/api/v1/conversations/${conversationId}`, {
     method: "PATCH",
-    body: { title },
+    body,
   });
 
 export const deleteConversation = (conversationId: string) =>

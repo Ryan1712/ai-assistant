@@ -178,7 +178,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, textAlign: "center", fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
+  headerTitleGroup: { flex: 1, alignItems: "center" },
+  headerTitle: { textAlign: "center", fontFamily: fonts.semibold, fontSize: 16, color: colors.text },
+  headerProjectBadge: { textAlign: "center", fontSize: 12, color: colors.textSecondary, marginTop: 1 },
 
   listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, gap: spacing.lg },
 
@@ -345,6 +347,7 @@ export default function Chat() {
   }, []);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
+  const [conversationProjectName, setConversationProjectName] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [queue, setQueue] = useState<ChatRequest[]>([]);
   const [held, setHeld] = useState(false);
@@ -562,6 +565,7 @@ export default function Chat() {
     setQueue([]);
     setHeld(false);
     setConversationTitle(null);
+    setConversationProjectName(null);
     setArchived(false);
     setOlderCursor(null);
     setHasMoreOlder(false);
@@ -577,6 +581,7 @@ export default function Chat() {
           if (!conv) throw new Error("Không tìm thấy cuộc trò chuyện này");
           convId = conv.id;
           setConversationTitle(conv.title);
+          setConversationProjectName(conv.project_name);
           setArchived(conv.archived_at != null);
           setHeld(conv.queue_held);
           const msgs = await listMessages(convId);
@@ -588,6 +593,7 @@ export default function Chat() {
           const active = await getActiveConversation();
           convId = active.id;
           setConversationTitle(active.title);
+          setConversationProjectName(active.project_name);
           setArchived(false);
           setHeld(active.queue_held);
           const LIMIT = 50;
@@ -808,9 +814,16 @@ export default function Chat() {
         >
           <Ionicons name="menu-outline" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {conversationTitle || "Trợ lý AI"}
-        </Text>
+        <View style={styles.headerTitleGroup}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {conversationTitle || "Trợ lý AI"}
+          </Text>
+          {conversationProjectName && (
+            <Text style={styles.headerProjectBadge} numberOfLines={1}>
+              📁 {conversationProjectName}
+            </Text>
+          )}
+        </View>
         {historyMode ? (
           <TouchableOpacity
             style={styles.headerBtn}

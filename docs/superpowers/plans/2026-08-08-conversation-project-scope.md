@@ -31,16 +31,23 @@
 **Interfaces:**
 - Produces: `Conversation.project_id: uuid.UUID | None` — dùng ở Task 2 (schema), Task 3 (API), Task 4 (system prompt).
 
-- [ ] **Step 1: Viết test thất bại xác nhận cột `project_id` tồn tại và `ondelete=SET NULL` hoạt động**
+- [ ] **Step 1: Viết test thất bại xác nhận cột `project_id` tồn tại (mặc định None)**
 
 ```python
 # backend/tests/test_conversation_project_scope.py
+"""PO #2 (2026-08-08): gắn project cho conversation đang mở. Xem
+docs/superpowers/specs/2026-08-05-conversation-project-scope-design.md.
+
+Hành vi ON DELETE SET NULL KHÔNG có test tự động ở tầng model — đã thử bật
+PRAGMA foreign_keys=ON cho SQLite test nhưng lộ ra 32 test KHÁC trong suite
+đang dùng workspace_id/user_id ngẫu nhiên (không tạo record thật), sửa hết là
+việc lớn ngoài phạm vi. Hành vi SET NULL xác nhận qua migration Alembic áp
+lên Postgres dev thật (Step 5-6) — Postgres luôn enforce FK, đủ tin cậy."""
 import uuid
 
 import pytest
-from sqlalchemy import select
 
-from app.models import Conversation, Project
+from app.models import Conversation
 
 
 async def _mk_conv(db, project_id=None):
@@ -55,22 +62,6 @@ async def _mk_conv(db, project_id=None):
 async def test_conversation_project_id_nullable_default_none(db_session):
     conv, _ = await _mk_conv(db_session)
     await db_session.commit()
-    assert conv.project_id is None
-
-
-@pytest.mark.asyncio
-async def test_conversation_project_id_set_null_when_project_deleted(db_session):
-    ws = uuid.uuid4()
-    project = Project(workspace_id=ws, name="P1", goal="")
-    db_session.add(project)
-    await db_session.flush()
-    conv = Conversation(workspace_id=ws, user_id=uuid.uuid4(), project_id=project.id)
-    db_session.add(conv)
-    await db_session.commit()
-
-    await db_session.delete(project)
-    await db_session.commit()
-    await db_session.refresh(conv)
     assert conv.project_id is None
 ```
 
@@ -99,7 +90,7 @@ Trong `backend/app/models.py`, class `Conversation`, thêm sau dòng `user_id`:
 - [ ] **Step 4: Chạy test, xác nhận PASS**
 
 Run: `cd backend && python -m pytest tests/test_conversation_project_scope.py -v`
-Expected: PASS cả 2 test.
+Expected: PASS.
 
 - [ ] **Step 5: Sinh migration Alembic**
 
