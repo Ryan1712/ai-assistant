@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Keyboard,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -334,8 +335,10 @@ export default function Chat() {
   const insets = useSafeAreaInsets();
   const [kbVisible, setKbVisible] = useState(false);
   useEffect(() => {
-    const s = Keyboard.addListener("keyboardWillShow", () => setKbVisible(true));
-    const h = Keyboard.addListener("keyboardWillHide", () => setKbVisible(false));
+    const showEvt = Platform.OS === "android" ? "keyboardDidShow" : "keyboardWillShow";
+    const hideEvt = Platform.OS === "android" ? "keyboardDidHide" : "keyboardWillHide";
+    const s = Keyboard.addListener(showEvt, () => setKbVisible(true));
+    const h = Keyboard.addListener(hideEvt, () => setKbVisible(false));
     return () => {
       s.remove();
       h.remove();
@@ -570,6 +573,10 @@ export default function Chat() {
     setOlderCursor(null);
     setHasMoreOlder(false);
     closeWs.current?.();
+    contentByRequest.current.clear();
+    watchedRequests.current.clear();
+    doneSeen.current.clear();
+    streamingText.current.clear();
     (async () => {
       try {
         let convId: string;
@@ -616,6 +623,11 @@ export default function Chat() {
           () => refreshQueue(convId),
           () => setActionError("Mất kết nối realtime (phiên hết hạn) — kéo xuống để tải lại."),
         );
+        if (cancelled) {
+          closeWs.current();
+          closeWs.current = null;
+          return;
+        }
       } catch (e: any) {
         if (!cancelled) setLoadError(String(e?.message ?? e));
       } finally {
