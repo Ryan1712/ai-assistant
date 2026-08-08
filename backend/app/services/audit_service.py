@@ -78,7 +78,7 @@ async def list_audit_events(db: AsyncSession, actor: User, *,
     rows = (await db.execute(
         select(AccountEvent).where(AccountEvent.workspace_id == actor.workspace_id,
                                    *_bounds(AccountEvent.created_at, date_from, date_to))
-        .order_by(AccountEvent.created_at.desc()).limit(200))).scalars()
+        .order_by(AccountEvent.created_at.desc(), AccountEvent.seq.desc()).limit(200))).scalars()
     for r in rows:
         events.append({
             "type": "account_event", "actor_id": r.actor_id, "target_user_id": r.target_user_id,

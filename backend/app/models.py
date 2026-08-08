@@ -94,7 +94,17 @@ class LoginEvent(Base):
 
 class AccountEvent(Base):
     __tablename__ = "account_events"
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    # seq (Integer, tự tăng) là PRIMARY KEY THẬT — cùng lý do Message/TaskUpdate/
+    # TaskComment.seq (xem docs/superpowers/plans/2026-08-08-stable-message-
+    # ordering.md): SQLite CHỈ tự sinh giá trị autoincrement khi cột đó CHÍNH
+    # LÀ primary key kiểu INTEGER. Dùng làm tie-break ổn định trong order_by
+    # thay vì created_at trần (có thể trùng khi 2 event ghi gần như đồng thời,
+    # vd offboard_user ghi "Nghỉ việc" rồi "Khóa tài khoản" liên tiếp — bug
+    # thật đã bắt qua test_offboard_shows_two_ordered_entries_in_timeline flaky
+    # khi chạy chung full suite). id (UUID) vẫn là business key, không FK nào
+    # tham chiếu id của bảng này (đã grep xác nhận) nên đổi PK an toàn.
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, default=_uuid, unique=True, index=True)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     target_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
