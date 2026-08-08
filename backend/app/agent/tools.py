@@ -435,13 +435,13 @@ _register("add_employee", "Thêm 1 người vào DANH SÁCH NHÂN VIÊN của c�
           "việc (chỉ CEO). Chỉ cần tên; email là tùy chọn. Đây KHÔNG PHẢI tạo tài "
           "khoản/đăng nhập — nhân viên không dùng app này, chỉ CEO dùng. Dùng khi CEO "
           "nhắc tên người chưa có trong danh sách (kiểm tra trước bằng resolve_person "
-          "hoặc danh bạ trong system prompt) mà muốn giao việc cho họ — nếu vậy: người "
-          "đó CHƯA có id nên gọi add_employee TRỰC TIẾP ngay (không sensitive, không "
-          "cần propose_actions/xác nhận), rồi dùng user_id THẬT trả về trong "
-          "tool_result để gọi assign_task ở lượt gọi tool tiếp theo trong CÙNG lượt "
-          "trả lời — TUYỆT ĐỐI đừng gộp add_employee chung với assign_task trong 1 "
-          "bản nháp propose_actions, vì lúc đề xuất người đó chưa tồn tại nên "
-          "assign_task sẽ tham chiếu 1 id không có thật và lỗi khi được duyệt.",
+          "hoặc danh bạ trong system prompt) mà muốn giao việc cho họ. 2 cách hợp lệ: "
+          "(1) đối tượng/hành động đã rõ ràng theo luật mức 1 → gọi add_employee TRỰC "
+          "TIẾP ngay, rồi dùng user_id THẬT trả về để gọi assign_task ở lượt tool tiếp "
+          "theo trong CÙNG lượt trả lời; (2) cần gộp với assign_task trong 1 bản nháp "
+          "propose_actions (theo luật mức 2, vd gộp nhiều hành động trong 1 câu) → "
+          "PHẢI dùng cú pháp $result[N].user_id (N = chỉ số action add_employee trong "
+          "list) làm user_id của assign_task, hệ thống tự điền id thật khi CEO duyệt.",
           AddEmployeeToolIn, _add_employee)
 _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi mọi thiết bị "
           "(chỉ CEO, hành động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).", LockUserToolIn, _lock_user,
