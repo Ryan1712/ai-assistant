@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -718,6 +719,44 @@ async def run_deep_ack_turn(
     except Exception:
         logger.exception("ghi agent trace fail cho request %s (ack)", req.id)
         await db.rollback()
+
+
+_PLACEHOLDER_RE = re.compile(r"^\$result\[(\d+)\]\.(\w+)$")
+
+
+def _resolve_placeholder(tool_input: dict, action_index: int,
+                         results: list[dict]) -> tuple[dict, str | None]:
+    """PO #3: quét tool_input (flat dict, KHÔNG đệ quy sâu hơn 1 cấp — không
+    tool nào hiện tại có tool_input dạng nested object) tìm placeholder cú
+    pháp $result[N].<field>, thay bằng giá trị thật từ kết quả action N ĐÃ
+    CHẠY trong cùng bản nháp. Trả (tool_input_đã_resolve, None) nếu OK, hoặc
+    (tool_input_gốc, error_message) nếu action hiện tại PHẢI bị skip (không
+    gọi call_tool()) — N >= action_index (tự tham chiếu/tham chiếu tương
+    lai), action N đã fail, hoặc field không tồn tại trong kết quả N."""
+    resolved = dict(tool_input)
+    for key, value in tool_input.items():
+        if not isinstance(value, str):
+            continue
+        m = _PLACEHOLDER_RE.match(value)
+        if m is None:
+            continue
+        n, field = int(m.group(1)), m.group(2)
+        if n >= action_index:
+            return tool_input, (
+                f"Placeholder '{value}' tham chiếu action #{n} nhưng action hiện tại "
+                f"là #{action_index} — chỉ được tham chiếu action ĐÃ CHẠY trước đó.")
+        source_result = results[n]["result"]
+        if "error" in source_result:
+            source_label = results[n].get("display_text") or results[n]["tool_name"]
+            return tool_input, (
+                f"Bỏ qua vì action phụ thuộc (#{n}: {source_label}) thất bại.")
+        if field not in source_result:
+            source_label = results[n].get("display_text") or results[n]["tool_name"]
+            return tool_input, (
+                f"Placeholder '{value}' tham chiếu field '{field}' nhưng action #{n} "
+                f"({source_label}) không trả về field đó.")
+        resolved[key] = str(source_result[field])
+    return resolved, None
 
 
 async def _resolve_proposal(db: AsyncSession, actor: User, action: dict, approved: bool,
