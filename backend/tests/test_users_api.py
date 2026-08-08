@@ -21,3 +21,20 @@ async def test_user_out_includes_manager_id_and_status(client):
     me = (await client.get("/api/v1/users/me", headers=ceo_h)).json()
     assert "manager_id" in me
     assert "status" in me
+
+
+@pytest.mark.asyncio
+async def test_list_users_ok_when_employee_has_no_email(client):
+    """add_employee (route /employees) cho phép tạo nhân viên KHÔNG có email
+    (User.email nullable) — GET /users phải serialize được record đó, không
+    500 ResponseValidationError vì UserOut.email đòi str bắt buộc."""
+    ceo_h = await _ceo_headers(client)
+    resp = await client.post("/api/v1/employees", json={"full_name": "No Email Guy"},
+                             headers=ceo_h)
+    assert resp.status_code == 201
+    assert resp.json()["email"] is None
+
+    listed = await client.get("/api/v1/users", headers=ceo_h)
+    assert listed.status_code == 200
+    no_email_out = next(u for u in listed.json() if u["full_name"] == "No Email Guy")
+    assert no_email_out["email"] is None
