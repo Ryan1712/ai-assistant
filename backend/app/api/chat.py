@@ -14,7 +14,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
-    UsageLog, User,
+    Project, UsageLog, User,
 )
 from app.schemas import (
     ChatRequestEditIn, ChatRequestOut, ConfirmIn, ConversationCreateIn, ConversationOut,
@@ -65,6 +65,20 @@ async def _get_owned_conversation_or_404(db: AsyncSession, actor: User,
     if conv is None or conv.workspace_id != actor.workspace_id or conv.user_id != actor.id:
         raise HTTPException(404, "conversation_not_found")
     return conv
+
+
+async def _conversation_out(db: AsyncSession, conv: Conversation) -> ConversationOut:
+    """PO #2: build ConversationOut kèm project_name (denormalized, spec
+    §Backend mục 3) -- Conversation model KHÔNG có cột project_name, phải tự
+    lookup Project mỗi lần serialize."""
+    project_name = None
+    if conv.project_id is not None:
+        project = await db.get(Project, conv.project_id)
+        project_name = project.name if project else None
+    return ConversationOut(
+        id=conv.id, title=conv.title, project_id=conv.project_id,
+        project_name=project_name, queue_held=conv.queue_held,
+        archived_at=conv.archived_at, created_at=conv.created_at)
 
 
 @router.post("", response_model=ConversationOut, status_code=201)
@@ -135,11 +149,21 @@ async def timeline(actor: User = Depends(get_current_user),
 async def rename_conversation(conversation_id: uuid.UUID, body: ConversationRenameIn,
                               actor: User = Depends(get_current_user),
                               db: AsyncSession = Depends(get_db)):
+    """PO #2: cùng route nhận CẢ title lẫn project_id (spec §Backend mục 2) --
+    "rename" trong tên hàm giữ nguyên để không đổi route path, dù giờ làm
+    nhiều hơn đổi tên."""
     conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
-    conv.title = body.title
-    conv.title_locked = True
+    if body.title is not None:
+        conv.title = body.title
+        conv.title_locked = True
+    if "project_id" in body.model_fields_set:
+        if body.project_id is not None:
+            project = await db.get(Project, body.project_id)
+            if project is None or project.workspace_id != actor.workspace_id:
+                raise HTTPException(404, "project_not_found")
+        conv.project_id = body.project_id
     await db.commit()
-    return conv
+    return await _conversation_out(db, conv)
 
 
 @router.delete("/{conversation_id}", status_code=204)

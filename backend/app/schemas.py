@@ -314,12 +314,19 @@ class ConversationCreateIn(BaseModel):
 
 
 class ConversationRenameIn(BaseModel):
-    title: str
+    """PO #2: mở rộng nhận project_id cùng payload đổi tên, không tách route
+    riêng (spec §Backend mục 2). title=None nghĩa là "không đổi tên"; project_id
+    dùng model_fields_set (xem route rename_conversation) để phân biệt "không
+    gửi field này" (giữ nguyên) với "gửi project_id=null" (gỡ project)."""
+    title: str | None = None
+    project_id: uuid.UUID | None = None
 
 
 class ConversationOut(BaseModel):
     id: uuid.UUID
     title: str | None
+    project_id: uuid.UUID | None = None
+    project_name: str | None = None
     queue_held: bool = False
     archived_at: dt.datetime | None = None
     created_at: dt.datetime

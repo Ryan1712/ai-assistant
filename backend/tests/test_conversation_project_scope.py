@@ -16,6 +16,7 @@ import uuid
 import pytest
 
 from app.models import Conversation
+from tests.conftest import _ceo_headers
 
 
 async def _mk_conv(db, project_id=None):
@@ -31,3 +32,63 @@ async def test_conversation_project_id_nullable_default_none(db_session):
     conv, _ = await _mk_conv(db_session)
     await db_session.commit()
     assert conv.project_id is None
+
+
+@pytest.mark.asyncio
+async def test_patch_conversation_sets_project_id(client):
+    ceo_h = await _ceo_headers(client)
+    proj = (await client.post("/api/v1/projects", json={"name": "P1", "goal": "g"},
+                              headers=ceo_h)).json()
+    conv = (await client.get("/api/v1/conversations/active", headers=ceo_h)).json()
+
+    resp = await client.patch(f"/api/v1/conversations/{conv['id']}",
+                              json={"project_id": proj["id"]}, headers=ceo_h)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["project_id"] == proj["id"]
+    assert body["project_name"] == "P1"
+
+
+@pytest.mark.asyncio
+async def test_patch_conversation_unsets_project_id(client):
+    ceo_h = await _ceo_headers(client)
+    proj = (await client.post("/api/v1/projects", json={"name": "P1", "goal": "g"},
+                              headers=ceo_h)).json()
+    conv = (await client.get("/api/v1/conversations/active", headers=ceo_h)).json()
+    await client.patch(f"/api/v1/conversations/{conv['id']}",
+                       json={"project_id": proj["id"]}, headers=ceo_h)
+
+    resp = await client.patch(f"/api/v1/conversations/{conv['id']}",
+                              json={"project_id": None}, headers=ceo_h)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["project_id"] is None
+    assert body["project_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_conversation_title_only_keeps_project_id(client):
+    ceo_h = await _ceo_headers(client)
+    proj = (await client.post("/api/v1/projects", json={"name": "P1", "goal": "g"},
+                              headers=ceo_h)).json()
+    conv = (await client.get("/api/v1/conversations/active", headers=ceo_h)).json()
+    await client.patch(f"/api/v1/conversations/{conv['id']}",
+                       json={"project_id": proj["id"]}, headers=ceo_h)
+
+    resp = await client.patch(f"/api/v1/conversations/{conv['id']}",
+                              json={"title": "Tên mới"}, headers=ceo_h)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["title"] == "Tên mới"
+    assert body["project_id"] == proj["id"]  # KHÔNG bị mất khi chỉ đổi title
+
+
+@pytest.mark.asyncio
+async def test_patch_conversation_rejects_project_from_other_workspace(client):
+    ceo_h = await _ceo_headers(client)
+    conv = (await client.get("/api/v1/conversations/active", headers=ceo_h)).json()
+    fake_project_id = str(uuid.uuid4())
+
+    resp = await client.patch(f"/api/v1/conversations/{conv['id']}",
+                              json={"project_id": fake_project_id}, headers=ceo_h)
+    assert resp.status_code == 404
