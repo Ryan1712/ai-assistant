@@ -80,3 +80,104 @@ def test_resolve_placeholder_tham_chieu_tuong_lai_tra_loi():
     resolved, error = _resolve_placeholder(tool_input, 1, results)
 
     assert error is not None
+
+
+import pytest
+
+from app.agent.loop import _resolve_proposal
+from app.models import Project, Role, Task, User, Workspace
+
+
+async def _world(db):
+    ws = Workspace(name="A")
+    db.add(ws)
+    await db.flush()
+    ceo = User(workspace_id=ws.id, email="c@a.vn", password_hash="x", full_name="C",
+              role=Role.ceo, is_root=True)
+    db.add(ceo)
+    await db.flush()
+    project = Project(workspace_id=ws.id, name="P", created_by=ceo.id)
+    db.add(project)
+    await db.flush()
+    task = Task(workspace_id=ws.id, project_id=project.id, title="Thiet ke landing page",
+               created_by=ceo.id)
+    db.add(task)
+    await db.commit()
+    return ws, ceo, task
+
+
+@pytest.mark.asyncio
+async def test_resolve_proposal_thay_placeholder_dung_id_that(db_session):
+    ws, ceo, task = await _world(db_session)
+    action = {
+        "kind": "proposal",
+        "actions": [
+            {"tool_name": "add_employee", "tool_input": {"full_name": "Duy Linh"},
+             "display_text": "Thêm Duy Linh vào danh sách nhân viên"},
+            {"tool_name": "assign_task",
+             "tool_input": {"task_id": str(task.id), "user_id": "$result[0].user_id"},
+             "display_text": "Gán Duy Linh vào task Thiết kế landing page"},
+        ],
+        "reasoning": "Duy Linh chưa có trong danh sách",
+    }
+    trace_tools: list[dict] = []
+
+    result = await _resolve_proposal(db_session, ceo, action, True, ws.id, trace_tools)
+
+    assert result["outcome"] == "completed"
+    assert result["failed"] == []
+    assert len(result["succeeded"]) == 2
+    assign_result = result["proposal_results"][1]["result"]
+    assert "error" not in assign_result
+
+
+@pytest.mark.asyncio
+async def test_resolve_proposal_action_nguon_fail_skip_phu_thuoc_khong_side_effect(db_session):
+    """Action nguồn (add_employee) fail vì thiếu full_name bắt buộc (Pydantic
+    validate fail, xác nhận AddEmployeeToolIn.full_name: str không default trong
+    tools.py) -> assign_task phụ thuộc PHẢI bị skip, KHÔNG gọi call_tool() thật
+    (verify bằng cách task KHÔNG có assignee nào sau khi chạy)."""
+    ws, ceo, task = await _world(db_session)
+    action = {
+        "kind": "proposal",
+        "actions": [
+            {"tool_name": "add_employee", "tool_input": {},  # thiếu full_name bắt buộc
+             "display_text": "Thêm nhân viên (thiếu tên, cố ý gây lỗi)"},
+            {"tool_name": "assign_task",
+             "tool_input": {"task_id": str(task.id), "user_id": "$result[0].user_id"},
+             "display_text": "Gán vào task"},
+        ],
+        "reasoning": "test",
+    }
+    trace_tools: list[dict] = []
+
+    result = await _resolve_proposal(db_session, ceo, action, True, ws.id, trace_tools)
+
+    assert result["outcome"] == "failed"
+    assign_result = result["proposal_results"][1]["result"]
+    assert assign_result["error"] == "dependency_failed"
+    from sqlalchemy import select
+    from app.models import TaskAssignee
+    assignees = (await db_session.execute(
+        select(TaskAssignee).where(TaskAssignee.task_id == task.id))).scalars().all()
+    assert assignees == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_proposal_khong_co_placeholder_van_chay_binh_thuong(db_session):
+    """Backward compat: action không có placeholder chạy y hệt trước đây."""
+    ws, ceo, task = await _world(db_session)
+    action = {
+        "kind": "proposal",
+        "actions": [
+            {"tool_name": "update_task",
+             "tool_input": {"task_id": str(task.id), "percent": 50},
+             "display_text": "Cập nhật task lên 50%"},
+        ],
+        "reasoning": "test",
+    }
+    trace_tools: list[dict] = []
+
+    result = await _resolve_proposal(db_session, ceo, action, True, ws.id, trace_tools)
+
+    assert result["outcome"] == "completed"

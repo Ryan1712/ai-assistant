@@ -771,19 +771,31 @@ async def _resolve_proposal(db: AsyncSession, actor: User, action: dict, approve
     succeeded: list[str] = []
     failed: list[str] = []
     any_write = False
-    for a in action["actions"]:
+    for i, a in enumerate(action["actions"]):
         tool_started = time.monotonic()
         # tool_input là optional trong schema propose_actions (default {}) — LLM có
         # thể bỏ trống với tool không cần tham số (get_today_dashboard...). Trước đây
         # a["tool_input"] KeyError → confirm 500 → request kẹt awaiting_confirmation.
         tool_input = a.get("tool_input") or {}
         tool_name = a["tool_name"]
+        label = a.get("display_text") or tool_name
+        # PO #3: resolve cú pháp $result[N].<field> TRƯỚC khi gọi call_tool() —
+        # xem docs/superpowers/specs/2026-08-05-propose-actions-placeholder-
+        # resolve-design.md. Nếu action nguồn fail/field sai/N>=i, skip action
+        # NÀY (không gọi call_tool() với input còn placeholder chưa resolve,
+        # tránh side-effect ngoài ý muốn).
+        tool_input, placeholder_error = _resolve_placeholder(tool_input, i, results)
+        if placeholder_error is not None:
+            r = {"error": "dependency_failed", "message": placeholder_error}
+            results.append({"tool_name": tool_name, "display_text": a.get("display_text"),
+                            "result": r})
+            failed.append(label)
+            continue
         r = await call_tool(db, actor, tool_name, tool_input)
         trace_tools.append(_tool_trace_entry(tool_name, tool_input, r,
                                              int((time.monotonic() - tool_started) * 1000)))
         results.append({"tool_name": tool_name, "display_text": a.get("display_text"),
                         "result": r})
-        label = a.get("display_text") or tool_name
         if "error" in r:
             failed.append(label)
         else:
