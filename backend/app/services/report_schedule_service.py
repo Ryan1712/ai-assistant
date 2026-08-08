@@ -144,6 +144,14 @@ async def run_due_schedules(db: AsyncSession, *, now: datetime | None = None) ->
         if sched is None:
             continue
         try:
+            # Re-check plan MỖI LẦN chạy — workspace có thể hạ gói SAU khi đã tạo
+            # lịch; không re-check thì lịch cũ tiếp tục nhận scheduled report vô
+            # thời hạn dù không còn đủ gói (finding #13 audit 2026-07-26).
+            ws = await db.get(Workspace, sched.workspace_id)
+            if ws is None or not plans.plan_allows(ws, "scheduled_reports"):
+                sched.active = False
+                await db.commit()
+                continue
             actor = await db.get(User, sched.created_by)
             if actor is not None:
                 out = await report_service.generate_report(

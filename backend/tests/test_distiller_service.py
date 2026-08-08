@@ -15,6 +15,10 @@ from app.services import distiller_service
 
 # 19:00 UTC (ngày trước) = 02:00 VN hôm sau (UTC+7)
 TWO_AM_VN = datetime(2026, 7, 24, 19, 0, tzinfo=timezone.utc)
+# Cửa sổ chưng cất là CẢ NGÀY HÔM QUA (giờ VN) tính từ mốc chạy TWO_AM_VN --
+# tức 2026-07-24 00:00->24:00 VN. Dùng giữa trưa hôm đó (05:00 UTC = 12:00 VN)
+# cho các test cần 1 TaskUpdate nằm trong cửa sổ được quét.
+YESTERDAY_NOON_VN = datetime(2026, 7, 24, 5, 0, tzinfo=timezone.utc)
 
 
 async def _world(db):
@@ -63,7 +67,7 @@ async def test_distill_extracts_fact_from_todays_task_updates(db_session):
     ws, ceo, t = await _world(db_session)
     db_session.add(TaskUpdate(workspace_id=ws.id, task_id=t.id, author_id=ceo.id,
                               content="Doi tac X doi lich giao hang sang thang sau",
-                              created_at=TWO_AM_VN))
+                              created_at=YESTERDAY_NOON_VN))
     await db_session.commit()
 
     llm = _llm("Đối tác X dời lịch giao hàng sang tháng sau.")
@@ -107,7 +111,7 @@ async def test_distill_dedup_skips_near_duplicate_fact(db_session):
     ws, ceo, t = await _world(db_session)
     db_session.add(TaskUpdate(workspace_id=ws.id, task_id=t.id, author_id=ceo.id,
                               content="Doi tac X doi lich giao hang sang thang sau",
-                              created_at=TWO_AM_VN))
+                              created_at=YESTERDAY_NOON_VN))
     await db_session.commit()
 
     same_fact = "Đối tác X dời lịch giao hàng sang tháng sau."
@@ -116,6 +120,12 @@ async def test_distill_dedup_skips_near_duplicate_fact(db_session):
     assert first == 1
 
     next_day = TWO_AM_VN + timedelta(days=1)
+    # Update thứ 2 nằm trong cửa sổ "hôm qua" của mốc chạy next_day (tức cùng ngày
+    # VN với TWO_AM_VN) -- để dedup thật sự được test (có update mới, cùng ý fact).
+    db_session.add(TaskUpdate(workspace_id=ws.id, task_id=t.id, author_id=ceo.id,
+                              content="Doi tac X doi lich giao hang sang thang sau lan 2",
+                              created_at=YESTERDAY_NOON_VN + timedelta(days=1)))
+    await db_session.commit()
     second = await distiller_service.distill_workspace_memories(
         db_session, _llm(same_fact), now=next_day)
 

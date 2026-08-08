@@ -19,7 +19,7 @@ dùng ở v1.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
@@ -98,14 +98,24 @@ async def distill_workspace_memories(db: AsyncSession, llm: LLMClient, *,
     (LLM down, embedding lỗi...) không được chặn workspace khác."""
     now = now or datetime.now(timezone.utc)
     now_vn = now.astimezone(VN_TZ)
-    if not (now_vn.hour == 2 and now_vn.minute == 0):
+    # Cửa sổ 10 phút thay vì đúng phút 02:00 -- catch-up nếu tick cron bị trễ
+    # (worker bận, restart...). An toàn vì dedup theo cosine similarity
+    # (_is_duplicate) ở dưới đã chặn double-add nếu vô tình chạy 2 lần.
+    if not (now_vn.hour == 2 and now_vn.minute < 10):
         return 0
 
-    day_start_vn = now_vn.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Cron chạy 02:00 VN NGÀY HÔM NAY nhưng phải chưng cất TaskUpdate của CẢ NGÀY
+    # HÔM QUA (giờ hành chính) -- không phải 2 tiếng đêm 00:00-02:00 hôm nay. Vì vậy
+    # cửa sổ là [hôm_qua 00:00, hôm_nay 00:00) chứ không phải >= hôm_nay 00:00.
+    day_end_vn = now_vn.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start_vn = day_end_vn - timedelta(days=1)
     day_start_utc = day_start_vn.astimezone(timezone.utc)
+    day_end_utc = day_end_vn.astimezone(timezone.utc)
 
     ws_ids = list((await db.execute(
-        select(TaskUpdate.workspace_id).where(TaskUpdate.created_at >= day_start_utc).distinct()
+        select(TaskUpdate.workspace_id).where(
+            TaskUpdate.created_at >= day_start_utc, TaskUpdate.created_at < day_end_utc,
+        ).distinct()
     )).scalars())
 
     count = 0
@@ -113,6 +123,7 @@ async def distill_workspace_memories(db: AsyncSession, llm: LLMClient, *,
         try:
             updates = (await db.execute(select(TaskUpdate).where(
                 TaskUpdate.workspace_id == ws_id, TaskUpdate.created_at >= day_start_utc,
+                TaskUpdate.created_at < day_end_utc,
             ).order_by(TaskUpdate.created_at.asc()))).scalars().all()
             texts = [u.content.strip() for u in updates if u.content and u.content.strip()]
             if not texts:

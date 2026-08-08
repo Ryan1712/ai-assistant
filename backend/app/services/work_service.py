@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -235,15 +236,32 @@ async def _notify_mentions(db: AsyncSession, actor: User, task: Task, content: s
     trong task là dữ liệu chung, giống ghi chú ở phụ lục funtional-plan."""
     if not content or "@" not in content:
         return
-    content_lower = content.lower()
     rows = await db.execute(select(User).where(
         User.workspace_id == actor.workspace_id, User.id != actor.id))
-    for u in rows.scalars():
-        if f"@{u.full_name.lower()}" in content_lower:
-            await notify(db, workspace_id=actor.workspace_id, recipient_id=u.id,
-                        type="mentioned",
-                        payload={"from_user": str(actor.id), "from_name": actor.full_name,
-                                 "task_id": str(task.id), "task_title": task.title})
+    users = list(rows.scalars())
+    # Ưu tiên tên DÀI hơn trước: "@Anh Tuấn ơi..." phải khớp "Anh Tuấn" chứ
+    # không phải "Anh" (dù cả 2 đều "word-bounded" hợp lệ riêng lẻ -- ký tự
+    # sau "Anh" là khoảng trắng, không phải \w). Vị trí bắt đầu `@` đã bị 1
+    # tên dài hơn "chiếm" thì tên ngắn hơn không được tính là mention riêng.
+    users.sort(key=lambda u: len(u.full_name), reverse=True)
+    claimed_starts: set[int] = set()
+    for u in users:
+        # Word-boundary bằng negative lookahead (chặn ký tự liền sau không phải
+        # whitespace/dấu câu) thay vì substring thô -- tránh "@Anh" khớp nhầm
+        # bên trong "@Anh Tuấn". Dùng lookahead thay vì \b/\w vì \w không xử lý
+        # tốt ký tự có dấu tiếng Việt.
+        pattern = r"@" + re.escape(u.full_name) + r"(?![^\s.,!?;:])"
+        matches = list(re.finditer(pattern, content, flags=re.IGNORECASE))
+        if not matches:
+            continue
+        new_starts = {m.start() for m in matches} - claimed_starts
+        if not new_starts:
+            continue  # mọi match đều trùng vị trí với 1 tên dài hơn đã khớp
+        claimed_starts |= new_starts
+        await notify(db, workspace_id=actor.workspace_id, recipient_id=u.id,
+                    type="mentioned",
+                    payload={"from_user": str(actor.id), "from_name": actor.full_name,
+                             "task_id": str(task.id), "task_title": task.title})
 
 
 async def add_task_update(db: AsyncSession, actor: User, task_id: uuid.UUID, *,

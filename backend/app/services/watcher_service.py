@@ -61,7 +61,10 @@ async def send_morning_briefs(db: AsyncSession, llm: LLMClient, *,
     pattern report_schedule_service.run_due_schedules)."""
     now = now or datetime.now(timezone.utc)
     now_vn = now.astimezone(VN_TZ)
-    if not (now_vn.hour == 7 and now_vn.minute == 0):
+    # Cửa sổ 10 phút thay vì đúng phút 07:00 -- catch-up nếu tick cron bị trễ
+    # (worker bận, restart...). An toàn vì dedup theo Notification cùng ngày VN
+    # (type="morning_brief") ở dưới đã chặn double-send trong cửa sổ này.
+    if not (now_vn.hour == 7 and now_vn.minute < 10):
         return 0
 
     day_start_vn = now_vn.replace(hour=0, minute=0, second=0, microsecond=0)

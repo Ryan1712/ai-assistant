@@ -51,6 +51,14 @@ class MockPortalClient:
 
 
 class HttpPortalClient:
+    """CẢNH BÁO (finding #16, audit 2026-07-26): client này gọi thẳng
+    {base_url}/api/reports KHÔNG truyền workspace_id/tenant nào trong
+    query/header — nếu bật portal_mock=False mà cổng ngoài không tự phân
+    tenant theo cách khác (token/cookie riêng), MỌI CEO gọi vào cùng 1
+    endpoint sẽ đọc chung dữ liệu không phân biệt workspace. KHÔNG bật
+    portal_mock=False trên production tới khi xác nhận cổng ngoài xử lý
+    tenant đúng, hoặc bổ sung tham số tenant vào request tại đây."""
+
     def __init__(self, base_url: str):
         self._base_url = base_url.rstrip("/")
 
