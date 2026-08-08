@@ -375,6 +375,14 @@ class Conversation(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    # PO #2 (2026-08-08): gắn project cho conversation đang mở -- KHÔNG phải lúc
+    # "tạo mới" (app không có khái niệm đó) mà gắn/đổi bất kỳ lúc nào qua PATCH.
+    # Dùng làm default project cho create_task khi user không chỉ rõ project
+    # khác (tiêm qua system prompt, xem app/agent/loop.py). ondelete=SET NULL:
+    # project bị xóa -> conversation tự gỡ về "không gắn project", không lỗi,
+    # không mất conversation (spec §Phạm vi tính năng).
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # worker.py::process_conversation gọi conversation_title_service.maybe_generate_title
     # NGAY sau lượt chat/ack đầu tiên (không còn cron nền — bỏ 2026-07-30, cron cũ
