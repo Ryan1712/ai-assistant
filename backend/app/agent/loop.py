@@ -17,7 +17,7 @@ from app.agent.tools import (
 )
 from app.models import (
     AgentTrace, ChatRequest, ChatRequestStatus, Conversation, Message, MessageRole,
-    Role, UsageLog, User,
+    Project, Role, UsageLog, User,
 )
 from app.services import (
     distiller_service, embedding_service, instruction_service, onboarding_service,
@@ -406,6 +406,19 @@ async def run_agent_loop(
                 dynamic_parts.append(rag_context)
             if coach_block:
                 dynamic_parts.append(coach_block)
+            if conv is not None and conv.project_id is not None:
+                # PO #2 (2026-08-08): conversation gắn project -> hướng dẫn model
+                # dùng project này làm mặc định cho create_task khi user không
+                # chỉ rõ project khác — KHÔNG sửa logic tool create_task, chỉ
+                # tiêm hướng dẫn qua prompt (nhất quán coach_block/memories_text).
+                project = await db.get(Project, conv.project_id)
+                if project is not None:
+                    dynamic_parts.append(
+                        "# Project mặc định cho cuộc trò chuyện này\n"
+                        f"Cuộc trò chuyện này đang gắn với project '{project.name}' — khi tạo "
+                        "task mới (create_task) mà người dùng KHÔNG chỉ rõ project khác, dùng "
+                        "project này làm mặc định. Các yêu cầu khác (xem/hỏi về project/task "
+                        "khác) vẫn xử lý bình thường, không bị giới hạn vào project này.")
             if conv is not None and conv.rolling_summary:
                 # Phase 5: tóm tắt hội thoại cũ — block ĐỘNG cuối, gần message nhất.
                 dynamic_parts.append(
