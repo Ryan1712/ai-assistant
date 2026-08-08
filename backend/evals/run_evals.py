@@ -88,6 +88,22 @@ class EvalClient:
                                   headers=self._h("ceo"), json={"user_id": nam_tran}),
                    f"assign Nam Trần {title}")
 
+        # 1 skill (grant cho Duy) + 1 instruction cố định — mở khóa scenario
+        # use_skill/list_skills/list_instructions mà không phải tạo mới trong
+        # chính scenario đó (tách rời "tạo" khỏi "dùng", giống cách seed project/task).
+        skill = _check(self.http.post("/api/v1/skills", headers=self._h("ceo"), json={
+            "name": "Quy trình duyệt chi phí", "kind": "knowledge",
+            "content": "Mọi khoản chi trên 5 triệu phải có 2 chữ ký duyệt: quản lý trực "
+                       "tiếp và CEO. Dưới 5 triệu chỉ cần quản lý trực tiếp duyệt."}),
+            "tạo skill")
+        _check(self.http.post(f"/api/v1/skills/{skill['id']}/grants",
+                              headers=self._h("ceo"), json={"user_id": duy}),
+               "grant skill cho Duy")
+        _check(self.http.post("/api/v1/instructions", headers=self._h("ceo"), json={
+            "title": "Quy tắc đặt tên task",
+            "content": "Mọi task mới PHẢI có tiền tố [Q3] ở đầu tiêu đề."}),
+            "tạo instruction")
+
     def _join(self, role: str, manager_id: str | None, full_name: str, run_id: str) -> str:
         # CEO tạo tài khoản trực tiếp (create_employee) rồi kích hoạt bằng
         # activation_code — không còn luồng signup-invite tự đăng ký cũ (đã xóa,
@@ -101,9 +117,11 @@ class EvalClient:
             "device_uuid": f"d-{uuid.uuid4().hex[:6]}", "device_name": "eval"}),
             f"activate {full_name}")
         self.user_ids[full_name] = joined["user"]["id"]
-        # actor "employee" trong scenario = Duy Phạm
+        # actor "employee" trong scenario = Duy Phạm; actor "manager" = Hà Trần.
         if full_name == "Duy Phạm":
             self.tokens["employee"] = joined["access_token"]
+        elif full_name == "Hà Trần":
+            self.tokens["manager"] = joined["access_token"]
         return joined["user"]["id"]
 
     def run_scenario(self, sc: dict) -> dict:
