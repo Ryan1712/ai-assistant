@@ -322,7 +322,7 @@ async def edit_request(request_id: uuid.UUID, body: ChatRequestEditIn,
                        actor: User = Depends(get_current_user),
                        db: AsyncSession = Depends(get_db)):
     req = await _get_own_request_or_404(db, actor, request_id)
-    if req.status != ChatRequestStatus.queued:
+    if req.status != ChatRequestStatus.queued or req.started_at is not None:
         raise HTTPException(409, "not_queued")
     req.content = body.content
     msg = (await db.execute(select(Message).where(

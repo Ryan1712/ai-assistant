@@ -113,6 +113,8 @@ async def login(
 
 _PWRESET_TTL = 900  # 15 phút
 _PWRESET_PREFIX = "pwreset:"
+_PWRESET_ATTEMPT_PREFIX = "pwreset_attempts:"
+_PWRESET_MAX_ATTEMPTS = 5
 _RESET_FROM_EMAIL = "no-reply@troly-ai.local"
 
 
@@ -144,6 +146,14 @@ async def reset_password(db: AsyncSession, redis, *, email: str, code: str,
     email = email.strip().lower()
     if len(new_password) < 8:
         raise HTTPException(400, "password_too_short")
+    # Finding #15 (audit 2026-07-26, HIGH): OTP 6 số brute-forceable trong TTL 15'
+    # nếu không rate-limit số lần thử sai — chặn TRƯỚC khi so khớp OTP.
+    attempt_key = f"{_PWRESET_ATTEMPT_PREFIX}{email}"
+    attempts = await redis.incr(attempt_key)
+    if attempts == 1:
+        await redis.expire(attempt_key, _PWRESET_TTL)
+    if attempts > _PWRESET_MAX_ATTEMPTS:
+        raise HTTPException(429, "too_many_attempts")
     stored = await redis.get(f"{_PWRESET_PREFIX}{email}")
     if isinstance(stored, bytes):
         stored = stored.decode()
@@ -158,6 +168,14 @@ async def reset_password(db: AsyncSession, redis, *, email: str, code: str,
         raise HTTPException(400, "invalid_or_expired_code")
     user.password_hash = security.hash_password(new_password)
     await redis.delete(f"{_PWRESET_PREFIX}{email}")
+    await redis.delete(attempt_key)
+    # Finding #15: revoke mọi RefreshToken còn sống của user sau khi đổi mật khẩu
+    # thành công — chống session-fixation (tài khoản bị chiếm, chủ tài khoản reset
+    # nhưng token cũ của kẻ tấn công vẫn sống nếu không revoke).
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc)))
     await db.commit()
 
 

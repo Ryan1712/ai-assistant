@@ -494,7 +494,8 @@ async def run_agent_loop(
                             output_tokens=done.output_tokens,
                             cache_read_tokens=done.cache_read_tokens,
                             cache_write_tokens=done.cache_write_tokens))
-            total_tokens += done.input_tokens + done.output_tokens
+            total_tokens += (done.input_tokens + done.output_tokens
+                             + done.cache_read_tokens + done.cache_write_tokens)
             tool_call_count += len(done.tool_uses)
 
             if done.stop_reason != "tool_use" or not done.tool_uses:

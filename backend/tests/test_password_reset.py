@@ -8,7 +8,9 @@ from app.main import create_app
 
 
 class _FakeRedis:
-    """Redis in-memory tối thiểu cho test (không TTL — không kiểm hết hạn ở đây)."""
+    """Redis in-memory tối thiểu cho test (không TTL — không kiểm hết hạn ở đây).
+    incr/expire (finding #15, 2026-08-08): reset_password giờ rate-limit số lần thử
+    OTP sai bằng redis.incr/expire — fake cần hỗ trợ 2 lệnh này để không crash."""
 
     def __init__(self):
         self.store: dict[str, str] = {}
@@ -21,6 +23,14 @@ class _FakeRedis:
 
     async def delete(self, k):
         self.store.pop(k, None)
+
+    async def incr(self, k):
+        cur = int(self.store.get(k, "0")) + 1
+        self.store[k] = str(cur)
+        return cur
+
+    async def expire(self, k, seconds):
+        pass
 
 
 @pytest.fixture

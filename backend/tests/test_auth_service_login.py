@@ -9,7 +9,9 @@ class _FakeRedis:
     """Redis in-memory tối thiểu cho test (không TTL — không kiểm hết hạn ở đây).
     Cùng interface với tests/test_password_reset.py::_FakeRedis, khai báo riêng ở
     đây vì test này gọi thẳng auth_service.forgot_password/reset_password (không
-    qua HTTP client) nên không dùng chung fixture auth_client của file kia."""
+    qua HTTP client) nên không dùng chung fixture auth_client của file kia.
+    incr/expire (finding #15, 2026-08-08): reset_password giờ rate-limit số lần thử
+    OTP sai bằng redis.incr/expire — fake cần hỗ trợ 2 lệnh này để không crash."""
 
     def __init__(self):
         self.store: dict[str, str] = {}
@@ -22,6 +24,14 @@ class _FakeRedis:
 
     async def delete(self, k):
         self.store.pop(k, None)
+
+    async def incr(self, k):
+        cur = int(self.store.get(k, "0")) + 1
+        self.store[k] = str(cur)
+        return cur
+
+    async def expire(self, k, seconds):
+        pass
 
 
 @pytest.mark.asyncio
