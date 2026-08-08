@@ -84,7 +84,7 @@ async def maybe_compress_history(db: AsyncSession, conv: Conversation, llm: LLMC
         or_(Message.chat_request_id.is_(None), Message.chat_request_id.not_in(skip_ids)))
     if conv.summary_through_at is not None:
         stmt = stmt.where(Message.created_at > conv.summary_through_at)
-    stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc())
+    stmt = stmt.order_by(Message.created_at.asc(), Message.seq.asc())
     msgs = [m for m in (await db.execute(stmt)).scalars().all() if m.content]
 
     if not msgs:

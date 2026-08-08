@@ -3663,7 +3663,7 @@
           "chat"
         ],
         "summary": "Timeline",
-        "description": "M\u1ed9t lu\u1ed3ng li\u1ec1n m\u1ea1ch xuy\u00ean c\u00e1c conversation c\u1ee7a actor (Phase 5). Newest-first,\ncursor = (before_at, before_id) c\u1ee7a message c\u0169 nh\u1ea5t trang tr\u01b0\u1edbc. Ch\u1ec9 conversation\nc\u1ee7a ch\u00ednh actor.",
+        "description": "M\u1ed9t lu\u1ed3ng li\u1ec1n m\u1ea1ch xuy\u00ean c\u00e1c conversation c\u1ee7a actor (Phase 5). Newest-first,\ncursor = (before_at, before_id) c\u1ee7a message c\u0169 nh\u1ea5t trang tr\u01b0\u1edbc. Ch\u1ec9 conversation\nc\u1ee7a ch\u00ednh actor.\n\norder_by C\u1ed0 \u00dd d\u00f9ng Message.id (kh\u00f4ng ph\u1ea3i .seq nh\u01b0 8 v\u1ecb tr\u00ed order_by kh\u00e1c trong\nrepo sau fix tie-break 2026-08-08) \u2014 cursor (before_at, before_id) l\u00e0 CONTRACT\nC\u00d4NG KHAI, FE g\u1eedi l\u00ean before_id ki\u1ec3u UUID; \u0111\u1ed5i tie-break sort sang seq m\u00e0 \u0111i\u1ec1u\nki\u1ec7n lo\u1ea1i tr\u1eeb WHERE b\u00ean d\u01b0\u1edbi v\u1eabn so theo id s\u1ebd l\u00e0m 2 ti\u00eau ch\u00ed l\u1ec7ch nhau, c\u00f3 th\u1ec3\ns\u00f3t/l\u1eb7p message khi created_at tr\u00f9ng nhau gi\u1eefa c\u00e1c trang \u2014 t\u1ec7 h\u01a1n hi\u1ec7n tr\u1ea1ng.\nFix \u0111\u00fang g\u1ed1c (\u0111\u1ed5i cursor sang seq c\u1ea3 2 ph\u00eda) c\u1ea7n \u0111\u1ed5i contract API + FE, ngo\u00e0i\nph\u1ea1m vi l\u1ea7n s\u1eeda tie-break n\u00e0y \u2014 xem docs/superpowers/plans/2026-08-08-stable-message-ordering.md.",
         "operationId": "timeline_api_v1_conversations_timeline_get",
         "security": [
           {
@@ -4572,6 +4572,7 @@
           "pending_action": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5315,6 +5316,7 @@
             "title": "Type"
           },
           "payload": {
+            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           },
@@ -5585,10 +5587,12 @@
             "title": "Kind"
           },
           "filters": {
+            "additionalProperties": true,
             "type": "object",
             "title": "Filters"
           },
           "summary": {
+            "additionalProperties": true,
             "type": "object",
             "title": "Summary"
           },

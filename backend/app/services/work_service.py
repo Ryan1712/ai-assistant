@@ -268,7 +268,7 @@ async def add_task_update(db: AsyncSession, actor: User, task_id: uuid.UUID, *,
 async def list_task_updates(db: AsyncSession, actor: User, task_id: uuid.UUID) -> list[TaskUpdate]:
     task = await get_visible_task_or_404(db, actor, task_id)
     rows = await db.execute(select(TaskUpdate).where(TaskUpdate.task_id == task.id)
-                            .order_by(TaskUpdate.created_at.desc(), TaskUpdate.id.desc()))
+                            .order_by(TaskUpdate.created_at.desc(), TaskUpdate.seq.desc()))
     return list(rows.scalars())
 
 
@@ -313,7 +313,7 @@ async def notify_upcoming_deadlines(db: AsyncSession, *, now: datetime | None = 
 async def list_comments(db: AsyncSession, actor: User, task_id: uuid.UUID) -> list[dict]:
     task = await get_visible_task_or_404(db, actor, task_id)
     rows = (await db.execute(select(TaskComment).where(TaskComment.task_id == task.id)
-                             .order_by(TaskComment.created_at.asc(), TaskComment.id.asc()))).scalars()
+                             .order_by(TaskComment.created_at.asc(), TaskComment.seq.asc()))).scalars()
     comments = list(rows)
     author_ids = {c.author_id for c in comments}
     names: dict = {}

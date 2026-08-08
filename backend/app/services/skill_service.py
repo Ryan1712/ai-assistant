@@ -118,7 +118,7 @@ async def _task_state(db: AsyncSession, task: Task) -> dict:
         .where(TaskAssignee.task_id == task.id))
     updates = await db.execute(
         select(TaskUpdate).where(TaskUpdate.task_id == task.id)
-        .order_by(TaskUpdate.created_at.desc(), TaskUpdate.id.desc()).limit(5))
+        .order_by(TaskUpdate.created_at.desc(), TaskUpdate.seq.desc()).limit(5))
     return {
         "id": str(task.id), "title": task.title, "status": task.status.value,
         "percent": task.percent,

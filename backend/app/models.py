@@ -232,7 +232,16 @@ class Directive(Base):
 
 class TaskUpdate(Base):
     __tablename__ = "task_updates"
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    # seq (Integer, tu tang) la PRIMARY KEY THAT trong DB -- day la cach DUY
+    # NHAT autoincrement portable ca SQLite (rowid-alias, chi kich hoat khi
+    # cot la INTEGER PRIMARY KEY, da xac nhan qua thu nghiem doc lap: Sequence/
+    # Identity/autoincrement tren cot KHONG PHAI PK deu khong tu sinh gia tri
+    # tren SQLite) lan Postgres. `id` (UUID) van la "business key" dung o moi
+    # noi trong code/API nhu truoc gio -- KHONG co FK nao tham chieu id cua
+    # bang nay (da grep xac nhan) nen doi PK sang seq an toan, chi mat unique
+    # index thay vi PK constraint.
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, default=_uuid, unique=True, index=True)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"), index=True)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
@@ -244,7 +253,9 @@ class TaskUpdate(Base):
 
 class TaskComment(Base):
     __tablename__ = "task_comments"
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    # seq la PRIMARY KEY that -- xem giai thich day du o docstring TaskUpdate.seq.
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, default=_uuid, unique=True, index=True)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"), index=True)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
@@ -408,7 +419,17 @@ class ChatRequest(Base):
 
 class Message(Base):
     __tablename__ = "messages"
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    # seq (Integer, tu tang) la PRIMARY KEY THAT trong DB -- day la cach DUY
+    # NHAT autoincrement portable ca SQLite (rowid-alias, chi kich hoat khi
+    # cot la INTEGER PRIMARY KEY, da xac nhan qua thu nghiem doc lap: Sequence/
+    # Identity/autoincrement tren cot KHONG PHAI PK deu khong tu sinh gia tri
+    # tren SQLite) lan Postgres, dung lam tie-break doc lai on dinh (xem cuoi
+    # class nay). `id` (UUID) van la "business key" dung o moi noi trong
+    # code/API nhu truoc gio -- KHONG co FK nao tham chieu id cua bang nay (da
+    # grep xac nhan) nen doi PK sang seq an toan, chi mat PK constraint doi
+    # thanh unique index.
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, default=_uuid, unique=True, index=True)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id"), index=True)
     chat_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_requests.id"),

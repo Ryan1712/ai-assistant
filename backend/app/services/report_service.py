@@ -36,7 +36,7 @@ def _append_text_row(sheet, row) -> None:
 async def _latest_update_cell(db: AsyncSession, task_id: uuid.UUID) -> str:
     latest = (await db.execute(
         select(TaskUpdate).where(TaskUpdate.task_id == task_id)
-        .order_by(TaskUpdate.created_at.desc(), TaskUpdate.id.desc()).limit(1)
+        .order_by(TaskUpdate.created_at.desc(), TaskUpdate.seq.desc()).limit(1)
     )).scalar_one_or_none()
     if latest is None:
         return ""

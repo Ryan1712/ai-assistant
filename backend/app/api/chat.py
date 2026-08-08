@@ -110,7 +110,15 @@ async def timeline(actor: User = Depends(get_current_user),
                    limit: int = Query(50, ge=1, le=100)):
     """Một luồng liền mạch xuyên các conversation của actor (Phase 5). Newest-first,
     cursor = (before_at, before_id) của message cũ nhất trang trước. Chỉ conversation
-    của chính actor."""
+    của chính actor.
+
+    order_by CỐ Ý dùng Message.id (không phải .seq như 8 vị trí order_by khác trong
+    repo sau fix tie-break 2026-08-08) — cursor (before_at, before_id) là CONTRACT
+    CÔNG KHAI, FE gửi lên before_id kiểu UUID; đổi tie-break sort sang seq mà điều
+    kiện loại trừ WHERE bên dưới vẫn so theo id sẽ làm 2 tiêu chí lệch nhau, có thể
+    sót/lặp message khi created_at trùng nhau giữa các trang — tệ hơn hiện trạng.
+    Fix đúng gốc (đổi cursor sang seq cả 2 phía) cần đổi contract API + FE, ngoài
+    phạm vi lần sửa tie-break này — xem docs/superpowers/plans/2026-08-08-stable-message-ordering.md."""
     conv_ids = select(Conversation.id).where(
         Conversation.workspace_id == actor.workspace_id,
         Conversation.user_id == actor.id)
@@ -215,7 +223,7 @@ async def list_messages(conversation_id: uuid.UUID,
                         db: AsyncSession = Depends(get_db)):
     conv = await _get_owned_conversation_or_404(db, actor, conversation_id)
     rows = await db.execute(select(Message).where(Message.conversation_id == conv.id)
-                            .order_by(Message.created_at.asc(), Message.id.asc()))
+                            .order_by(Message.created_at.asc(), Message.seq.asc()))
     return list(rows.scalars())
 
 

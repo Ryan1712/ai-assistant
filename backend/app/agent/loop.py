@@ -230,7 +230,7 @@ async def _load_history(db: AsyncSession, conversation_id: uuid.UUID,
         # Phase 5: message <= mốc summary_through_at đã gộp vào rolling_summary
         # (tiêm ở system prompt), chỉ nạp đuôi verbatim.
         stmt = stmt.where(Message.created_at > since)
-    rows = await db.execute(stmt.order_by(Message.created_at.asc(), Message.id.asc()))
+    rows = await db.execute(stmt.order_by(Message.created_at.asc(), Message.seq.asc()))
     # Bỏ message content rỗng (dữ liệu cũ trước guard bên dưới) — Anthropic API
     # từ chối request có message rỗng.
     msgs = [{"role": m.role.value, "content": m.content} for m in rows.scalars() if m.content]

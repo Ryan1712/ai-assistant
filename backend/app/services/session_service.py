@@ -64,7 +64,7 @@ async def get_or_rotate_active_conversation(
 
     live = [m for m in (await db.execute(select(Message).where(
         Message.conversation_id == conv.id, Message.is_ack.is_(False),
-    ).order_by(Message.created_at.asc(), Message.id.asc()))).scalars().all() if m.content]
+    ).order_by(Message.created_at.asc(), Message.seq.asc()))).scalars().all() if m.content]
     count = len(live)
     last_at = _as_aware(live[-1].created_at) if live else _as_aware(conv.created_at)
     idle = (now - last_at) > timedelta(hours=ROTATE_IDLE_HOURS)
