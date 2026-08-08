@@ -36,7 +36,7 @@ class ResetPasswordIn(BaseModel):
 
 class UserOut(BaseModel):
     id: uuid.UUID
-    email: str
+    email: str | None
     full_name: str
     role: str
     is_root: bool
