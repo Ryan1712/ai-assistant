@@ -16,11 +16,11 @@ from app.schemas import (
     SkillVersionIn, TaskCreateIn, TaskPatchIn, TaskUpdateCreateIn,
 )
 from app.services import (
-    analytics_service, attachment_service, audit_service, auth_service, dashboard_service,
-    directive_service, distiller_service, email_service, embedding_service, example_bank_service,
-    instruction_service, note_service, notification_service, portal_service,
-    report_schedule_service, report_service, resolver_service, search_service, skill_service,
-    voice_service, work_service,
+    analytics_service, assignment_service, attachment_service, audit_service, auth_service,
+    dashboard_service, directive_service, distiller_service, email_service, embedding_service,
+    example_bank_service, instruction_service, note_service, notification_service,
+    portal_service, report_schedule_service, report_service, resolver_service, search_service,
+    skill_service, voice_service, work_service,
 )
 from app.services.fuzzy_match import trigram_similarity
 
@@ -197,6 +197,16 @@ async def _unassign_task(db, actor, body: UnassignTaskToolIn) -> dict:
     return {"task_id": str(body.task_id), "user_id": str(body.user_id), "unassigned": True}
 
 
+class SuggestAssigneeToolIn(BaseModel):
+    task_title: str
+    task_description: str = ""
+
+
+async def _suggest_assignee(db, actor, body: SuggestAssigneeToolIn) -> dict:
+    return await assignment_service.suggest_assignee(
+        db, actor, task_title=body.task_title, task_description=body.task_description)
+
+
 _register("create_project", "Tạo project mới (chỉ CEO).", ProjectCreateIn, _create_project)
 _register("update_project", "Sửa project theo id (chỉ CEO).", UpdateProjectToolIn, _update_project)
 _register("list_projects", "Liệt kê project mà actor được thấy.", NoArgsIn, _list_projects)
@@ -210,6 +220,18 @@ _register("list_tasks", "Liệt kê task mà actor được thấy.", NoArgsIn, 
 _register("get_task", "Xem chi tiết 1 task theo id.", GetTaskToolIn, _get_task)
 _register("assign_task", "Gán 1 người vào task (chỉ CEO).", AssignTaskToolIn, _assign_task)
 _register("unassign_task", "Bỏ gán 1 người khỏi task (chỉ CEO).", UnassignTaskToolIn, _unassign_task)
+_register("suggest_assignee",
+          "Gợi ý người phù hợp nhất để giao 1 task (chỉ CEO, chỉ đọc — không "
+          "gán gì). Dùng khi CEO yêu cầu tạo/giao task nhưng KHÔNG chỉ rõ tên "
+          "người nhận -- gọi tool này TRƯỚC khi tạo task để biết nên đề xuất "
+          "ai, rồi dùng kết quả điền vào create_task/assign_task qua "
+          "propose_actions (đối tượng người nhận là SUY LUẬN nên phải qua "
+          "luật mức 2). Xét theo chuyên môn nhân viên (field riêng, KHÁC HẲN "
+          "Skill/tài liệu công ty) khớp ngữ nghĩa với nội dung task, và số "
+          "task đang làm dở (ít hơn = rảnh hơn) khi nhiều người cùng hợp "
+          "chuyên môn. Không tự động gán -- chỉ trả gợi ý kèm lý do để CEO "
+          "xác nhận.",
+          SuggestAssigneeToolIn, _suggest_assignee)
 
 
 async def _delete_task(db, actor, body: DeleteTaskToolIn) -> dict:
@@ -1104,7 +1126,7 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         "create_task", "update_task", "list_tasks", "assign_task", "unassign_task",
         "delete_task", "delete_project", "add_task_update", "list_task_updates",
         "add_comment", "list_comments", "send_email", "list_task_attachments",
-        "create_directive",
+        "create_directive", "suggest_assignee",
     }),
     "admin": frozenset({
         "list_users", "add_employee", "update_employee_expertise", "lock_user",
