@@ -370,6 +370,11 @@ class AddEmployeeToolIn(BaseModel):
     expertise_notes: str | None = None
 
 
+class UpdateEmployeeExpertiseToolIn(BaseModel):
+    user_id: uuid.UUID
+    expertise_notes: str | None = None
+
+
 class LockUserToolIn(BaseModel):
     target_id: uuid.UUID
 
@@ -396,6 +401,13 @@ async def _add_employee(db, actor, body: AddEmployeeToolIn) -> dict:
         expertise_notes=body.expertise_notes)
     return {"user_id": str(user.id), "full_name": user.full_name, "email": user.email,
            "note": f"Đã thêm {user.full_name} vào danh sách nhân viên công ty."}
+
+
+async def _update_employee_expertise(db, actor, body: UpdateEmployeeExpertiseToolIn) -> dict:
+    user = await auth_service.update_employee_expertise(
+        db, actor=actor, user_id=body.user_id, expertise_notes=body.expertise_notes)
+    return {"user_id": str(user.id), "full_name": user.full_name,
+           "expertise_notes": user.expertise_notes}
 
 
 async def _lock_user(db, actor, body: LockUserToolIn) -> dict:
@@ -448,6 +460,12 @@ _register("add_employee", "Thêm 1 người vào DANH SÁCH NHÂN VIÊN của c�
           "figma') nếu CEO có nhắc tới — dùng cho suggest_assignee sau này gợi ý người "
           "phù hợp khi giao task. KHÔNG liên quan Skill (tài liệu công ty).",
           AddEmployeeToolIn, _add_employee)
+_register("update_employee_expertise",
+          "Sửa chuyên môn (text tự do, vd 'design, figma') của 1 nhân viên đã có "
+          "trong danh sách (chỉ CEO). Chuyên môn KHÁC HẲN Skill (tài liệu công ty) "
+          "— dùng cho suggest_assignee gợi ý người phù hợp khi giao task. Truyền "
+          "expertise_notes=null để xóa/bỏ trống chuyên môn hiện có.",
+          UpdateEmployeeExpertiseToolIn, _update_employee_expertise)
 _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi mọi thiết bị "
           "(chỉ CEO, hành động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).", LockUserToolIn, _lock_user,
           sensitive=True)
@@ -1089,8 +1107,9 @@ TOOL_GROUPS: dict[str, frozenset[str]] = {
         "create_directive",
     }),
     "admin": frozenset({
-        "list_users", "add_employee", "lock_user", "unlock_user",
-        "offboard_user", "change_user_role", "list_audit_events", "forget_memory",
+        "list_users", "add_employee", "update_employee_expertise", "lock_user",
+        "unlock_user", "offboard_user", "change_user_role", "list_audit_events",
+        "forget_memory",
     }),
     "reporting": frozenset({
         "generate_report", "list_reports", "create_report_schedule",

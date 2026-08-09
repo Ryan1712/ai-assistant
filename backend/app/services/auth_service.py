@@ -240,6 +240,22 @@ async def add_employee(db: AsyncSession, *, actor: User, full_name: str,
     return user
 
 
+async def update_employee_expertise(db: AsyncSession, *, actor: User, user_id: uuid_mod.UUID,
+                                     expertise_notes: str | None) -> User:
+    """CEO sửa chuyên môn nhân viên sau khi đã tạo — re-index embedding ngay
+    (cùng pattern edit_request re-index, PO audit 2026-08-08) để
+    suggest_assignee luôn dùng nội dung MỚI, không phải bản cũ trước khi sửa."""
+    require_ceo(actor)
+    user = await db.get(User, user_id)
+    if user is None or user.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "user_not_found")
+    user.expertise_notes = expertise_notes.strip() if expertise_notes else None
+    await db.commit()
+    from app.services import embedding_service
+    await embedding_service.index_employee_expertise(db, actor.workspace_id, user)
+    return user
+
+
 async def activate_account(
     db: AsyncSession, *, code: str, password: str, device_uuid: str, device_name: str,
 ) -> tuple[User, str, str]:

@@ -46,10 +46,12 @@ RAG_PREFETCH_LIMIT = 6
 _RAG_BLOCK_MAX_CHARS = 3000
 _RAG_LABELS = {"note": "ghi chú", "task_update": "cập nhật task",
               "comment": "bình luận", "chat_message": "hội thoại trước",
-              "voice_transcript": "ghi âm", "skill": "skill"}
+              "voice_transcript": "ghi âm", "skill": "skill",
+              "employee_expertise": "chuyên môn nhân viên"}
 
 VALID_SOURCE_TYPES: frozenset[str] = frozenset(
-    {"note", "task_update", "comment", "chat_message", "voice_transcript", "skill"})
+    {"note", "task_update", "comment", "chat_message", "voice_transcript", "skill",
+     "employee_expertise"})
 
 
 class EmbeddingClient(Protocol):
@@ -237,6 +239,17 @@ async def _candidates_skill(db: AsyncSession, actor: User) -> list[tuple[dict, l
             for sv, name, e in rows.all()]
 
 
+async def _candidates_employee_expertise(db: AsyncSession, actor: User) -> list[tuple[dict, list[float]]]:
+    rows = await db.execute(
+        select(User, Embedding).join(
+            Embedding, and_(Embedding.source_type == "employee_expertise",
+                            Embedding.source_id == User.id))
+        .where(User.workspace_id == actor.workspace_id))
+    return [({"source_type": "employee_expertise", "source_id": str(u.id),
+             "content": _snippet(e.content), "full_name": u.full_name}, e.embedding)
+            for u, e in rows.all()]
+
+
 _CANDIDATE_FNS = {
     "note": _candidates_note,
     "task_update": _candidates_task_update,
@@ -244,6 +257,7 @@ _CANDIDATE_FNS = {
     "chat_message": _candidates_chat_message,
     "voice_transcript": _candidates_voice_transcript,
     "skill": _candidates_skill,
+    "employee_expertise": _candidates_employee_expertise,
 }
 
 
@@ -298,3 +312,13 @@ async def build_rag_context_block(db: AsyncSession, actor: User, query: str) -> 
     except Exception:
         logger.exception("build_rag_context_block fail cho actor %s", actor.id)
         return ""
+
+
+async def index_employee_expertise(db: AsyncSession, workspace_id: uuid.UUID,
+                                    user: "User") -> None:
+    """suggest_assignee (2026-08-09): index chuyên môn nhân viên vào bảng
+    embeddings chung — tái dùng index_content (upsert thật: nội dung trùng bỏ
+    qua, khác thì update tại chỗ, đúng nhu cầu vì expertise_notes CÓ THỂ sửa
+    nhiều lần qua update_employee_expertise, giống case voice_transcript)."""
+    await index_content(db, workspace_id, "employee_expertise", user.id,
+                        user.expertise_notes or "")
