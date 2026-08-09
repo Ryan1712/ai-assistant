@@ -60,6 +60,7 @@ class _FakeRedisPubSub:
         self._messages = messages
         self.subscribed_channels = []
         self.unsubscribed_channels = []
+        self.closed = False
 
     async def subscribe(self, channel):
         self.subscribed_channels.append(channel)
@@ -70,6 +71,9 @@ class _FakeRedisPubSub:
     async def listen(self):
         for m in self._messages:
             yield m
+
+    async def aclose(self):
+        self.closed = True
 
 
 class _FakeRedis:
@@ -115,3 +119,6 @@ async def test_redis_event_publisher_subscribe_yields_decoded_events():
     assert received == [{"type": "token", "text": "a"}, {"type": "request_done"}]
     assert redis._pubsub.subscribed_channels == [f"conv:{conv_id}"]
     assert redis._pubsub.unsubscribed_channels == [f"conv:{conv_id}"]
+    # Finding #19 phần 2: pubsub phải được đóng hẳn (aclose), không chỉ
+    # unsubscribe -- tránh leak connection Redis tích lũy mỗi phiên WS.
+    assert redis._pubsub.closed is True

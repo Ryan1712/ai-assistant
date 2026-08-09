@@ -4,7 +4,8 @@ import uuid
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models import (
-    ChatRequestStatus, MessageRole, Role, SkillKind, TaskPriority, TaskStatus, WorkspacePlan,
+    ChatRequestStatus, MessageRole, ProjectStatus, Role, SkillKind, TaskPriority, TaskStatus,
+    WorkspacePlan,
 )
 
 
@@ -129,7 +130,7 @@ class ProjectCreateIn(BaseModel):
 class ProjectPatchIn(BaseModel):
     name: str | None = None
     goal: str | None = None
-    status: str | None = None
+    status: ProjectStatus | None = None
     deadline: dt.datetime | None = None
     owner_id: uuid.UUID | None = None
 
@@ -138,7 +139,7 @@ class ProjectOut(BaseModel):
     id: uuid.UUID
     name: str
     goal: str
-    status: str
+    status: ProjectStatus
     deadline: dt.datetime | None
     owner_id: uuid.UUID | None
 

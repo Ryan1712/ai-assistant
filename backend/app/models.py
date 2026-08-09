@@ -157,6 +157,13 @@ class TaskStatus(str, enum.Enum):
     done = "done"
 
 
+class ProjectStatus(str, enum.Enum):
+    active = "active"
+    on_hold = "on_hold"
+    completed = "completed"
+    archived = "archived"
+
+
 class TaskPriority(str, enum.Enum):
     low = "low"
     medium = "medium"
@@ -169,7 +176,7 @@ class Project(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     goal: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(32), default="active")
+    status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), default=ProjectStatus.active)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     owner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import security
 from app.agent.publisher import EventPublisher, get_event_publisher
 from app.db import get_db
-from app.models import Conversation
+from app.models import Conversation, User, UserStatus
 from app.services import presence
 
 router = APIRouter()
@@ -29,6 +29,9 @@ async def authorize_ws(db: AsyncSession, token: str, conversation_id: uuid.UUID)
         workspace_id = uuid.UUID(payload["ws"])
     except (jwt.InvalidTokenError, KeyError, ValueError) as exc:
         raise WebSocketAuthError("invalid_token") from exc
+    user = await db.get(User, user_id)
+    if user is None or user.status == UserStatus.locked:
+        raise WebSocketAuthError("user_locked")
     conv = await db.get(Conversation, conversation_id)
     if conv is None or conv.workspace_id != workspace_id or conv.user_id != user_id:
         raise WebSocketAuthError("conversation_not_found")

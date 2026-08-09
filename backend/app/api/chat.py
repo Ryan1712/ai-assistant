@@ -320,7 +320,8 @@ async def confirm_request(request_id: uuid.UUID, body: ConfirmIn,
 @chat_requests_router.patch("/{request_id}", response_model=ChatRequestOut)
 async def edit_request(request_id: uuid.UUID, body: ChatRequestEditIn,
                        actor: User = Depends(get_current_user),
-                       db: AsyncSession = Depends(get_db)):
+                       db: AsyncSession = Depends(get_db),
+                       arq_pool=Depends(get_arq_pool)):
     req = await _get_own_request_or_404(db, actor, request_id)
     if req.status != ChatRequestStatus.queued or req.started_at is not None:
         raise HTTPException(409, "not_queued")
@@ -331,6 +332,12 @@ async def edit_request(request_id: uuid.UUID, body: ChatRequestEditIn,
     if msg is not None:
         msg.content = [{"type": "text", "text": body.content}]
     await db.commit()
+    if msg is not None:
+        # Finding #22: nội dung Message đã đổi -- re-index để embedding không
+        # còn trỏ text gốc trước khi sửa (best-effort, cùng job dùng ở
+        # send_message).
+        await arq_pool.enqueue_job("index_chat_message",
+                                   actor.workspace_id, msg.id, body.content)
     return req
 
 

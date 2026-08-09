@@ -15,9 +15,9 @@ async def test_ceo_creates_and_patches_project(client):
     assert resp.status_code == 201
     pid = resp.json()["id"]
     patch = await client.patch(f"/api/v1/projects/{pid}", headers=ceo_h,
-                               json={"status": "paused"})
+                               json={"status": "on_hold"})
     assert patch.status_code == 200
-    assert patch.json()["status"] == "paused"
+    assert patch.json()["status"] == "on_hold"
 
 
 @pytest.mark.asyncio

@@ -65,6 +65,7 @@ class RedisEventPublisher(EventPublisher):
                 yield json.loads(message["data"])
         finally:
             await pubsub.unsubscribe(f"conv:{conversation_id}")
+            await pubsub.aclose()
 
 
 @lru_cache
