@@ -213,12 +213,15 @@ async def revoke_refresh(db: AsyncSession, refresh_plain: str) -> None:
 
 
 async def add_employee(db: AsyncSession, *, actor: User, full_name: str,
-                       email: str | None = None) -> User:
+                       email: str | None = None,
+                       expertise_notes: str | None = None) -> User:
     """Thêm 1 người vào DANH SÁCH NHÂN VIÊN công ty (chỉ CEO) — record chỉ để gán
     việc, KHÔNG phải tạo tài khoản. Không mật khẩu (password_hash=None) nên
     login() (Task 1) luôn từ chối — người này không bao giờ đăng nhập app được.
     Sản phẩm quyết định 2026-07-26: chỉ CEO dùng app; xem
-    docs/superpowers/specs/2026-07-26-employee-as-list-design.md."""
+    docs/superpowers/specs/2026-07-26-employee-as-list-design.md.
+    expertise_notes (2026-08-09): chuyên môn tự do CEO nhập, dùng cho
+    suggest_assignee — xem docs/superpowers/specs/2026-08-09-suggest-assignee-design.md."""
     require_ceo(actor)
     await plans.enforce_limit(db, actor.workspace_id, "members")
     email = email.strip().lower() if email else None
@@ -226,7 +229,8 @@ async def add_employee(db: AsyncSession, *, actor: User, full_name: str,
             select(User).where(User.email == email))).scalar_one_or_none():
         raise HTTPException(409, "email_taken")
     user = User(workspace_id=actor.workspace_id, email=email, password_hash=None,
-               full_name=full_name, role=Role.employee, status=UserStatus.active)
+               full_name=full_name, role=Role.employee, status=UserStatus.active,
+               expertise_notes=expertise_notes.strip() if expertise_notes else None)
     db.add(user)
     try:
         await db.commit()

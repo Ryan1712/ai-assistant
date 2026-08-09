@@ -43,6 +43,7 @@ class UserOut(BaseModel):
     is_root: bool
     manager_id: uuid.UUID | None
     status: str
+    expertise_notes: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -91,12 +92,14 @@ class TokenPairOut(BaseModel):
 class AddEmployeeIn(BaseModel):
     full_name: str
     email: EmailStr | None = None
+    expertise_notes: str | None = None
 
 
 class AddEmployeeOut(BaseModel):
     user_id: uuid.UUID
     full_name: str
     email: str | None = None
+    expertise_notes: str | None = None
 
 
 class SignupCodeIn(BaseModel):

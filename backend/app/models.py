@@ -68,6 +68,12 @@ class User(Base):
     # {} = mọi loại thông báo bật mặc định; key set False = user tự tắt loại đó
     # (funtional-plan 6.6: "người dùng có thể tắt bớt loại thông báo nếu quá nhiều").
     notification_prefs: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    # Chuyên môn nhân viên (text tự do, CEO tự nhập/sửa) -- dùng cho tool
+    # suggest_assignee gợi ý người phù hợp khi giao task. KHÔNG liên quan gì
+    # tới bảng Skill/SkillVersion (tài liệu/kiến thức AI dùng khi trả lời,
+    # có version/cấp quyền) -- 2 khái niệm khác nhau hoàn toàn, tên field cố
+    # ý tránh chữ "skill" để không gây nhầm lẫn.
+    expertise_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

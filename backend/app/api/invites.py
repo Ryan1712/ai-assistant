@@ -37,5 +37,7 @@ async def add_employee(
     db: AsyncSession = Depends(get_db),
 ):
     user = await auth_service.add_employee(
-        db, actor=actor, full_name=body.full_name, email=body.email)
-    return AddEmployeeOut(user_id=user.id, full_name=user.full_name, email=user.email)
+        db, actor=actor, full_name=body.full_name, email=body.email,
+        expertise_notes=body.expertise_notes)
+    return AddEmployeeOut(user_id=user.id, full_name=user.full_name, email=user.email,
+                          expertise_notes=user.expertise_notes)

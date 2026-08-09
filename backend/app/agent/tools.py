@@ -367,6 +367,7 @@ _register("revoke_skill_grant", "Thu hồi quyền dùng skill của 1 người 
 class AddEmployeeToolIn(BaseModel):
     full_name: str
     email: EmailStr | None = None
+    expertise_notes: str | None = None
 
 
 class LockUserToolIn(BaseModel):
@@ -391,7 +392,8 @@ async def _list_users(db, actor, body: NoArgsIn) -> dict:
 
 async def _add_employee(db, actor, body: AddEmployeeToolIn) -> dict:
     user = await auth_service.add_employee(
-        db, actor=actor, full_name=body.full_name, email=body.email)
+        db, actor=actor, full_name=body.full_name, email=body.email,
+        expertise_notes=body.expertise_notes)
     return {"user_id": str(user.id), "full_name": user.full_name, "email": user.email,
            "note": f"Đã thêm {user.full_name} vào danh sách nhân viên công ty."}
 
@@ -441,7 +443,10 @@ _register("add_employee", "Thêm 1 người vào DANH SÁCH NHÂN VIÊN của c�
           "theo trong CÙNG lượt trả lời; (2) cần gộp với assign_task trong 1 bản nháp "
           "propose_actions (theo luật mức 2, vd gộp nhiều hành động trong 1 câu) → "
           "PHẢI dùng cú pháp $result[N].user_id (N = chỉ số action add_employee trong "
-          "list) làm user_id của assign_task, hệ thống tự điền id thật khi CEO duyệt.",
+          "list) làm user_id của assign_task, hệ thống tự điền id thật khi CEO duyệt. "
+          "Có thể kèm expertise_notes (chuyên môn nhân viên, text tự do vd 'design, "
+          "figma') nếu CEO có nhắc tới — dùng cho suggest_assignee sau này gợi ý người "
+          "phù hợp khi giao task. KHÔNG liên quan Skill (tài liệu công ty).",
           AddEmployeeToolIn, _add_employee)
 _register("lock_user", "Khóa tài khoản 1 người — đăng xuất khỏi mọi thiết bị "
           "(chỉ CEO, hành động nhạy cảm - hệ thống TỰ hiện bước xác nhận khi gọi tool, cứ gọi ngay đừng hỏi trước).", LockUserToolIn, _lock_user,

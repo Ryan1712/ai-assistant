@@ -4280,6 +4280,17 @@
               }
             ],
             "title": "Email"
+          },
+          "expertise_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expertise Notes"
           }
         },
         "type": "object",
@@ -4309,6 +4320,17 @@
               }
             ],
             "title": "Email"
+          },
+          "expertise_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expertise Notes"
           }
         },
         "type": "object",
@@ -4573,7 +4595,6 @@
           "pending_action": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -5357,7 +5378,6 @@
             "title": "Type"
           },
           "payload": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           },
@@ -5636,12 +5656,10 @@
             "title": "Kind"
           },
           "filters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Filters"
           },
           "summary": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Summary"
           },
@@ -6787,6 +6805,17 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "expertise_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expertise Notes"
           }
         },
         "type": "object",
