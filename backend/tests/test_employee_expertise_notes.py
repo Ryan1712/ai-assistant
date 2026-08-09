@@ -2,6 +2,8 @@
 User.expertise_notes là chuyên môn nhân viên (text tự do, CEO tự nhập) --
 KHÔNG liên quan gì tới bảng Skill (tài liệu/kiến thức AI dùng khi trả lời),
 tên field cố ý tránh chữ "skill" để không gây nhầm lẫn 2 khái niệm."""
+import uuid
+
 import pytest
 from sqlalchemy import select
 
@@ -53,6 +55,26 @@ async def test_index_employee_expertise_creates_embedding(db_session):
 
     row = (await db_session.execute(select(Embedding).where(
         Embedding.source_type == "employee_expertise", Embedding.source_id == user.id
+    ))).scalar_one_or_none()
+    assert row is not None
+    assert row.content == "design, figma, frontend react"
+
+
+@pytest.mark.asyncio
+async def test_add_employee_indexes_embedding_when_expertise_notes_set(client, db_session):
+    """Fix round (final whole-branch review, Finding 1): add_employee phải tự
+    index embedding NGAY LÚC TẠO nếu có expertise_notes -- không được phụ
+    thuộc vào việc ai đó gọi thêm update_employee_expertise sau đó."""
+    ceo_h = await _ceo_headers(client)
+    resp = await client.post("/api/v1/employees", headers=ceo_h,
+                             json={"full_name": "Duy Linh",
+                                   "expertise_notes": "design, figma, frontend react"})
+    assert resp.status_code == 201
+    user_id = uuid.UUID(resp.json()["user_id"])
+
+    row = (await db_session.execute(select(Embedding).where(
+        Embedding.source_type == "employee_expertise",
+        Embedding.source_id == user_id,
     ))).scalar_one_or_none()
     assert row is not None
     assert row.content == "design, figma, frontend react"

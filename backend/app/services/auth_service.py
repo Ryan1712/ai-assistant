@@ -237,6 +237,9 @@ async def add_employee(db: AsyncSession, *, actor: User, full_name: str,
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "email_taken")
+    if user.expertise_notes:
+        from app.services import embedding_service
+        await embedding_service.index_employee_expertise(db, actor.workspace_id, user)
     return user
 
 

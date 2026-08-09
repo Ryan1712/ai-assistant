@@ -240,11 +240,14 @@ async def _candidates_skill(db: AsyncSession, actor: User) -> list[tuple[dict, l
 
 
 async def _candidates_employee_expertise(db: AsyncSession, actor: User) -> list[tuple[dict, list[float]]]:
+    # Loại actor khỏi ứng viên -- employee_expertise dùng để GỢI Ý NGƯỜI KHÁC
+    # (suggest_assignee), actor không bao giờ nên tự khớp với chính chuyên
+    # môn của mình (Fix 2, final whole-branch review, 2026-08-09).
     rows = await db.execute(
         select(User, Embedding).join(
             Embedding, and_(Embedding.source_type == "employee_expertise",
                             Embedding.source_id == User.id))
-        .where(User.workspace_id == actor.workspace_id))
+        .where(User.workspace_id == actor.workspace_id, User.id != actor.id))
     return [({"source_type": "employee_expertise", "source_id": str(u.id),
              "content": _snippet(e.content), "full_name": u.full_name}, e.embedding)
             for u, e in rows.all()]

@@ -107,6 +107,29 @@ async def test_suggest_assignee_fallback_khi_khong_ai_khop_chuyen_mon(db_session
 
 
 @pytest.mark.asyncio
+async def test_suggest_assignee_khong_tu_goi_y_chinh_actor(db_session):
+    """Fix round (final whole-branch review, Finding 2): nếu CEO tự set
+    expertise_notes khớp đúng nội dung task đang hỏi, CEO KHÔNG được xuất
+    hiện trong suggestions -- suggest_assignee gợi ý NHÂN VIÊN để giao việc,
+    không tự gợi ý chính người đang hỏi."""
+    ws = Workspace(name="A")
+    db_session.add(ws)
+    await db_session.flush()
+    ceo = await _mk_ceo(db_session, ws)
+    ceo.expertise_notes = "design, figma, giao dien nguoi dung"
+    db_session.add(ceo)
+    await db_session.commit()
+    await embedding_service.index_employee_expertise(db_session, ws.id, ceo)
+
+    result = await assignment_service.suggest_assignee(
+        db_session, ceo, task_title="Thiet ke lai giao dien trang chu",
+        task_description="Can lam moi UI/UX trang chu bang Figma")
+
+    suggested_ids = [s["user_id"] for s in result["suggestions"]]
+    assert str(ceo.id) not in suggested_ids
+
+
+@pytest.mark.asyncio
 async def test_suggest_assignee_requires_ceo(db_session):
     from fastapi import HTTPException
 
