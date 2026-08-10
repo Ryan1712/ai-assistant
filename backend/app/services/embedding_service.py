@@ -76,7 +76,11 @@ class MockEmbeddingClient:
 
 
 class VoyageEmbeddingClient:
-    """Voyage `voyage-3.5` (tiếng Việt tốt, spec §0 đã chốt)."""
+    """Voyage `voyage-4-lite` (đổi từ voyage-3.5 cũ 2026-08-10 — voyage-3.5 không
+    còn free tier trên Voyage, voyage-4-lite mới hơn + rẻ hơn + 200M token free,
+    đa ngôn ngữ tương đương/tốt hơn theo docs Voyage). Nếu đổi model embedding
+    lần nữa sau này: mọi vector đã index cũ KHÔNG tương thích (chiều/không gian
+    khác) — cần re-index toàn bộ bảng embeddings, không chỉ đổi hằng số này."""
 
     _URL = "https://api.voyageai.com/v1/embeddings"
 
@@ -90,7 +94,7 @@ class VoyageEmbeddingClient:
             resp = await client.post(
                 self._URL,
                 headers={"Authorization": f"Bearer {settings.embedding_api_key}"},
-                json={"input": [text], "model": "voyage-3.5"},
+                json={"input": [text], "model": "voyage-4-lite"},
             )
             resp.raise_for_status()
             return resp.json()["data"][0]["embedding"]
