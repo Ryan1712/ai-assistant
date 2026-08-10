@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import { DrawerContentComponentProps, useDrawerStatus } from "@react-navigation/drawer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Conversation, listConversations } from "../api/chat";
+import { Conversation, createConversation, listConversations } from "../api/chat";
 import { useAuth } from "../auth/AuthContext";
 import { colors, fonts, radius, spacing, type } from "../ui/theme";
 
@@ -33,8 +33,23 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
     if (drawerStatus === "open") load();
   }, [drawerStatus, load]);
 
-  const openChat = (id?: string) => {
-    navigation.navigate("Chat", id ? { id } : {});
+  // openChat: mở 1 conversation cụ thể (có id) hoặc tạo conversation MỚI (không có id).
+  // Async vì cần gọi API createConversation trước khi điều hướng — đảm bảo id mới
+  // KHÁC với params hiện tại → React Navigation buộc unmount/remount màn Chat → trắng tinh.
+  const openChat = async (id?: string) => {
+    if (id) {
+      // Mở cuộc cũ: điều hướng thẳng với id đó
+      navigation.navigate("Chat", { id });
+    } else {
+      // Tạo cuộc mới: gọi API trước để lấy id thật, rồi mới navigate
+      try {
+        const conv = await createConversation();
+        navigation.navigate("Chat", { id: conv.id });
+      } catch {
+        // Báo nhẹ nếu không tạo được — không crash, không để drawer kẹt
+        navigation.navigate("Chat", { id: undefined });
+      }
+    }
     navigation.closeDrawer();
   };
 
@@ -64,7 +79,14 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
               key={m.route}
               style={[styles.menuItem, active && styles.menuItemActive]}
               onPress={() => {
-                navigation.navigate(m.route);
+                // MENU "Chat": luôn điều hướng về active conversation (id: undefined).
+                // Nếu đang xem cuộc cũ (params {id: X}), {id: undefined} tạo params mới
+                // → React Navigation reload về active conv, không kẹt ở X.
+                if (m.route === "Chat") {
+                  navigation.navigate("Chat", { id: undefined });
+                } else {
+                  navigation.navigate(m.route);
+                }
                 navigation.closeDrawer();
               }}
             >

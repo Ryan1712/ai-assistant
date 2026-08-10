@@ -2,12 +2,19 @@
  * GlobalFab — bọc NewChatFab với logic ẩn/hiện theo navigation state.
  * Render một lần duy nhất trong MainNavigator, sibling của Stack.Navigator.
  * Ẩn khi route lá đang active là 'Chat'; hiện trên mọi route khác.
+ *
+ * Hành động "Cuộc trò chuyện mới":
+ *  1. Gọi createConversation() để lấy id mới từ server.
+ *  2. Điều hướng đến "Chat" với id đó — params KHÁC → React Navigation reload → màn trắng.
+ * Lý do cần bước 1: nếu chỉ navigate("Chat", {}) mà đang ở Chat(id:...) thì params
+ * không đổi đủ → short-circuit → màn không trắng được.
  */
 import React from "react";
 import { CommonActions, useNavigationState } from "@react-navigation/native";
 import { NewChatFab } from "../ui/NewChatFab";
 import { navigationRef } from "./navigationRef";
 import { getActiveLeafRoute, type RouteState } from "./routeUtils";
+import { createConversation } from "../api/chat";
 
 export function GlobalFab() {
   // useNavigationState lấy Root Stack state (GlobalFab nằm trong MainNavigator
@@ -20,10 +27,18 @@ export function GlobalFab() {
 
   return (
     <NewChatFab
-      onPress={() => {
-        // CommonActions.navigate bubbles xuống nested navigator, tìm 'Chat'
-        // trong Drawer navigator rồi navigate tới đó.
-        navigationRef.dispatch(CommonActions.navigate({ name: "Chat", params: {} }));
+      onPress={async () => {
+        try {
+          const conv = await createConversation();
+          navigationRef.dispatch(
+            CommonActions.navigate({ name: "Chat", params: { id: conv.id } }),
+          );
+        } catch {
+          // Nếu mạng lỗi: vẫn điều hướng về Chat active (id: undefined) thay vì crash
+          navigationRef.dispatch(
+            CommonActions.navigate({ name: "Chat", params: { id: undefined } }),
+          );
+        }
       }}
     />
   );

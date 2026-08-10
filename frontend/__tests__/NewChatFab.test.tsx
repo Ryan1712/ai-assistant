@@ -4,12 +4,13 @@
  * Chiến lược:
  *  1. Test hàm thuần getActiveLeafRoute — không cần navigation mock.
  *  2. Test NewChatFab component — render + onPress.
- *  3. Test GlobalFab component — mock useNavigationState + navigationRef.dispatch.
+ *  3. Test GlobalFab component — mock useNavigationState + createConversation + navigationRef.dispatch.
+ *     Hành động mới: onPress gọi createConversation() trước → rồi mới dispatch navigate với id mới.
  *
  * Lưu ý RNTL v14: render() là async, phải await.
  */
 import React from "react";
-import { render, fireEvent } from "@testing-library/react-native";
+import { render, fireEvent, waitFor } from "@testing-library/react-native";
 import { NewChatFab } from "../src/ui/NewChatFab";
 import { GlobalFab } from "../src/navigation/GlobalFab";
 import { getActiveLeafRoute, type RouteState } from "../src/navigation/routeUtils";
@@ -39,9 +40,15 @@ jest.mock("../src/navigation/navigationRef", () => ({
   navigationRef: { dispatch: jest.fn() },
 }));
 
+// Mock chat API — chỉ cần createConversation cho GlobalFab.
+jest.mock("../src/api/chat", () => ({
+  createConversation: jest.fn(),
+}));
+
 // Import mocked versions (sau jest.mock để lấy đúng mock instance)
 import { useNavigationState, CommonActions } from "@react-navigation/native";
 import { navigationRef } from "../src/navigation/navigationRef";
+import { createConversation } from "../src/api/chat";
 
 // Tắt tiếng React warnings trong test
 const originalError = console.error;
@@ -182,6 +189,7 @@ describe("GlobalFab", () => {
   const mockedUseNav = useNavigationState as jest.Mock;
   const mockedCommonActionsNavigate = CommonActions.navigate as jest.Mock;
   const mockedDispatch = navigationRef.dispatch as jest.Mock;
+  const mockedCreateConversation = createConversation as jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -200,16 +208,53 @@ describe("GlobalFab", () => {
     expect(getByLabelText("Cuộc trò chuyện mới")).toBeTruthy();
   });
 
-  it("onPress gọi navigationRef.dispatch với CommonActions.navigate({ name: 'Chat' })", async () => {
+  it("onPress gọi createConversation rồi dispatch navigate với id conversation mới", async () => {
     mockedUseNav.mockReturnValue("Today");
+    mockedCreateConversation.mockResolvedValue({
+      id: "new-conv-123",
+      title: null,
+      queue_held: false,
+      archived_at: null,
+      created_at: "2026-08-08T00:00:00Z",
+      project_id: null,
+    });
+
     const { getByLabelText } = await render(<GlobalFab />);
     fireEvent.press(getByLabelText("Cuộc trò chuyện mới"));
-    // Kiểm tra CommonActions.navigate được gọi với đúng tham số
-    expect(mockedCommonActionsNavigate).toHaveBeenCalledWith({ name: "Chat", params: {} });
-    // Kiểm tra dispatch được gọi với kết quả của CommonActions.navigate
-    expect(mockedDispatch).toHaveBeenCalledTimes(1);
+
+    // Đợi async createConversation + dispatch hoàn tất
+    await waitFor(() => {
+      expect(mockedCreateConversation).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(mockedDispatch).toHaveBeenCalledTimes(1);
+    });
+
+    // Kiểm tra CommonActions.navigate được gọi với id conversation mới
+    expect(mockedCommonActionsNavigate).toHaveBeenCalledWith({
+      name: "Chat",
+      params: { id: "new-conv-123" },
+    });
     expect(mockedDispatch).toHaveBeenCalledWith(
       mockedCommonActionsNavigate.mock.results[0].value,
     );
+  });
+
+  it("onPress fallback về Chat active khi createConversation thất bại", async () => {
+    mockedUseNav.mockReturnValue("Today");
+    mockedCreateConversation.mockRejectedValue(new Error("Network error"));
+
+    const { getByLabelText } = await render(<GlobalFab />);
+    fireEvent.press(getByLabelText("Cuộc trò chuyện mới"));
+
+    await waitFor(() => {
+      expect(mockedDispatch).toHaveBeenCalledTimes(1);
+    });
+
+    // Fallback: navigate với id: undefined (về active conversation)
+    expect(mockedCommonActionsNavigate).toHaveBeenCalledWith({
+      name: "Chat",
+      params: { id: undefined },
+    });
   });
 });
