@@ -75,29 +75,55 @@ class MockEmbeddingClient:
         return [x / norm for x in vec]
 
 
+# None -> AsyncClient dùng transport HTTP thật; test set MockTransport để giả
+# lập response Voyage mà không gọi mạng thật.
+_voyage_transport = None
+# Test override = 0 để chạy tức thì, không chờ thật giữa các lần retry.
+_RETRY_SLEEP_SECONDS = 2.0
+_MAX_RETRIES = 3
+
+
 class VoyageEmbeddingClient:
     """Voyage `voyage-4-lite` (đổi từ voyage-3.5 cũ 2026-08-10 — voyage-3.5 không
     còn free tier trên Voyage, voyage-4-lite mới hơn + rẻ hơn + 200M token free,
     đa ngôn ngữ tương đương/tốt hơn theo docs Voyage). Nếu đổi model embedding
     lần nữa sau này: mọi vector đã index cũ KHÔNG tương thích (chiều/không gian
-    khác) — cần re-index toàn bộ bảng embeddings, không chỉ đổi hằng số này."""
+    khác) — cần re-index toàn bộ bảng embeddings, không chỉ đổi hằng số này.
+
+    Retry riêng cho 429 (2026-08-10): quan sát thật trên production — 2 request
+    embed gần như đồng thời (vd add_employee liên tiếp) đủ dính rate-limit free
+    tier của Voyage. embed() không retry thì index_content() catch Exception,
+    log rồi bỏ qua im lặng (đúng thiết kế best-effort không phá write chính) —
+    hệ quả là row đó KHÔNG được index mà không ai biết trừ khi đọc log. Retry
+    ngắn (backoff tuyến tính, tối đa _MAX_RETRIES lần) chỉ áp dụng cho 429;
+    lỗi khác (mạng, 5xx) vẫn fail ngay như cũ, để index_content() catch bình
+    thường — tránh che giấu lỗi provider thật sự down."""
 
     _URL = "https://api.voyageai.com/v1/embeddings"
 
     async def embed(self, text: str) -> list[float]:
+        import asyncio
+
         import httpx
 
         from app.config import get_settings
 
         settings = get_settings()
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                self._URL,
-                headers={"Authorization": f"Bearer {settings.embedding_api_key}"},
-                json={"input": [text], "model": "voyage-4-lite"},
-            )
-            resp.raise_for_status()
-            return resp.json()["data"][0]["embedding"]
+        async with httpx.AsyncClient(timeout=15, transport=_voyage_transport) as client:
+            attempt = 0
+            while True:
+                resp = await client.post(
+                    self._URL,
+                    headers={"Authorization": f"Bearer {settings.embedding_api_key}"},
+                    json={"input": [text], "model": "voyage-4-lite"},
+                )
+                if resp.status_code == 429 and attempt < _MAX_RETRIES:
+                    attempt += 1
+                    if _RETRY_SLEEP_SECONDS:
+                        await asyncio.sleep(_RETRY_SLEEP_SECONDS * attempt)
+                    continue
+                resp.raise_for_status()
+                return resp.json()["data"][0]["embedding"]
 
 
 mock_embedding_client = MockEmbeddingClient()
