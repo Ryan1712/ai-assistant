@@ -320,7 +320,17 @@ async def _is_cancelled_redis(ctx: dict, request_id: uuid.UUID) -> bool:
 
 async def _startup(ctx: dict) -> None:
     settings = get_settings()
-    engine = create_async_engine(settings.database_url)
+    # Engine riêng của worker, không chia sẻ pool với API (app/db.py) — cũng
+    # từng dùng default SQLAlchemy quá nhỏ (pool_size=5, max_overflow=10),
+    # nâng lên cùng mức để tránh QueuePool TimeoutError khi nhiều job arq
+    # chạy đồng thời (xem app/db.py cho lý do chi tiết, 2026-08-10).
+    engine = create_async_engine(
+        settings.database_url,
+        pool_size=15,
+        max_overflow=20,
+        pool_timeout=30,
+        pool_pre_ping=True,
+    )
     ctx["engine"] = engine
     ctx["session_factory"] = async_sessionmaker(engine, expire_on_commit=False)
     ctx["llm_client"] = get_llm_client()
