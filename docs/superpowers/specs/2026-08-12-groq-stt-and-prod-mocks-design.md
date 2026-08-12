@@ -200,53 +200,72 @@ Thêm `import httpx` vào đầu file (đã có `httpx==0.27.*` trong
 
 ### SMTP config + client (`backend/app/config.py`, `backend/app/services/email_service.py`)
 
-Đổi `config.py` — thay field `smtp_starttls: bool = True` bằng
-`smtp_secure: bool = False` (tên khớp `.env` VPS `SMTP_SECURE`; giữ default
-`False` = STARTTLS trên cổng 587, hành vi cũ không đổi cho ai chưa set biến
-này). Đã xác nhận `grep -rn "smtp_starttls" app/` chỉ có 2 kết quả: khai
-báo field trong `config.py:36` và 1 lần dùng ở
-`email_service.py:62` — an toàn để đổi tên field, không có nơi thứ 3 nào
-phụ thuộc.
+**Không xoá `smtp_starttls`** (`.env.example` hiện có đã công bố
+`SMTP_STARTTLS=true` như tên biến chuẩn — xoá sẽ phá format cho bất kỳ môi
+trường nào khác đã dùng đúng tên đó). Thay vào đó **thêm field mới**
+`smtp_secure: bool = False` cạnh nó (`config.py`, ngay sau dòng
+`smtp_starttls: bool = True`, hiện là dòng 36):
+```python
+    smtp_starttls: bool = True
+    # Cổng 465 (SMTPS/implicit TLS, vd Gmail) cần use_tls thay vì start_tls —
+    # bật cờ này khi dùng cổng 465; mặc định false giữ hành vi cũ (start_tls
+    # trên cổng 587) cho môi trường chỉ set SMTP_STARTTLS.
+    smtp_secure: bool = False
+```
 
 `smtp_password` giữ nguyên tên field (Pydantic Settings mặc định tự khớp
 `SMTP_PASSWORD` case-insensitive) — nhưng `.env` VPS dùng `SMTP_PASS`
 (viết tắt khác, không tự khớp). `AliasChoices` đã được import sẵn ở đầu
 `config.py:3` và có tiền lệ dùng thật trong file (field `model_fast` alias
-`"model_chat"`, dòng 23) — dùng đúng cách đó cho field mới:
-`validation_alias=AliasChoices("SMTP_PASSWORD", "SMTP_PASS")` trên field
-`smtp_password`, để chấp nhận cả 2 tên biến env mà không cần đổi `.env`
-VPS đã điền sẵn.
+`"model_chat"`, dòng 22-23) — dùng đúng cách đó cho field mới:
+```python
+    smtp_password: str = Field("", validation_alias=AliasChoices("smtp_password", "SMTP_PASS"))
+```
+để chấp nhận cả 2 tên biến env mà không cần đổi `.env` VPS đã điền sẵn.
+Lưu ý include tên field gốc (`"smtp_password"`) trong `AliasChoices`, không
+chỉ alias mới — nếu không, `SMTP_PASSWORD` (đang set ở môi trường khác nếu
+có) sẽ ngừng hoạt động vì Pydantic dùng ĐÚNG danh sách `AliasChoices` khi
+field có `validation_alias`, không tự thêm case-insensitive match nữa.
 
 Sửa `SmtpEmailClient.send()` (`email_service.py:43-63`) chọn `use_tls` khi
-`smtp_secure=True` (cổng 465, implicit TLS) hoặc `start_tls` khi
-`smtp_secure=False` (cổng 587, STARTTLS) — hai tham số này loại trừ nhau
-trong `aiosmtplib.send()`:
+`smtp_secure=True` (cổng 465, implicit TLS), else giữ nguyên hành vi cũ
+dùng `start_tls=smtp_starttls` (cổng 587 hoặc bất kỳ giá trị
+`SMTP_STARTTLS` nào đã set) — `use_tls`/`start_tls` loại trừ nhau trong
+`aiosmtplib.send()`:
 ```python
+        use_tls = s.smtp_secure
         await aiosmtplib.send(
             msg,
             hostname=s.smtp_host,
             port=s.smtp_port,
             username=s.smtp_user or None,
             password=s.smtp_password or None,
-            use_tls=s.smtp_secure,
-            start_tls=not s.smtp_secure,
+            use_tls=use_tls,
+            start_tls=False if use_tls else s.smtp_starttls,
         )
 ```
 
 ### `.env.example`
 
-Cập nhật comment SMTP hiện có (nếu có) hoặc thêm mới, phản ánh đúng 2 kiểu
-cổng:
+`.env.example` hiện có sẵn 1 block SMTP (comment, không giá trị thật):
 ```
-# SMTP (dùng khi email_mock=false)
-# Cổng 587 (STARTTLS, phổ biến): SMTP_SECURE=false (mặc định)
-# Cổng 465 (SMTPS/implicit TLS, vd Gmail): SMTP_SECURE=true
-# SMTP_HOST=
+# --- Email thật qua SMTP ---
+# Mặc định EMAIL_MOCK=true (không gửi thật, chỉ ghi vào email_messages/log). Để gửi
+# email thật (vd mã OTP quên mật khẩu), set EMAIL_MOCK=false và điền SMTP bên dưới.
+# EMAIL_MOCK=false
+# SMTP_HOST=smtp.gmail.com
 # SMTP_PORT=587
+# SMTP_USER=you@yourdomain.com
+# SMTP_PASSWORD=your-app-password    # Gmail: dùng App Password, KHÔNG phải mật khẩu thường
+# SMTP_FROM=no-reply@yourdomain.com  # rỗng = dùng SMTP_USER
+# SMTP_STARTTLS=true
+```
+Thêm 1 dòng comment mới ngay sau `# SMTP_STARTTLS=true`, không xoá dòng
+nào có sẵn:
+```
+# Cổng 465 (SMTPS/implicit TLS, vd Gmail) thay vì 587+STARTTLS: set
+# SMTP_PORT=465 và SMTP_SECURE=true (bỏ qua SMTP_STARTTLS khi bật cờ này)
 # SMTP_SECURE=false
-# SMTP_USER=
-# SMTP_PASS=
-# SMTP_FROM=
 ```
 
 ## Test (TDD)
@@ -305,8 +324,11 @@ File: `backend/tests/test_email_smtp.py` (đã tồn tại — có sẵn
    `captured["kwargs"]["start_tls"] is False`.
 7. `test_smtp_client_uses_start_tls_when_not_secure` — set
    `smtp_secure=False` (giá trị default, nhưng set tường minh để test độc
-   lập với default), assert `captured["kwargs"]["use_tls"] is False` và
-   `captured["kwargs"]["start_tls"] is True`.
+   lập với default), `smtp_starttls=True` (giá trị default), assert
+   `captured["kwargs"]["use_tls"] is False` và
+   `captured["kwargs"]["start_tls"] is True` — đây CHÍNH LÀ hành vi cũ
+   (trước thay đổi này), test này là regression test xác nhận tương thích
+   ngược cho môi trường chỉ dùng `SMTP_STARTTLS`, chưa set `SMTP_SECURE`.
 
 Test hiện có `test_smtp_client_builds_message_and_sends` chỉ assert
 `captured["kwargs"]["port"] == 587` — không assert `start_tls`/`use_tls`,
