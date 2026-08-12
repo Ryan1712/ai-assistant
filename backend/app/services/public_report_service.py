@@ -15,6 +15,8 @@ from app.config import get_settings
 from app.models import PublicReport, PublicReportStatus, User
 from app.permissions import require_ceo
 
+_ALLOWED_EXTS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+                 ".txt", ".png", ".jpg", ".jpeg", ".zip"}
 _MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB, giống attachment_service
 
 
@@ -66,9 +68,12 @@ async def get_content_path(db: AsyncSession, workspace_id: uuid.UUID,
 async def create(db: AsyncSession, actor: User, *, title: str, description: str | None,
                  filename: str, content_type: str, data: bytes) -> dict:
     require_ceo(actor)
+    ext = Path(filename or "").suffix.lower()
+    if ext not in _ALLOWED_EXTS:
+        raise HTTPException(422, "unsupported_file_format")
     if len(data) > _MAX_FILE_SIZE:
         raise HTTPException(422, "file_too_large")
-    file_path = _dir(actor.workspace_id) / f"{uuid.uuid4()}{Path(filename or '').suffix}"
+    file_path = _dir(actor.workspace_id) / f"{uuid.uuid4()}{ext}"
     file_path.write_bytes(data)
     report = PublicReport(workspace_id=actor.workspace_id, title=title,
                           description=description, status=PublicReportStatus.draft,

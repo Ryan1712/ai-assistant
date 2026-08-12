@@ -215,6 +215,21 @@ async def test_delete_removes_report(engine, storage_dir):
 
 
 @pytest.mark.asyncio
+async def test_create_rejects_unsupported_extension(engine, storage_dir):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from fastapi import HTTPException
+    from app.services import public_report_service
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        ws = uuid.uuid4()
+        ceo = _ceo_user(ws)
+        with pytest.raises(HTTPException) as exc:
+            await public_report_service.create(
+                db, ceo, title="X", description=None, filename="malware.exe",
+                content_type="application/octet-stream", data=b"x")
+        assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_cross_workspace_write_404(engine, storage_dir):
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.services import public_report_service
