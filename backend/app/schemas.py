@@ -4,7 +4,7 @@ import uuid
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models import (
-    ChatRequestStatus, MessageRole, ProjectStatus, Role, SkillKind, TaskPriority, TaskStatus,
+    ChatRequestStatus, MessageRole, ProjectStatus, PublicReportStatus, Role, SkillKind, TaskPriority, TaskStatus,
     WorkspacePlan,
 )
 
@@ -555,3 +555,21 @@ class AgentTraceOut(BaseModel):
     created_at: dt.datetime
 
     model_config = {"from_attributes": True}
+
+
+class PublicReportOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    description: str | None
+    status: PublicReportStatus
+    content_type: str
+    size_bytes: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UpdatePublicReportIn(BaseModel):
+    title: str | None = None
+    description: str | None = None
