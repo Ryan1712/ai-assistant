@@ -588,6 +588,32 @@ class ReportSchedule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class PublicReportStatus(str, enum.Enum):
+    draft = "draft"
+    published = "published"
+
+
+class PublicReport(Base):
+    """Báo cáo công khai cho app mobile 9learning đọc qua bundle-id, không cần
+    đăng nhập (funtional-plan §6.8, spec 2026-08-03-public-reports-api-design.md).
+    Tách biệt hoàn toàn với Report/report_service.py — đó là Excel tự sinh từ
+    task nội bộ, đây là nội dung CEO tự upload để công khai."""
+    __tablename__ = "public_reports"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[PublicReportStatus] = mapped_column(Enum(PublicReportStatus),
+                                                        default=PublicReportStatus.draft)
+    content_type: Mapped[str] = mapped_column(String(128))
+    file_path: Mapped[str] = mapped_column(String(512))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now,
+                                                  onupdate=_now)
+
+
 class Embedding(Base):
     """Index ngữ nghĩa (Phase 6 §10.3) — nguồn: note | task_update | comment |
     chat_message (mở rộng thêm loại sau chỉ cần thêm string, không đổi bảng).
