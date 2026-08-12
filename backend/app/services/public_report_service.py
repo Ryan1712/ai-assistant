@@ -61,3 +61,58 @@ async def get_content_path(db: AsyncSession, workspace_id: uuid.UUID,
     if not path.is_file():
         raise HTTPException(404, "public_report_file_missing")
     return path, report.content_type
+
+
+async def create(db: AsyncSession, actor: User, *, title: str, description: str | None,
+                 filename: str, content_type: str, data: bytes) -> dict:
+    require_ceo(actor)
+    if len(data) > _MAX_FILE_SIZE:
+        raise HTTPException(422, "file_too_large")
+    file_path = _dir(actor.workspace_id) / f"{uuid.uuid4()}{Path(filename or '').suffix}"
+    file_path.write_bytes(data)
+    report = PublicReport(workspace_id=actor.workspace_id, title=title,
+                          description=description, status=PublicReportStatus.draft,
+                          content_type=content_type, file_path=str(file_path),
+                          size_bytes=len(data), created_by=actor.id)
+    db.add(report)
+    await db.commit()
+    await db.refresh(report)
+    return _out(report)
+
+
+async def _get_own_row(db: AsyncSession, actor: User, report_id: uuid.UUID) -> PublicReport:
+    require_ceo(actor)
+    report = await db.get(PublicReport, report_id)
+    if report is None or report.workspace_id != actor.workspace_id:
+        raise HTTPException(404, "public_report_not_found")
+    return report
+
+
+async def update_metadata(db: AsyncSession, actor: User, report_id: uuid.UUID, *,
+                          title: str | None, description: str | None) -> dict:
+    report = await _get_own_row(db, actor, report_id)
+    if title is not None:
+        report.title = title
+    if description is not None:
+        report.description = description
+    await db.commit()
+    await db.refresh(report)
+    return _out(report)
+
+
+async def set_status(db: AsyncSession, actor: User, report_id: uuid.UUID,
+                     status: PublicReportStatus) -> dict:
+    report = await _get_own_row(db, actor, report_id)
+    report.status = status
+    await db.commit()
+    await db.refresh(report)
+    return _out(report)
+
+
+async def delete(db: AsyncSession, actor: User, report_id: uuid.UUID) -> None:
+    report = await _get_own_row(db, actor, report_id)
+    path = Path(report.file_path)
+    if path.is_file():
+        path.unlink()
+    await db.delete(report)
+    await db.commit()
