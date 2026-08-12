@@ -23,8 +23,40 @@ Kiểm tra sâu hơn cho thấy 4 cờ mock không đồng đều về mức đ�
 |---|---|---|
 | `push_mock` | Không cần credential — `ExpoPushClient` gọi thẳng `https://exp.host/--/api/v2/push/send` (API công khai) | Sẵn sàng tắt ngay |
 | `portal_mock` | **KHÔNG an toàn để tắt** — xem cảnh báo dưới | **Loại khỏi scope, không đụng tới** |
-| `email_mock` | Cần `SMTP_HOST`/`SMTP_USER`/`SMTP_PASSWORD` thật — `SmtpEmailClient` (`email_service.py`) đã code sẵn, chỉ thiếu credentials | Chờ user tự cung cấp SMTP thật |
+| `email_mock` | Dev FE đã điền credentials Gmail thật lên `.env` VPS (2026-08-12) — nhưng có 2 bug cần fix trước khi bật, xem chi tiết dưới | **Đã có credentials, nhưng 2 bug chặn** |
 | `stt_mock` | Cần 1 `TranscriptionClient` thật — code hiện tại **chỉ có `MockTranscriptionClient`**, `get_transcription_client()` raise `NotImplementedError` khi tắt mock (`voice_service.py:48`) | **Chưa có code** — đây là việc chính của spec này |
+
+**Phát hiện mới (2026-08-12, sau khi dev FE điền SMTP lên `.env` VPS):**
+dev FE đã thêm `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`,
+`SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `EMAIL_REPLY_TO` vào `.env` VPS thật
+(chưa có `EMAIL_MOCK=false`). Đối chiếu với `config.py` phát hiện **2 bug
+chặn việc bật email thật**:
+
+1. **Tên biến lệch, bị Pydantic Settings bỏ qua âm thầm:** `.env` dùng
+   `SMTP_SECURE` và `SMTP_PASS`, nhưng `config.py` chỉ có field
+   `smtp_starttls` và `smtp_password` — không khớp tên nên 2 biến này
+   **không map vào đâu cả**, bị bỏ qua hoàn toàn (Pydantic Settings không
+   báo lỗi cho biến `.env` dư thừa không khớp field nào). Hậu quả: nếu bật
+   `EMAIL_MOCK=false` ngay bây giờ, `smtp_password` vẫn rỗng (default
+   `""`) → gửi mail lỗi authentication ngay lập tức, dù `.env` "nhìn như"
+   đã có mật khẩu.
+2. **Sai giao thức TLS cho cổng 465:** cổng 465 là SMTPS (implicit TLS —
+   kết nối SSL ngay từ đầu), không phải STARTTLS (nâng cấp sau khi connect
+   plain, đi với cổng 587). `email_service.py::SmtpEmailClient.send()`
+   hiện chỉ gọi `aiosmtplib.send(..., start_tls=s.smtp_starttls)` — không
+   có tham số `use_tls` nào cho implicit TLS. `smtp_starttls` default
+   `True` nghĩa là code sẽ thử STARTTLS trên cổng 465 → lỗi kết nối/timeout
+   với Gmail (Gmail cổng 465 bắt buộc implicit TLS, không chấp nhận
+   STARTTLS trên cổng này).
+
+**Quyết định:** sửa `config.py` đổi tên field cho khớp `.env` VPS đã điền
+(`smtp_secure`/`smtp_password` giữ nguyên tên field code, KHÔNG đổi tên
+field `smtp_password` — chỉ thêm field `smtp_secure: bool` mới khớp
+`SMTP_SECURE`; xoá field `smtp_starttls` cũ không dùng, hoặc giữ song song
+nếu cổng 587/STARTTLS còn dùng nơi khác — xem chi tiết ở mục Kiến trúc),
+và sửa `SmtpEmailClient.send()` chọn đúng `use_tls` vs `start_tls` theo
+`smtp_secure`. Việc "chỉ cần thêm `EMAIL_MOCK=false`" KHÔNG còn đúng nữa —
+cần 1 đợt fix code nhỏ trước.
 
 **Phát hiện quan trọng khi audit `portal_service.py`:** class `HttpPortalClient`
 đã có sẵn docstring cảnh báo — đây chính là **finding #16 của đợt audit
@@ -46,18 +78,23 @@ phải việc "chỉ sửa .env".**
 1. Implement `GroqTranscriptionClient` — provider STT thật dùng Groq Whisper
    API (`whisper-large-v3`), để `STT_MOCK=false` chạy được trên production
    mà không lỗi.
-2. Sau khi có STT thật, hướng dẫn cập nhật `.env` production: fix
+2. Sửa `config.py` + `SmtpEmailClient` để khớp đúng biến `.env` VPS đã điền
+   (`SMTP_SECURE`, `SMTP_PASS`) và chọn đúng implicit-TLS cho cổng 465, để
+   `EMAIL_MOCK=false` gửi được thật qua Gmail.
+3. Sau khi cả 2 xong, hướng dẫn cập nhật `.env` production: fix
    `MODEL_SMART`, bật `STT_MOCK=false` + `GROQ_API_KEY`, bật
-   `PUSH_MOCK=false`. `EMAIL_MOCK`/`SMTP_*` để user tự điền giá trị thật
-   (không phải việc của agent).
+   `PUSH_MOCK=false`, bật `EMAIL_MOCK=false` (credentials đã có sẵn trên
+   VPS từ dev FE).
 
 **Ngoài phạm vi:** **KHÔNG bật `PORTAL_MOCK`** (rủi ro rò rỉ dữ liệu chéo
 workspace — finding #16 chưa xử lý, xem cảnh báo ở trên); không đổi
-provider email/push (đã có sẵn, chỉ cần bật); không thêm cơ chế retry cho
-STT (transcript_status="failed" + user tự re-transcribe qua endpoint có
-sẵn là đủ, theo quyết định của user); không đổi cơ chế lưu file voice
-note; không đổi danh sách `_ALLOWED_EXTS`; không fix finding #16 (việc
-riêng, cần audit code portal + cổng ngoài trước, không thuộc phạm vi STT).
+provider push (đã có sẵn, chỉ cần bật); không thêm cơ chế retry cho STT
+(transcript_status="failed" + user tự re-transcribe qua endpoint có sẵn là
+đủ, theo quyết định của user); không đổi cơ chế lưu file voice note;
+không đổi danh sách `_ALLOWED_EXTS`; không fix finding #16 (việc riêng,
+cần audit code portal + cổng ngoài trước, không thuộc phạm vi STT); không
+đổi giá trị `SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` đã điền trên VPS (chỉ sửa
+code đọc đúng chúng).
 
 ## Vì sao chọn Groq Whisper
 
@@ -161,6 +198,57 @@ Thêm `import httpx` vào đầu file (đã có `httpx==0.27.*` trong
 `requirements.txt`, không cần cài mới — dùng chung version với
 `llm_client`/`embedding_service` nếu có, xác nhận không xung đột lúc code).
 
+### SMTP config + client (`backend/app/config.py`, `backend/app/services/email_service.py`)
+
+Đổi `config.py` — thay field `smtp_starttls: bool = True` bằng
+`smtp_secure: bool = False` (tên khớp `.env` VPS `SMTP_SECURE`; giữ default
+`False` = STARTTLS trên cổng 587, hành vi cũ không đổi cho ai chưa set biến
+này). Đã xác nhận `grep -rn "smtp_starttls" app/` chỉ có 2 kết quả: khai
+báo field trong `config.py:36` và 1 lần dùng ở
+`email_service.py:62` — an toàn để đổi tên field, không có nơi thứ 3 nào
+phụ thuộc.
+
+`smtp_password` giữ nguyên tên field (Pydantic Settings mặc định tự khớp
+`SMTP_PASSWORD` case-insensitive) — nhưng `.env` VPS dùng `SMTP_PASS`
+(viết tắt khác, không tự khớp). `AliasChoices` đã được import sẵn ở đầu
+`config.py:3` và có tiền lệ dùng thật trong file (field `model_fast` alias
+`"model_chat"`, dòng 23) — dùng đúng cách đó cho field mới:
+`validation_alias=AliasChoices("SMTP_PASSWORD", "SMTP_PASS")` trên field
+`smtp_password`, để chấp nhận cả 2 tên biến env mà không cần đổi `.env`
+VPS đã điền sẵn.
+
+Sửa `SmtpEmailClient.send()` (`email_service.py:43-63`) chọn `use_tls` khi
+`smtp_secure=True` (cổng 465, implicit TLS) hoặc `start_tls` khi
+`smtp_secure=False` (cổng 587, STARTTLS) — hai tham số này loại trừ nhau
+trong `aiosmtplib.send()`:
+```python
+        await aiosmtplib.send(
+            msg,
+            hostname=s.smtp_host,
+            port=s.smtp_port,
+            username=s.smtp_user or None,
+            password=s.smtp_password or None,
+            use_tls=s.smtp_secure,
+            start_tls=not s.smtp_secure,
+        )
+```
+
+### `.env.example`
+
+Cập nhật comment SMTP hiện có (nếu có) hoặc thêm mới, phản ánh đúng 2 kiểu
+cổng:
+```
+# SMTP (dùng khi email_mock=false)
+# Cổng 587 (STARTTLS, phổ biến): SMTP_SECURE=false (mặc định)
+# Cổng 465 (SMTPS/implicit TLS, vd Gmail): SMTP_SECURE=true
+# SMTP_HOST=
+# SMTP_PORT=587
+# SMTP_SECURE=false
+# SMTP_USER=
+# SMTP_PASS=
+# SMTP_FROM=
+```
+
 ## Test (TDD)
 
 File: `backend/tests/test_voice_notes.py` (cùng file test voice note hiện
@@ -197,6 +285,33 @@ Test hiện có (`test_transcribe_note_cap_nhat_transcript`,
 `get_transcription_client` trực tiếp — không cần sửa, không bị ảnh hưởng
 bởi thay đổi này.
 
+File: `backend/tests/test_email_smtp.py` (đã tồn tại — có sẵn
+`test_smtp_client_builds_message_and_sends` dùng đúng pattern
+`monkeypatch.setattr(aiosmtplib, "send", fake_send)` cần theo). File này
+đã có `AliasChoices` dùng làm mẫu trong `config.py:23`
+(`model_fast` field alias `"model_chat"`) — copy đúng cách dùng đó cho
+`smtp_password`, không phải kỹ thuật mới trong repo.
+
+5. `test_smtp_password_alias_accepts_smtp_pass_env` — khởi tạo
+   `Settings(_env_file=None, SMTP_PASS="xyz")` trực tiếp (không qua
+   `get_settings()` singleton — alias chỉ áp dụng lúc parse env lúc khởi
+   tạo), assert `settings.smtp_password == "xyz"`.
+6. `test_smtp_client_uses_use_tls_when_secure` — theo đúng pattern
+   `fake_send`/`monkeypatch.setattr(aiosmtplib, "send", fake_send)` có sẵn
+   trong file; set `smtp_secure=True` qua
+   `monkeypatch.setattr(get_settings(), "smtp_secure", True)`, gọi
+   `SmtpEmailClient().send(...)`, assert
+   `captured["kwargs"]["use_tls"] is True` và
+   `captured["kwargs"]["start_tls"] is False`.
+7. `test_smtp_client_uses_start_tls_when_not_secure` — set
+   `smtp_secure=False` (giá trị default, nhưng set tường minh để test độc
+   lập với default), assert `captured["kwargs"]["use_tls"] is False` và
+   `captured["kwargs"]["start_tls"] is True`.
+
+Test hiện có `test_smtp_client_builds_message_and_sends` chỉ assert
+`captured["kwargs"]["port"] == 587` — không assert `start_tls`/`use_tls`,
+nên không bị breaking bởi thay đổi này.
+
 ## Việc production (không phải code — hướng dẫn thực hiện qua SSH)
 
 Sau khi code STT xong, deploy qua CI/CD bình thường (push `main`, workflow
@@ -208,26 +323,35 @@ MODEL_SMART=anthropic/claude-sonnet-4-6
 STT_MOCK=false
 GROQ_API_KEY=<user tự lấy tại console.groq.com, free>
 PUSH_MOCK=false
+EMAIL_MOCK=false
 ```
 (`PORTAL_MOCK` KHÔNG đụng tới — xem cảnh báo finding #16 ở trên.)
 
-`EMAIL_MOCK=false` + `SMTP_HOST`/`SMTP_USER`/`SMTP_PASSWORD`/`SMTP_FROM`:
-để riêng, user tự cung cấp giá trị thật khi sẵn sàng — không thuộc phạm vi
-plan này.
+`SMTP_HOST`/`SMTP_PORT`/`SMTP_SECURE`/`SMTP_USER`/`SMTP_PASS`/`SMTP_FROM`
+đã có sẵn trên `.env` VPS (dev FE điền 2026-08-12) — sau khi code fix
+(alias `SMTP_PASS` + `smtp_secure`) deploy lên, các biến này tự đọc đúng,
+không cần sửa gì thêm trên `.env`.
 
-Sau khi sửa `.env`, cần restart container để đọc config mới:
+Sau khi sửa `.env` (thêm `MODEL_SMART`/`STT_MOCK`/`GROQ_API_KEY`/
+`PUSH_MOCK`/`EMAIL_MOCK`), cần restart container để đọc config mới:
 ```
 docker compose -f docker-compose.prod.yml up -d api worker
 ```
-(không cần rebuild image vì không đổi code — chỉ đổi `.env`, nhưng NẾU
-STT code đã push kèm trong cùng lần deploy CI/CD thì image mới đã tự
-rebuild, bước restart này gộp chung với deploy).
+(image mới đã tự rebuild qua CI/CD nếu code STT+SMTP đã push cùng lần
+deploy — bước restart này gộp chung với deploy, không cần thao tác thủ
+công riêng trừ khi chỉ đổi `.env` mà không đổi code).
 
 Verify sau khi bật:
 - Gửi thử 1 voice note qua app thật, xác nhận `transcript_status` chuyển
   `done` với nội dung transcript thật (không rỗng như trước).
 - Gửi thử 1 push notification, xác nhận nhận được trên điện thoại thật
   (không chỉ ghi log).
+- Trigger 1 luồng gửi email thật (vd action "AI gửi mail" nếu có, hoặc
+  endpoint nào gọi `email_service` trong app) và xác nhận nhận được email
+  thật ở hộp thư đích, không chỉ ghi log nội bộ. Nếu Gmail chặn (ví dụ
+  "App Password" hết hạn hoặc bị Google revoke), lỗi sẽ xuất hiện trong
+  `docker compose logs api/worker` — kiểm tra ngay sau khi bật, đừng chờ
+  người dùng report.
 
 ## Rủi ro & lưu ý
 
