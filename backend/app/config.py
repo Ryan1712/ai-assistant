@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # Snapshot workspace (spec AI upgrade §5): TTL fallback khi không có invalidation
     # (ghi từ REST của FE); ghi qua agent tool được invalidate ngay.
     snapshot_ttl_seconds: int = 300
+    # Public Reports API cho app mobile 9learning đọc qua bundle-id, không đăng
+    # nhập (funtional-plan 6.8, spec 2026-08-03-public-reports-api-design.md).
+    # Rỗng = tính năng tắt hoàn toàn.
+    public_app_bundle_ids: str = ""
+    public_report_workspace_id: str = ""
 
     model_config = {"env_file": ".env", "populate_by_name": True, "protected_namespaces": ()}
 
