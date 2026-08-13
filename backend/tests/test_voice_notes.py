@@ -465,3 +465,84 @@ async def test_patch_endpoint_tra_ve_note_da_cap_nhat(client, storage_dir):
     body = r.json()
     assert body["title"] == "Hop sang"
     assert sorted(body["tags"]) == ["hop", "sang"]
+
+
+# --- Groq STT thật ---
+
+
+@pytest.mark.asyncio
+async def test_groq_transcription_client_parses_response(monkeypatch):
+    from app.services import voice_service
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, **kwargs):
+            import httpx as _httpx
+            # httpx.Response.raise_for_status() crash nếu response không gắn
+            # request — kể cả với status 200 — nên PHẢI truyền request= khi
+            # tạo Response thủ công trong test, không chỉ cho case lỗi.
+            request = _httpx.Request("POST", url)
+            return _httpx.Response(
+                200, json={"text": "  xin chao  ", "language": "vietnamese"},
+                request=request)
+
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(voice_service.get_settings(), "groq_api_key", "fake-key")
+
+    text, language = await voice_service.GroqTranscriptionClient().transcribe(b"data", "a.m4a")
+    assert text == "xin chao"
+    assert language == "vietnamese"
+
+
+@pytest.mark.asyncio
+async def test_groq_transcription_client_raises_on_http_error(monkeypatch):
+    from app.services import voice_service
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, **kwargs):
+            import httpx as _httpx
+            request = _httpx.Request("POST", url)
+            return _httpx.Response(401, json={"error": "invalid_api_key"}, request=request)
+
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(voice_service.get_settings(), "groq_api_key", "bad-key")
+
+    with pytest.raises(Exception):
+        await voice_service.GroqTranscriptionClient().transcribe(b"data", "a.m4a")
+
+
+def test_get_transcription_client_stt_mock_false_khong_co_key(monkeypatch):
+    from app.services import voice_service
+    monkeypatch.setattr(voice_service.get_settings(), "stt_mock", False)
+    monkeypatch.setattr(voice_service.get_settings(), "groq_api_key", "")
+
+    with pytest.raises(RuntimeError):
+        voice_service.get_transcription_client()
+
+
+def test_get_transcription_client_stt_mock_false_co_key(monkeypatch):
+    from app.services import voice_service
+    monkeypatch.setattr(voice_service.get_settings(), "stt_mock", False)
+    monkeypatch.setattr(voice_service.get_settings(), "groq_api_key", "fake-key")
+
+    client = voice_service.get_transcription_client()
+    assert isinstance(client, voice_service.GroqTranscriptionClient)

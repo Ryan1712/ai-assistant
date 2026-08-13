@@ -8,6 +8,7 @@ File lưu {storage_dir}/voice/{workspace_id}/{uuid}{ext} — tên file sinh bằ
 uuid, không dùng tên client gửi lên → không có path traversal.
 """
 import asyncio
+import httpx
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -42,10 +43,35 @@ class MockTranscriptionClient:
         return "", "und"
 
 
+class GroqTranscriptionClient:
+    """STT thật qua Groq Whisper API (whisper-large-v3, tương thích OpenAI).
+    Free tier — xem console.groq.com. Lỗi (timeout/HTTP/parse) propagate tự
+    nhiên; tầng gọi (transcribe_note) đã bọc try/except ghi
+    transcript_status="failed", không cần retry ở đây."""
+
+    _URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+
+    async def transcribe(self, data: bytes, filename: str) -> tuple[str, str]:
+        settings = get_settings()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                self._URL,
+                headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                files={"file": (filename, data)},
+                data={"model": "whisper-large-v3", "response_format": "verbose_json"},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+        return body.get("text", "").strip(), body.get("language", "und")
+
+
 def get_transcription_client() -> TranscriptionClient:
-    if get_settings().stt_mock:
+    settings = get_settings()
+    if settings.stt_mock:
         return MockTranscriptionClient()
-    raise NotImplementedError("STT provider chưa được chọn — xem phụ lục funtional-plan")
+    if not settings.groq_api_key:
+        raise RuntimeError("STT_MOCK=false nhưng thiếu GROQ_API_KEY")
+    return GroqTranscriptionClient()
 
 
 def _voice_dir(workspace_id: uuid.UUID) -> Path:
