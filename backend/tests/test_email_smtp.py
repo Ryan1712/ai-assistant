@@ -31,3 +31,15 @@ async def test_smtp_client_builds_message_and_sends(monkeypatch):
 def test_get_email_client_returns_mock_when_email_mock_true():
     # email_mock=True mặc định → vẫn dùng mock (không gửi thật)
     assert email_service.get_email_client() is email_service.mock_email_client
+
+
+def test_smtp_password_alias_accepts_smtp_pass_env():
+    from app.config import Settings
+    settings = Settings(_env_file=None, SMTP_PASS="xyz")
+    assert settings.smtp_password == "xyz"
+
+
+def test_smtp_password_alias_still_accepts_smtp_password_env():
+    from app.config import Settings
+    settings = Settings(_env_file=None, SMTP_PASSWORD="abc")
+    assert settings.smtp_password == "abc"

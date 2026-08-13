@@ -31,10 +31,16 @@ class Settings(BaseSettings):
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
-    smtp_password: str = ""
+    smtp_password: str = Field("", validation_alias=AliasChoices("SMTP_PASSWORD", "SMTP_PASS"))
     smtp_from: str = ""
     smtp_starttls: bool = True
+    # Cổng 465 (SMTPS/implicit TLS, vd Gmail) cần use_tls thay vì start_tls —
+    # bật cờ này khi dùng cổng 465; mặc định false giữ hành vi cũ (start_tls
+    # trên cổng 587) cho môi trường chỉ set SMTP_STARTTLS.
+    smtp_secure: bool = False
     stt_mock: bool = True
+    # STT thật (Groq Whisper, free tier — https://console.groq.com/keys)
+    groq_api_key: str = ""
     portal_base_url: str = "https://ceo.9learning.edu.vn"
     # Embedding cho semantic_search (Phase 6 §10.3) — mock mặc định (hashing
     # bag-of-words, xem embedding_service.py) không cần API key để dev/test.
