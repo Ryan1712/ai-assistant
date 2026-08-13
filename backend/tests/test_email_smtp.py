@@ -43,3 +43,46 @@ def test_smtp_password_alias_still_accepts_smtp_password_env():
     from app.config import Settings
     settings = Settings(_env_file=None, SMTP_PASSWORD="abc")
     assert settings.smtp_password == "abc"
+
+
+@pytest.mark.asyncio
+async def test_smtp_client_uses_use_tls_when_secure(monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "smtp_secure", True)
+
+    captured = {}
+
+    async def fake_send(msg, **kwargs):
+        captured["kwargs"] = kwargs
+
+    import aiosmtplib
+    monkeypatch.setattr(aiosmtplib, "send", fake_send)
+
+    await email_service.SmtpEmailClient().send(
+        from_email="boss@a.vn", to_email="user@a.vn",
+        subject="S", body="B",
+    )
+    assert captured["kwargs"]["use_tls"] is True
+    assert captured["kwargs"]["start_tls"] is False
+
+
+@pytest.mark.asyncio
+async def test_smtp_client_uses_start_tls_when_not_secure(monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "smtp_secure", False)
+    monkeypatch.setattr(get_settings(), "smtp_starttls", True)
+
+    captured = {}
+
+    async def fake_send(msg, **kwargs):
+        captured["kwargs"] = kwargs
+
+    import aiosmtplib
+    monkeypatch.setattr(aiosmtplib, "send", fake_send)
+
+    await email_service.SmtpEmailClient().send(
+        from_email="boss@a.vn", to_email="user@a.vn",
+        subject="S", body="B",
+    )
+    assert captured["kwargs"]["use_tls"] is False
+    assert captured["kwargs"]["start_tls"] is True

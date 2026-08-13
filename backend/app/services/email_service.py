@@ -53,13 +53,15 @@ class SmtpEmailClient:
         if from_email and from_email != sender:
             msg["Reply-To"] = from_email
         msg.set_content(body)
+        use_tls = s.smtp_secure
         await aiosmtplib.send(
             msg,
             hostname=s.smtp_host,
             port=s.smtp_port,
             username=s.smtp_user or None,
             password=s.smtp_password or None,
-            start_tls=s.smtp_starttls,
+            use_tls=use_tls,
+            start_tls=False if use_tls else s.smtp_starttls,
         )
 
 
